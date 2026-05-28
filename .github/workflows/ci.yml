@@ -128,7 +128,7 @@ jobs:
         if: always()
         run: npm run wpt:manifest > wpt-manifest.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: wpt-manifest-${{ matrix.os }}-node-${{ matrix.node }}
