@@ -28,6 +28,10 @@ function waitFor(target, type, timeout = 10000) {
   });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function waitForOpen(channel) {
   return channel.readyState === "open" ? Promise.resolve() : waitFor(channel, "open");
 }
@@ -106,6 +110,21 @@ async function exchangeOfferAnswer(offerer, answerer) {
   await answerer.setLocalDescription(answer);
   await offerer.setRemoteDescription(answerer.localDescription);
   for (const candidate of answererCandidates.splice(0)) await offerer.addIceCandidate(candidate);
+}
+
+function closeAll(...peers) {
+  for (const peer of peers) {
+    try {
+      peer?.close();
+    } catch {
+      // Tests should not leak native peers when an earlier assertion fails.
+    }
+  }
+}
+
+async function closeAllAndWait(...peers) {
+  closeAll(...peers);
+  await delay(process.platform === "win32" ? 100 : 50);
 }
 
 test("RTCSessionDescription and RTCIceCandidate expose WebRTC-shaped JSON", () => {
@@ -211,7 +230,7 @@ test("RTCPeerConnection exposes the icecandidateerror handler attribute", () => 
   pc.close();
 });
 
-test("generateCertificate returns a native-backed RTCCertificate", async () => {
+test("generateCertificate returns a native-backed RTCCertificate", async (t) => {
   const certificate = await RTCPeerConnection.generateCertificate({
     name: "ECDSA",
     namedCurve: "P-256",
@@ -224,6 +243,7 @@ test("generateCertificate returns a native-backed RTCCertificate", async () => {
   assert.match(fingerprints[0].value, /^([0-9a-f]{2}:)+[0-9a-f]{2}$/);
 
   const pc = new RTCPeerConnection({ certificates: [certificate] });
+  t.after(() => closeAllAndWait(pc));
   pc.createDataChannel("cert");
   const offer = await pc.createOffer();
   assert.match(
@@ -233,8 +253,9 @@ test("generateCertificate returns a native-backed RTCCertificate", async () => {
   pc.close();
 });
 
-test("createDataChannel rejects duplicate negotiated ids until the channel closes", async () => {
+test("createDataChannel rejects duplicate negotiated ids until the channel closes", async (t) => {
   const pc = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(pc));
   const first = pc.createDataChannel("first", { negotiated: true, id: 7 });
 
   assert.throws(
@@ -266,9 +287,10 @@ test("createDataChannel preserves W3C high negotiated id construction", () => {
   pc.close();
 });
 
-test("restartIce renegotiates without closing data channels", async () => {
+test("restartIce renegotiates without closing data channels", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   const local = offerer.createDataChannel("restart");
   const remotePromise = waitFor(answerer, "datachannel");
 
@@ -301,8 +323,9 @@ test("transport facades are created by RTCPeerConnection, not public constructor
   assert.throws(() => new RTCSctpTransport(), TypeError);
 });
 
-test("data-channel DTLS transport is new before remote description", async () => {
+test("data-channel DTLS transport is new before remote description", async (t) => {
   const pc = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(pc));
   pc.createDataChannel("dtls-state");
 
   await pc.setLocalDescription();
@@ -315,9 +338,10 @@ test("data-channel DTLS transport is new before remote description", async () =>
   pc.close();
 });
 
-test("data-channel negotiation exposes an SCTP transport facade", async () => {
+test("data-channel negotiation exposes an SCTP transport facade", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   offerer.createDataChannel("sctp");
 
   assert.equal(offerer.sctp, null);
@@ -345,9 +369,10 @@ test("data-channel negotiation exposes an SCTP transport facade", async () => {
   answerer.close();
 });
 
-test("connected data-channel ICE transport does not remain new while candidates exist", async () => {
+test("connected data-channel ICE transport does not remain new while candidates exist", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   const local = offerer.createDataChannel("ice-gathering");
   const remotePromise = waitFor(answerer, "datachannel");
 
@@ -364,9 +389,10 @@ test("connected data-channel ICE transport does not remain new while candidates 
   answerer.close();
 });
 
-test("connected data-channel ICE transports expose candidate pairs and complete gathering state", async () => {
+test("connected data-channel ICE transports expose candidate pairs and complete gathering state", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   const local = offerer.createDataChannel("ice-transport");
   const remotePromise = waitFor(answerer, "datachannel");
 
@@ -415,9 +441,10 @@ test("connected data-channel ICE transports expose candidate pairs and complete 
   answerer.close();
 });
 
-test("remote peer close disconnects the surviving data-channel ICE transport", async () => {
+test("remote peer close disconnects the surviving data-channel ICE transport", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   const local = offerer.createDataChannel("remote-close");
   const remotePromise = waitFor(answerer, "datachannel");
 
@@ -439,9 +466,10 @@ test("remote peer close disconnects the surviving data-channel ICE transport", a
   offerer.close();
 });
 
-test("two peers negotiate a data channel and exchange a string message", async () => {
+test("two peers negotiate a data channel and exchange a string message", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   const local = offerer.createDataChannel("chat");
   const remotePromise = waitFor(answerer, "datachannel");
 
@@ -464,9 +492,10 @@ test("two peers negotiate a data channel and exchange a string message", async (
   answerer.close();
 });
 
-test("data-channel opening burst is delivered after the datachannel event task", async () => {
+test("data-channel opening burst is delivered after the datachannel event task", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   const local = offerer.createDataChannel("burst");
   const toSend = Array.from({ length: 100 }, (_, index) => `message ${index}`);
 
@@ -494,9 +523,10 @@ test("data-channel opening burst is delivered after the datachannel event task",
   answerer.close();
 });
 
-test("bufferedamountlow fires after send drains below the low threshold", async () => {
+test("bufferedamountlow fires after send drains below the low threshold", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
   const local = offerer.createDataChannel("buffered-low");
   const remotePromise = waitFor(answerer, "datachannel");
 

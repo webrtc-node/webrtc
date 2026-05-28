@@ -302,16 +302,20 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 	~EventDispatcher() { Close(); }
 
 	void Emit(NativeEvent event) {
-		if (!active.load())
-			return;
-
 		auto *queued = new NativeEvent(std::move(event));
+		std::lock_guard<std::mutex> lock(lifecycleMutex);
+		if (!active.load()) {
+			delete queued;
+			return;
+		}
+
 		napi_status status = tsfn.NonBlockingCall(queued, Dispatch);
 		if (status != napi_ok)
 			delete queued;
 	}
 
 	void Close() {
+		std::lock_guard<std::mutex> lock(lifecycleMutex);
 		if (active.exchange(false))
 			tsfn.Release();
 	}
@@ -323,6 +327,7 @@ private:
 	static void Dispatch(Napi::Env env, Napi::Function callback, NativeEvent *event);
 
 	std::atomic<bool> active{true};
+	std::mutex lifecycleMutex;
 	Napi::ThreadSafeFunction tsfn;
 };
 
