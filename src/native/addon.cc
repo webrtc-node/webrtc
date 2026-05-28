@@ -362,6 +362,11 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	}
 
 	void Destroy() {
+		{
+			std::lock_guard<std::mutex> lock(callbacksMutex);
+			if (!callbacksActive.exchange(false))
+				return;
+		}
 		auto dc = dataChannel;
 		if (dc)
 			dc->resetCallbacks();
@@ -378,6 +383,13 @@ private:
 	    : id(nextChannelId.fetch_add(1)), dataChannel(std::move(dataChannel_)),
 	      dispatcher(std::move(dispatcher_)), options(std::move(options_)) {}
 
+	void Emit(NativeEvent event) {
+		std::lock_guard<std::mutex> lock(callbacksMutex);
+		if (!callbacksActive.load())
+			return;
+		dispatcher->Emit(std::move(event));
+	}
+
 	void AttachCallbacks() {
 		std::weak_ptr<ChannelBinding> weak = shared_from_this();
 
@@ -387,7 +399,7 @@ private:
 				event.target = "datachannel";
 				event.type = "open";
 				event.channelId = self->id;
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -397,7 +409,7 @@ private:
 				event.target = "datachannel";
 				event.type = "close";
 				event.channelId = self->id;
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -408,7 +420,7 @@ private:
 				event.type = "error";
 				event.channelId = self->id;
 				event.error = std::move(error);
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -418,7 +430,7 @@ private:
 				event.target = "datachannel";
 				event.type = "bufferedamountlow";
 				event.channelId = self->id;
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -438,10 +450,13 @@ private:
 					for (std::byte value : binary)
 						event.bytes.push_back(std::to_integer<uint8_t>(value));
 				}
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 	}
+
+	std::atomic<bool> callbacksActive{true};
+	std::mutex callbacksMutex;
 };
 
 class NativeDataChannel : public Napi::ObjectWrap<NativeDataChannel> {
@@ -758,35 +773,11 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 	}
 
 	void ClosePeer() {
-		if (closed.exchange(true))
-			return;
-		dispatcher->Close();
-		{
-			std::lock_guard<std::mutex> lock(channelsMutex);
-			for (auto &[_, channel] : channels)
-				channel->Destroy();
-		}
-		if (peerConnection) {
-			peerConnection->resetCallbacks();
-			peerConnection->close();
-		}
+		Shutdown(false);
 	}
 
 	void Destroy() {
-		if (destroyed.exchange(true))
-			return;
-		dispatcher->Close();
-		{
-			std::lock_guard<std::mutex> lock(channelsMutex);
-			for (auto &[_, channel] : channels)
-				channel->Destroy();
-			channels.clear();
-		}
-		if (peerConnection) {
-			peerConnection->resetCallbacks();
-			peerConnection->close();
-			peerConnection.reset();
-		}
+		Shutdown(true);
 	}
 
 	std::shared_ptr<rtc::PeerConnection> peerConnection;
@@ -796,6 +787,49 @@ private:
 	PeerBinding(rtc::Configuration config, std::shared_ptr<EventDispatcher> dispatcher_)
 	    : peerConnection(std::make_shared<rtc::PeerConnection>(std::move(config))),
 	      dispatcher(std::move(dispatcher_)) {}
+
+	void Emit(NativeEvent event) {
+		std::lock_guard<std::mutex> lock(callbacksMutex);
+		if (!callbacksActive.load())
+			return;
+		dispatcher->Emit(std::move(event));
+	}
+
+	void DeactivateCallbacks() {
+		{
+			std::lock_guard<std::mutex> lock(callbacksMutex);
+			if (!callbacksActive.exchange(false))
+				return;
+		}
+		if (peerConnection)
+			peerConnection->resetCallbacks();
+	}
+
+	void Shutdown(bool releaseNative) {
+		if (shutdown.exchange(true))
+			return;
+
+		std::vector<std::shared_ptr<ChannelBinding>> channelSnapshot;
+		{
+			std::lock_guard<std::mutex> lock(channelsMutex);
+			channelSnapshot.reserve(channels.size());
+			for (auto &[_, channel] : channels)
+				channelSnapshot.push_back(channel);
+			if (releaseNative)
+				channels.clear();
+		}
+
+		for (auto &channel : channelSnapshot)
+			channel->Destroy();
+		DeactivateCallbacks();
+		for (auto &channel : channelSnapshot)
+			channel->Close();
+		if (peerConnection)
+			peerConnection->close();
+		dispatcher->Close();
+		if (releaseNative)
+			peerConnection.reset();
+	}
 
 	void AttachCallbacks() {
 		std::weak_ptr<PeerBinding> weak = shared_from_this();
@@ -807,7 +841,7 @@ private:
 				event.type = "localdescription";
 				event.descriptionType = description.typeString();
 				event.sdp = std::string(description);
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -818,7 +852,7 @@ private:
 				event.type = "localcandidate";
 				event.candidate = candidate.candidate();
 				event.mid = candidate.mid();
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -828,7 +862,7 @@ private:
 				event.target = "peerconnection";
 				event.type = "connectionstatechange";
 				event.state = ToString(state);
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -838,7 +872,7 @@ private:
 				event.target = "peerconnection";
 				event.type = "iceconnectionstatechange";
 				event.state = ToString(state);
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -848,7 +882,7 @@ private:
 				event.target = "peerconnection";
 				event.type = "icegatheringstatechange";
 				event.state = ToString(state);
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -858,7 +892,7 @@ private:
 				event.target = "peerconnection";
 				event.type = "signalingstatechange";
 				event.state = ToString(state);
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 
@@ -871,13 +905,14 @@ private:
 				event.type = "datachannel";
 				event.channelId = channel->id;
 				event.channel = std::move(channel);
-				self->dispatcher->Emit(std::move(event));
+				self->Emit(std::move(event));
 			}
 		});
 	}
 
-	std::atomic<bool> closed{false};
-	std::atomic<bool> destroyed{false};
+	std::atomic<bool> shutdown{false};
+	std::atomic<bool> callbacksActive{true};
+	std::mutex callbacksMutex;
 	std::mutex channelsMutex;
 	std::unordered_map<int, std::shared_ptr<ChannelBinding>> channels;
 };
