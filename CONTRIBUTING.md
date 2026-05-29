@@ -1,8 +1,8 @@
 # Contributing
 
 Thanks for improving `@mertushka/webrtc-node`. This project targets
-browser-compatible WebRTC data-channel behavior for Node.js, with selected WPT
-coverage as the compatibility contract.
+browser-compatible `RTCPeerConnection` and `RTCDataChannel` behavior for
+Node.js, with selected WPT coverage as the compatibility contract.
 
 ## Development Setup
 
@@ -44,6 +44,6 @@ npm run wpt:check:strict
 - Add or update `test/*.test.js` coverage for regressions.
 - Document intentional WebRTC divergences in `docs/divergences.md`.
 
-The current milestone is data channels only. Do not add media tracks,
-transceivers, RTP sender/receiver APIs, stats, DTMF, or browser device APIs
-without an agreed scope update.
+The package scope is `RTCPeerConnection` plus `RTCDataChannel`. Do not add
+media tracks, transceivers, RTP sender/receiver APIs, stats, DTMF, or browser
+device APIs.

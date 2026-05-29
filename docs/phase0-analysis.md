@@ -49,13 +49,13 @@ Important CMake options:
 - `PREFER_SYSTEM_LIB` and per-library `USE_SYSTEM_*`: allow system
   dependencies, but they reduce reproducibility.
 
-Milestone decision: build the addon with the audited libdatachannel commit
+Scope decision: build the addon with the audited libdatachannel commit
 `ca9a141f84393355f4af7a6c7b6645d2f1fc49b8` and `NO_MEDIA=ON`,
 `NO_WEBSOCKET=ON`, `NO_EXAMPLES=ON`, and `NO_TESTS=ON`. CMake prefers a local
 `libdatachannel/` checkout when present, verifies git checkouts against the pin,
 and otherwise uses `FetchContent` to fetch the pinned upstream commit. This
-matches the first milestone requirement of data channels only while keeping the
-native dependency reproducible.
+matches the package's `RTCPeerConnection` plus `RTCDataChannel` scope while
+keeping the native dependency reproducible.
 
 ## libdatachannel PeerConnection Model
 
@@ -457,7 +457,8 @@ Responsibilities:
   - `needsShim`
   - `notApplicable`
 - Write machine-readable `wpt-results.json` in CI.
-- Do not claim full WebRTC/browser conformance unless WPT coverage proves it.
+- Claim conformance only for the selected `RTCPeerConnection` plus
+  `RTCDataChannel` WPT scope until broader results prove more.
 
 ### TypeScript Declarations
 
@@ -467,8 +468,8 @@ Responsibilities:
 - Include nullable `RTCSessionDescription`, `RTCIceCandidate`, and channel
   fields.
 - Model event handler attributes and promise-returning peer-connection methods.
-- Keep unimplemented media, transceiver, stats, and transport-object APIs out
-  of the declarations until implemented.
+- Keep media, transceiver, stats, and browser-only APIs out of the
+  declarations.
 
 ## WPT Subset Manifest
 
@@ -485,7 +486,7 @@ Current expected-pass group:
 - `toJSON.html`
 - `RTCPeerConnection-plan-b-is-not-supported.html`
 - selected `historical.html`, excluding only the transceiver legacy-member
-  check because transceivers are outside the first milestone
+  check because transceivers are outside the public scope
 - full `RTCPeerConnection-generateCertificate.html`
 - selected `RTCCertificate.html`, covering JS-visible certificate objects,
   configuration validation, and single-certificate SDP fingerprint generation
@@ -604,7 +605,7 @@ Needs-shim group:
 
 - Browser `testharness.js` and WebRTC helper compatibility for Node.
 - The `historical.html` transceiver legacy-member check, because
-  `RTCRtpTransceiver` is not exposed in the data-channel-first milestone.
+  `RTCRtpTransceiver` is not exposed.
 - The multi-certificate SDP fingerprint case, because libdatachannel accepts a
   single configured certificate/key pair for the native DTLS identity.
 - Remaining `RTCIceTransport.html` media and legacy gathering-state cases.
@@ -639,7 +640,7 @@ Expected-fail group:
   worker-transfer semantics.
 - Media-oriented `RTCPeerConnection` GC tests.
 
-Not-applicable group for the first milestone:
+Not-applicable group:
 
 - RTP, transceiver, sender, receiver, DTMF, `ontrack`, stats, media capture,
   and browser-only IDL cases.
@@ -740,5 +741,4 @@ Remaining before claiming full objective completion:
 - Prove CI green on all configured platforms in a real GitHub Actions run.
 - Continue filling W3C peer-connection edge cases, especially ICE and
   description timing.
-- Keep media out of scope until the data-channel milestone is complete and
-  stable across CI.
+- Keep media APIs out of scope.

@@ -41,11 +41,13 @@ Before npm publication:
 - confirm package contents with `npm run pack:check`;
 - keep `publishConfig.access` set to `public` for the scoped npm package;
 - decide and document the install model before publishing to npm. The current
-  milestone is source-build from the repository; it does not ship prebuilt
-  binaries or an npm install-time native build contract yet;
+  package is source-build oriented; it does not ship prebuilt binaries or an
+  npm install-time native build contract yet;
+- confirm the CI `Package artifact` job is green so the packed source builds
+  outside the working tree;
 - tag a versioned release;
 - publish current WPT conformance results;
 - keep all intentional divergences in `docs/divergences.md`.
 
-Do not claim full browser WebRTC compatibility until WPT results support that
-claim.
+Claim conformance only for the selected `RTCPeerConnection` plus
+`RTCDataChannel` WPT scope until broader WPT results support more.

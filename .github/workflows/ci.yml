@@ -19,9 +19,9 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -33,6 +33,54 @@ jobs:
       - run: npm run types:check
 
       - run: npm run pack:check
+
+  package-artifact:
+    name: Package artifact
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Linux build dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev; then
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - run: npm ci
+
+      - run: npm run pack:check
+
+      - name: Pack source artifact
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          tarball="$(npm pack --json | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input)[0].filename));")"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Verify packed source build
+        shell: bash
+        run: |
+          set -euo pipefail
+          workdir="$(mktemp -d)"
+          tar -xzf "${{ steps.pack.outputs.tarball }}" -C "$workdir"
+          cd "$workdir/package"
+          npm install
+          npm run native:check
+          npm run build
+          node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close(); console.log('packed source require ok');"
 
   build-test:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
@@ -51,9 +99,9 @@ jobs:
       WPT_CLEANUP_DELAY_MS: 3000
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -133,7 +181,7 @@ jobs:
         if: always()
         run: npm run wpt:manifest > wpt-manifest.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: wpt-manifest-${{ matrix.os }}-node-${{ matrix.node }}
@@ -147,18 +195,18 @@ jobs:
   verify-ci-evidence:
     name: Verify CI evidence
     runs-on: ubuntu-latest
-    needs: build-test
+    needs: [build-test, package-artifact]
     if: always()
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: wpt-manifest-*
           path: ci-artifacts

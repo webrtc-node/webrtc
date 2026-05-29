@@ -1,8 +1,8 @@
 # Conformance
 
 The compatibility target is the selected WPT subset in `wpt-manifest.json`.
-This project is data-channel-first and does not claim full browser WebRTC
-coverage.
+This project targets the WebRTC data-channel profile exposed through
+`RTCPeerConnection` and `RTCDataChannel`.
 
 ## Selected Scope
 
@@ -17,8 +17,8 @@ Expected-pass coverage currently includes:
   `RTCIceCandidate`, `RTCDataChannelEvent`, and ICE events
 
 Out-of-scope WPT areas are grouped in the manifest as `notApplicable`,
-`needsShim`, or `expectedFail`. Media and RTP APIs are intentionally excluded
-from the first milestone.
+`needsShim`, or `expectedFail`. Media and RTP APIs are outside this package's
+public scope.
 
 ## Running WPT
 

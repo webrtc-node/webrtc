@@ -1,8 +1,8 @@
 # Intentional W3C Divergences
 
-This package is data-channel-first and does not claim full browser WebRTC
-compliance. The current implementation intentionally diverges from W3C WebRTC in
-the following places.
+This package targets W3C-style `RTCPeerConnection` and `RTCDataChannel`
+behavior for Node.js. It intentionally does not expose browser media APIs. The
+current implementation diverges from W3C WebRTC in the following places.
 
 ## Local SDP application
 
@@ -18,17 +18,16 @@ SDP-munging strategy or native support.
 
 ## Media APIs
 
-The first milestone intentionally excludes media tracks, transceivers, RTP
+This package intentionally excludes media tracks, transceivers, RTP
 senders/receivers, stats, DTMF, capture devices, and `ontrack`. libdatachannel
-has RTP/SRTP track primitives, but they do not map directly to browser
-transceiver semantics.
+has RTP/SRTP track primitives, but they do not map directly to the exposed
+`RTCPeerConnection` plus `RTCDataChannel` scope.
 
 Impact: media-oriented WPT files are marked not applicable in
 `wpt-manifest.json`.
 
 The selected `historical.html` subset excludes only the legacy
-`RTCRtpTransceiver` member check because `RTCRtpTransceiver` is not exposed in
-the data-channel-first API surface.
+`RTCRtpTransceiver` member check because `RTCRtpTransceiver` is not exposed.
 
 ## RTCConfiguration
 
@@ -48,7 +47,7 @@ Impact: the selected WPT suite covers constructor, `getConfiguration()`, and
 `setConfiguration()` validation for ICE servers, ICE candidate pool size,
 certificates, bundle policy, RTCP mux policy, and ICE transport policy. Media
 candidate-gathering and media SDP RTCP-mux validation cases remain outside the
-data-channel-first expected-pass set.
+expected-pass set.
 
 ## Certificates
 
@@ -169,7 +168,7 @@ final `icecandidate` event with `candidate === null` when gathering reaches
 Impact: the selected WPT suite now covers candidate target validation, SDP
 candidate insertion, and end-of-candidates mutation in
 `RTCPeerConnection-addIceCandidate.html`. Operations-chain timing and
-media-transceiver connection setup remain outside the first milestone.
+media-transceiver connection setup remain outside the selected scope.
 
 ## ICE candidate errors
 

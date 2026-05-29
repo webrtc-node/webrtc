@@ -1,7 +1,7 @@
 {
   "name": "@mertushka/webrtc-node",
-  "version": "0.0.0",
-  "description": "W3C-style Node.js WebRTC bindings backed by libdatachannel.",
+  "version": "0.1.0-alpha.0",
+  "description": "W3C-style RTCPeerConnection and RTCDataChannel for Node.js, backed by libdatachannel.",
   "author": "mertushka",
   "homepage": "https://github.com/mertushka/webrtc-node#readme",
   "bugs": {
@@ -16,6 +16,7 @@
   },
   "keywords": [
     "webrtc",
+    "rtcpeerconnection",
     "rtcdatachannel",
     "node",
     "node-api",
@@ -48,7 +49,7 @@
     "format:check": "biome format .",
     "lint": "biome lint .",
     "native:check": "node scripts/check-native-integration.js",
-    "pack:check": "npm pack --dry-run",
+    "pack:check": "node scripts/check-package-artifact.js",
     "api:check": "node scripts/check-api-surface.js",
     "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/ci-evidence.test.js",
     "types:check": "tsc -p tsconfig.types.json",

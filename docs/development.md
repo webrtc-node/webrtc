@@ -64,8 +64,16 @@ npm run format
 ```
 
 `npm run check` is the Biome gate used by GitHub Actions. The full Quality job
-also runs `npm run types:check` and `npm run pack:check`. Use `npm run format`
-before sending a pull request.
+also runs `npm run types:check` and `npm run pack:check`. `pack:check`
+validates the npm source artifact contents. Use `npm run format` before sending
+a pull request.
+
+## Package Artifact
+
+CI has a Linux `Package artifact` job that packs the npm source package,
+extracts it in a clean directory, installs dependencies, builds the native
+addon, and requires the package. This guards against missing files in
+`package.json#files` before npm publication.
 
 ## Docker Linux Slice
 

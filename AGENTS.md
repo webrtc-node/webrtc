@@ -2,15 +2,15 @@
 
 ## Conformance Target
 
-This package exposes W3C-style WebRTC APIs for Node.js on top of
-`paullouisageneau/libdatachannel`. Treat the selected web-platform-tests (WPT)
-suite as the compatibility contract. Prefer browser-compatible JavaScript
-semantics over libdatachannel-specific behavior, and document intentional
-divergences in `docs/divergences.md`.
+This package exposes W3C-style `RTCPeerConnection` and `RTCDataChannel` APIs
+for Node.js on top of `paullouisageneau/libdatachannel`. Treat the selected
+web-platform-tests (WPT) suite as the compatibility contract. Prefer
+browser-compatible JavaScript semantics over libdatachannel-specific behavior,
+and document intentional divergences in `docs/divergences.md`.
 
-The first milestone is data channels only. Do not add media tracks,
-transceivers, RTP sender/receiver APIs, stats, DTMF, or browser device APIs
-unless the project scope is explicitly expanded.
+The exposed project scope is peer connections and data channels. Do not add
+media tracks, transceivers, RTP sender/receiver APIs, stats, DTMF, or browser
+device APIs.
 
 ## Project Structure
 

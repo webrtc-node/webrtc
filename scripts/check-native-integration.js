@@ -77,12 +77,12 @@ requireMatch(
   /verify_libdatachannel_pin\s*\(\s*"\$\{LIBDATACHANNEL_RESOLVED_SOURCE_DIR\}"\s*\)/,
 );
 requireMatch(
-  "NO_MEDIA first-milestone build",
+  "NO_MEDIA scoped build",
   cmake,
   /set\s*\(\s*NO_MEDIA\s+ON\s+CACHE\s+BOOL\s+""\s+FORCE\s*\)/,
 );
 requireMatch(
-  "NO_WEBSOCKET first-milestone build",
+  "NO_WEBSOCKET scoped build",
   cmake,
   /set\s*\(\s*NO_WEBSOCKET\s+ON\s+CACHE\s+BOOL\s+""\s+FORCE\s*\)/,
 );

@@ -1,7 +1,7 @@
 <h1 align="center">@mertushka/webrtc-node</h1>
 
 <p align="center">
-  W3C-style WebRTC data channels for Node.js, backed by
+  W3C-style RTCPeerConnection and RTCDataChannel for Node.js, backed by
   <a href="https://github.com/paullouisageneau/libdatachannel">libdatachannel</a>
   and checked against selected web-platform-tests.
 </p>
@@ -13,15 +13,16 @@
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange">
 </p>
 
-> Experimental, data-channel-first milestone. This package does not claim full
-> browser WebRTC compatibility.
+> Experimental WebRTC data-channel profile for Node.js. The exposed scope is
+> `RTCPeerConnection` plus `RTCDataChannel`; media APIs are intentionally absent.
 
 ## Overview
 
-`@mertushka/webrtc-node` provides a browser-shaped WebRTC API for Node.js while
-delegating ICE, DTLS, SCTP, and data-channel transport to `libdatachannel`.
+`@mertushka/webrtc-node` provides browser-compatible peer-connection and
+data-channel APIs for Node.js while delegating ICE, DTLS, SCTP, and
+data-channel transport to `libdatachannel`.
 
-The first milestone focuses on:
+The supported API surface focuses on:
 
 - `RTCPeerConnection`
 - `RTCDataChannel`
@@ -30,7 +31,7 @@ The first milestone focuses on:
 - selected WPT conformance for data-channel behavior
 
 Media tracks, transceivers, RTP sender/receiver APIs, stats, DTMF, and capture
-devices are intentionally out of scope for now.
+devices are not part of this package.
 
 ## Installation
 
@@ -79,7 +80,7 @@ offer/answer exchange.
 | Transport backend | pinned `libdatachannel` via CMake `FetchContent` or local checkout |
 | Public API | W3C-style JavaScript facade with TypeScript declarations |
 | Conformance target | selected WPT subset tracked in `wpt-manifest.json` |
-| Current scope | data channels and basic peer-connection signaling |
+| Current scope | `RTCPeerConnection` and `RTCDataChannel` data-channel profile |
 
 Intentional WebRTC divergences are documented in
 [docs/divergences.md](docs/divergences.md).
@@ -98,6 +99,10 @@ npm run types:check
 npm run pack:check
 npm run wpt:selection:check
 ```
+
+`npm run pack:check` verifies the npm source artifact contains the native
+sources, facade, declarations, docs, and examples while excluding local caches
+and CI output.
 
 Run selected WPT tests:
 

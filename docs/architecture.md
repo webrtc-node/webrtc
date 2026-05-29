@@ -33,5 +33,6 @@ declarations and `scripts/check-api-surface.js` as needed.
 
 ## Scope Boundary
 
-The current milestone is data channels only. Media tracks, transceivers, RTP
-sender/receiver APIs, stats, DTMF, and capture devices are not implemented.
+The public scope is `RTCPeerConnection` plus `RTCDataChannel` for the WebRTC
+data-channel profile. Media tracks, transceivers, RTP sender/receiver APIs,
+stats, DTMF, and capture devices are not implemented.
