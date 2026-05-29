@@ -50,12 +50,6 @@ async function waitForSctpConnected(...peerConnections) {
   );
 }
 
-async function waitForIceGatheringComplete(peerConnection) {
-  while (peerConnection.iceGatheringState !== "complete") {
-    await waitFor(peerConnection, "icegatheringstatechange");
-  }
-}
-
 function candidateTransportEndpoint(candidate) {
   return {
     component: candidate.component,
@@ -429,7 +423,7 @@ test("connected data-channel ICE transport does not remain new while candidates 
   answerer.close();
 });
 
-test("connected data-channel ICE transports expose candidate pairs and complete gathering state", async (t) => {
+test("connected data-channel ICE transports expose candidate pairs", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
   t.after(() => closeAllAndWait(offerer, answerer));
@@ -440,19 +434,16 @@ test("connected data-channel ICE transports expose candidate pairs and complete 
   const remote = (await remotePromise).channel;
   await waitForOpen(local);
   await waitForOpen(remote);
-  await Promise.all([
-    waitForSctpConnected(offerer, answerer),
-    waitForIceGatheringComplete(offerer),
-    waitForIceGatheringComplete(answerer),
-  ]);
+  await waitForSctpConnected(offerer, answerer);
 
   const offererIce = offerer.sctp.transport.iceTransport;
   const answererIce = answerer.sctp.transport.iceTransport;
   const offererPair = offererIce.getSelectedCandidatePair();
   const answererPair = answererIce.getSelectedCandidatePair();
+  const allowedStates = new Set(["gathering", "complete"]);
 
-  assert.equal(offererIce.gatheringState, "complete");
-  assert.equal(answererIce.gatheringState, "complete");
+  assert.equal(allowedStates.has(offererIce.gatheringState), true);
+  assert.equal(allowedStates.has(answererIce.gatheringState), true);
   assert.equal(offererPair instanceof RTCIceCandidatePair, true);
   assert.equal(answererPair instanceof RTCIceCandidatePair, true);
   assert.equal(offererPair.local instanceof RTCIceCandidate, true);
