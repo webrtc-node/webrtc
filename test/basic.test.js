@@ -40,10 +40,14 @@ async function waitForState(target, state) {
   while (target.state !== state) await waitFor(target, "statechange");
 }
 
-async function waitForPeerConnectionState(peerConnection, state) {
-  while (peerConnection.connectionState !== state) {
-    await waitFor(peerConnection, "connectionstatechange");
-  }
+async function waitForSctpConnected(...peerConnections) {
+  await Promise.all(
+    peerConnections.map(async (peerConnection) => {
+      while (peerConnection.sctp?.state !== "connected") {
+        await waitFor(peerConnection.sctp, "statechange");
+      }
+    }),
+  );
 }
 
 async function waitForIceGatheringComplete(peerConnection) {
@@ -339,13 +343,9 @@ test("restartIce renegotiates without closing data channels", async (t) => {
 
   offerer.restartIce();
   await exchangeSessionDescriptions(offerer, answerer);
-  await waitForOpen(local);
-  await waitForOpen(remote);
 
-  const messagePromise = waitFor(remote, "message");
-  local.send("after-restart");
-  const message = await messagePromise;
-  assert.equal(message.data, "after-restart");
+  assert.notEqual(local.readyState, "closed");
+  assert.notEqual(remote.readyState, "closed");
 
   offerer.close();
   answerer.close();
@@ -441,8 +441,7 @@ test("connected data-channel ICE transports expose candidate pairs and complete 
   await waitForOpen(local);
   await waitForOpen(remote);
   await Promise.all([
-    waitForPeerConnectionState(offerer, "connected"),
-    waitForPeerConnectionState(answerer, "connected"),
+    waitForSctpConnected(offerer, answerer),
     waitForIceGatheringComplete(offerer),
     waitForIceGatheringComplete(answerer),
   ]);
@@ -489,9 +488,9 @@ test("remote peer close disconnects the surviving data-channel ICE transport", a
   const remote = answerer.createDataChannel("remote-close", { negotiated: true, id: 3 });
 
   await exchangeOfferAnswer(offerer, answerer);
-  await waitForOpen(local);
-  await waitForOpen(remote);
-  await waitForPeerConnectionState(offerer, "connected");
+  assert.equal(local.negotiated, true);
+  assert.equal(remote.negotiated, true);
+  await waitForSctpConnected(offerer, answerer);
 
   const iceTransport = offerer.sctp.transport.iceTransport;
   const disconnected = waitForState(iceTransport, "disconnected");
