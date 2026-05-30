@@ -202,7 +202,7 @@ jobs:
 
       - run: npm run wpt:smoke:check
 
-      - run: npm run wpt:report -- --output wpt-report.md
+      - run: npm run wpt:report -- --output wpt-report.md --expected-total 4
         if: always() && hashFiles('wpt-results.json') != ''
 
       - name: Write WPT manifest summary

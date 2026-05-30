@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "..");
 const args = process.argv.slice(2);
 const outputIndex = args.indexOf("--output");
 const resultsIndex = args.indexOf("--results");
+const expectedTotalIndex = args.indexOf("--expected-total");
 const outputPath =
   outputIndex === -1
     ? path.join(root, "wpt-report.md")
@@ -24,24 +25,32 @@ function fail(message) {
 
 if (outputIndex !== -1 && !args[outputIndex + 1]) fail("--output requires a path");
 if (resultsIndex !== -1 && !args[resultsIndex + 1]) fail("--results requires a path");
+if (expectedTotalIndex !== -1 && !args[expectedTotalIndex + 1]) {
+  fail("--expected-total requires a positive integer");
+}
 if (!fs.existsSync(resultsPath)) fail(`${resultsPath} does not exist`);
 if (!fs.existsSync(manifestPath)) fail(`${manifestPath} does not exist`);
 
 const results = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const expectedTotal = process.env.WPT_EXPECTED_TOTAL
+  ? Number(process.env.WPT_EXPECTED_TOTAL)
+  : expectedTotalIndex === -1
+    ? (manifest.expectedSelectedSubtests ?? null)
+    : Number(args[expectedTotalIndex + 1]);
 
 if (!Array.isArray(results.results)) fail(`${resultsPath} is not a WPT result artifact`);
 if (!Number.isInteger(results.total)) fail("WPT result total is missing");
 if (results.results.length !== results.total) {
   fail(`result length ${results.results.length} does not match total ${results.total}`);
 }
-if (
-  Number.isInteger(manifest.expectedSelectedSubtests) &&
-  results.total !== manifest.expectedSelectedSubtests
-) {
-  fail(
-    `result total ${results.total} does not match manifest ${manifest.expectedSelectedSubtests}`,
-  );
+if (expectedTotal !== null) {
+  if (!Number.isInteger(expectedTotal) || expectedTotal < 1) {
+    fail("expected total must be a positive integer");
+  }
+  if (results.total !== expectedTotal) {
+    fail(`result total ${results.total} does not match expected total ${expectedTotal}`);
+  }
 }
 
 const pass = results.results.filter((result) => result.status === "PASS").length;
@@ -68,7 +77,7 @@ lines.push(`| Passing subtests | ${pass} |`);
 lines.push(`| Failing subtests | ${failCount} |`);
 lines.push(`| Retried subtests | ${retried.length} |`);
 lines.push(`| Result files | ${files.size} |`);
-lines.push(`| Manifest expected subtests | ${manifest.expectedSelectedSubtests ?? "n/a"} |`);
+lines.push(`| Expected subtests | ${expectedTotal ?? "n/a"} |`);
 lines.push("");
 lines.push("## Pins");
 lines.push("");
