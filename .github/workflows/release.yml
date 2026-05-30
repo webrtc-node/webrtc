@@ -166,7 +166,12 @@ jobs:
       - name: Package prebuild
         shell: pwsh
         run: |
-          $dlls = Get-ChildItem $env:OPENSSL_BIN_DIR -Filter "*.dll" | ForEach-Object { $_.FullName }
+          $dlls = Get-ChildItem $env:OPENSSL_BIN_DIR -Filter "*.dll" | Where-Object {
+            $_.Name -like "libcrypto-*.dll" -or $_.Name -like "libssl-*.dll"
+          } | ForEach-Object { $_.FullName }
+          if ($dlls.Count -lt 2) {
+            throw "Expected OpenSSL libcrypto and libssl runtime DLLs in $env:OPENSSL_BIN_DIR"
+          }
           $env:PREBUILD_EXTRA_FILES = ($dlls -join ";")
           npm run prebuild:package -- --platform=win32 --arch=x64
 
