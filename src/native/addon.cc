@@ -564,6 +564,8 @@ public:
 		    {
 		        InstanceMethod("sendString", &NativeDataChannel::SendString),
 		        InstanceMethod("sendBinary", &NativeDataChannel::SendBinary),
+		        InstanceMethod("sendStringFast", &NativeDataChannel::SendStringFast),
+		        InstanceMethod("sendBinaryFast", &NativeDataChannel::SendBinaryFast),
 		        InstanceMethod("close", &NativeDataChannel::Close),
 		        InstanceMethod("setBufferedAmountLowThreshold",
 		                       &NativeDataChannel::SetBufferedAmountLowThreshold),
@@ -614,6 +616,19 @@ private:
 		}
 	}
 
+	Napi::Value SendStringFast(const Napi::CallbackInfo &info) {
+		Napi::Env env = info.Env();
+		try {
+			std::string value = info[0].ToString().Utf8Value();
+			if (binding_->dataChannel->send(value))
+				return env.Undefined();
+			return Napi::Boolean::New(env, false);
+		} catch (const std::exception &e) {
+			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
+			return env.Undefined();
+		}
+	}
+
 	Napi::Value SendBinary(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
@@ -623,6 +638,28 @@ private:
 			const auto *bytes = reinterpret_cast<const rtc::byte *>(view.Data());
 			bool sent = binding_->dataChannel->send(bytes, view.ByteLength());
 			return Napi::Boolean::New(env, sent);
+		} catch (const std::exception &e) {
+			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
+			return env.Undefined();
+		}
+	}
+
+	Napi::Value SendBinaryFast(const Napi::CallbackInfo &info) {
+		Napi::Env env = info.Env();
+		try {
+			napi_typedarray_type type;
+			size_t length;
+			void *data;
+			napi_value arrayBuffer;
+			size_t byteOffset;
+			napi_status status =
+			    napi_get_typedarray_info(env, info[0], &type, &length, &data, &arrayBuffer, &byteOffset);
+			if (status != napi_ok || type != napi_uint8_array)
+				throw std::invalid_argument("sendBinaryFast expects a Uint8Array");
+			const auto *bytes = reinterpret_cast<const rtc::byte *>(data);
+			if (binding_->dataChannel->send(bytes, length))
+				return env.Undefined();
+			return Napi::Boolean::New(env, false);
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 			return env.Undefined();
