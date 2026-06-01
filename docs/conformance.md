@@ -4,6 +4,12 @@ The compatibility target is the selected WPT subset in `wpt-manifest.json`.
 This project targets the WebRTC data-channel profile exposed through
 `RTCPeerConnection` and `RTCDataChannel`.
 
+The current selected suite contains **620 expected-passing WPT subtests**. CI
+validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
+the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
+smoke check; release readiness should be judged from the full Conformance
+workflow.
+
 ## Selected Scope
 
 Expected-pass coverage currently includes:
@@ -19,6 +25,10 @@ Expected-pass coverage currently includes:
 Out-of-scope WPT areas are grouped in the manifest as `notApplicable`,
 `needsShim`, or `expectedFail`. Media and RTP APIs are outside this package's
 public scope.
+
+This project should not be described as fully browser/WebRTC compliant. The
+supported claim is: W3C-style peer-connection and data-channel behavior for
+Node.js, backed by a selected WPT conformance suite.
 
 ## Running WPT
 

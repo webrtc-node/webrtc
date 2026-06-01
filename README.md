@@ -1,102 +1,114 @@
-<h1 align="center">@mertushka/webrtc-node</h1>
+<h1 align="center">webrtc-node</h1>
 
 <p align="center">
-  W3C-style RTCPeerConnection and RTCDataChannel for Node.js, backed by
+  WebRTC data channels for Node.js, with the browser API shape developers
+  already know.
+</p>
+
+<p align="center">
+  Backed by
   <a href="https://github.com/paullouisageneau/libdatachannel">libdatachannel</a>
-  and checked against selected web-platform-tests.
+  and validated with 620 selected Web Platform Tests subtests.
 </p>
 
 <p align="center">
   <a href="https://github.com/mertushka/webrtc-node/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mertushka/webrtc-node/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://www.npmjs.com/package/@mertushka/webrtc-node"><img alt="npm" src="https://img.shields.io/npm/v/@mertushka/webrtc-node"></a>
   <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D20-339933">
+  <img alt="WPT" src="https://img.shields.io/badge/WPT-620%20selected%20subtests-4c1">
   <img alt="Native API" src="https://img.shields.io/badge/native-Node--API-blue">
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange">
 </p>
 
-> Experimental WebRTC data-channel profile for Node.js. The exposed scope is
-> `RTCPeerConnection` plus `RTCDataChannel`; media APIs are intentionally absent.
-
-## Overview
-
-`@mertushka/webrtc-node` provides browser-compatible peer-connection and
-data-channel APIs for Node.js while delegating ICE, DTLS, SCTP, and
-data-channel transport to `libdatachannel`.
-
-The supported API surface focuses on:
-
-- `RTCPeerConnection`
-- `RTCDataChannel`
-- session descriptions and ICE candidates
-- DOM-style events, promises, and WebRTC-shaped errors
-- selected WPT conformance for data-channel behavior
-
-Media tracks, transceivers, RTP sender/receiver APIs, stats, DTMF, and capture
-devices are not part of this package.
-
-## Installation
-
-The package is not published to npm yet. Releases are planned to publish
-Node-API prebuilt binaries as GitHub Release assets. The npm package stays a
-source package; its install script downloads the one matching binary for the
-current platform, then falls back to a `cmake-js` source build if none is
-available.
-
-Build from source today:
+`webrtc-node` provides W3C-style `RTCPeerConnection` and
+`RTCDataChannel` APIs for Node.js. It focuses on data channels, uses
+`libdatachannel` for transport, and ships through ABI-stable Node-API native
+bindings.
 
 ```sh
-git clone https://github.com/mertushka/webrtc-node.git
-cd webrtc-node
-npm ci
-npm run build
+npm install @mertushka/webrtc-node
 ```
 
-Requirements:
+## Highlights
 
-- Node.js 20 or newer
-- CMake and a C++17 compiler
-- OpenSSL development libraries
+- **Browser-compatible surface:** W3C-style `RTCPeerConnection`,
+  `RTCDataChannel`, session descriptions, ICE candidates, DOM-style events, and
+  WebRTC-shaped errors.
+- **Conformance-led development:** 620 selected WPT subtests cover the supported
+  data-channel profile across Linux, macOS, and Windows.
+- **Small native core:** ICE, DTLS, SCTP, and data-channel transport come from
+  pinned `libdatachannel`, exposed through an ABI-stable Node-API addon.
+- **Ready for TypeScript:** declarations are included and checked with the
+  runtime API surface.
+- **Focused by design:** data channels first; no media tracks, transceivers,
+  stats, DTMF, or browser device APIs.
 
-Planned prebuilt targets:
+## Performance Snapshot
 
-- Linux x64 glibc
-- Linux x64 musl
-- macOS x64 and arm64
-- Windows x64
+Local benchmark snapshots show this package ahead on binary throughput and
+object operation rates. Benchmarks are environment-sensitive; treat them as
+directional rather than a substitute for testing your workload.
 
-## Example
+| Metric | `webrtc-node` | `node-datachannel` | `@roamhq/wrtc` |
+| --- | ---: | ---: | ---: |
+| Linux binary 8 KiB x1000 | 39.9 MB/s | 30.4 MB/s | 27.4 MB/s |
+| Linux construct+close PC | 53k ops/s | 3.2k ops/s | 200 ops/s |
+| Linux negotiated DC create+close | 2.2k ops/s | 974 ops/s | 173 ops/s |
 
-Run the bundled data-channel example after building:
-
-```sh
-node examples/datachannel.js
-```
+## Usage
 
 ```js
 const { RTCPeerConnection } = require("@mertushka/webrtc-node");
 
-const pc = new RTCPeerConnection();
+const pc = new RTCPeerConnection({ iceServers: [] });
 const channel = pc.createDataChannel("events");
 
 channel.addEventListener("open", () => {
   channel.send("hello from Node");
+});
+
+channel.addEventListener("message", (event) => {
+  console.log(event.data);
 });
 ```
 
 See [examples/datachannel.js](examples/datachannel.js) for a complete local
 offer/answer exchange.
 
-## Project Status
+## Installation Details
 
-| Area | Status |
+The npm package downloads the matching Node-API prebuilt binary when available,
+then falls back to a `cmake-js` source build. Published prebuild targets are
+Linux x64 glibc, Linux x64 musl, macOS x64, macOS arm64, and Windows x64.
+
+Source builds require Node.js 20 or newer, CMake, a C++17 compiler, and OpenSSL
+development libraries.
+
+Run the example from a checkout:
+
+```sh
+npm run example:datachannel
+```
+
+## Conformance
+
+The compatibility target is the selected WPT suite tracked in
+[wpt-manifest.json](wpt-manifest.json). The current selected suite contains
+**620 expected-passing subtests** across the Node 20, 22, and 24 CI matrix on
+Linux, macOS, and Windows.
+
+| Area | Coverage |
 | --- | --- |
-| Native binding | Node-API/node-addon-api, no direct V8 or NAN APIs |
-| Transport backend | pinned `libdatachannel` via CMake `FetchContent` or local checkout |
-| Public API | W3C-style JavaScript facade with TypeScript declarations |
-| Conformance target | selected WPT subset tracked in `wpt-manifest.json` |
-| Current scope | `RTCPeerConnection` and `RTCDataChannel` data-channel profile |
+| PeerConnection | construction, descriptions, ICE candidates, signaling/ICE/connection state, close |
+| DataChannel | id, label, readyState, ordered, negotiated, protocol, binaryType, send, message, open, close, error |
+| Events and errors | DOM-style events, `RTCDataChannelEvent`, ICE events, DOMException-shaped failures |
+| Excluded by design | media tracks, transceivers, RTP sender/receiver APIs, stats, DTMF, browser devices |
 
 Intentional WebRTC divergences are documented in
 [docs/divergences.md](docs/divergences.md).
+
+This is not a claim of full browser WebRTC compliance. It is a documented
+data-channel profile with WPT evidence.
 
 ## Development
 
@@ -115,10 +127,6 @@ npm run wpt:smoke
 npm run wpt:smoke:check
 ```
 
-`npm run pack:check` verifies the npm source artifact contains the native
-sources, facade, declarations, docs, and examples while excluding local caches,
-CI output, and release prebuild artifacts.
-
 Run selected WPT tests:
 
 ```sh
@@ -132,28 +140,13 @@ and pull requests. The full selected WPT matrix lives in the separate
 `Conformance` workflow for manual, scheduled, and version-tagged release checks.
 
 Use `npm run format` to apply Biome formatting before opening a pull request.
+`npm run pack:check` verifies the npm source artifact.
 
 More details:
 
 - [docs/development.md](docs/development.md)
 - [docs/conformance.md](docs/conformance.md)
 - [docs/architecture.md](docs/architecture.md)
-
-## Repository Layout
-
-```text
-lib/                 JavaScript WebRTC facade
-src/native/          Node-API addon
-examples/            runnable examples
-test/                focused node:test coverage
-scripts/             build, API, WPT, and CI utilities
-docs/                architecture, conformance, and design notes
-wpt-manifest.json    selected WPT scope
-index.d.ts           TypeScript declarations
-```
-
-Local `build/`, `node_modules/`, `libdatachannel/`, `wpt/`, and
-`ci-artifacts/` directories are ignored development caches.
 
 ## Contributing
 
