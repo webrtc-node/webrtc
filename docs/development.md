@@ -27,6 +27,7 @@ npm test
 npm run api:check
 npm run types:check
 npm run pack:check
+npm run e2e:chrome
 npm run wpt:selection:check
 npm run wpt:smoke
 npm run wpt:smoke:check
@@ -42,10 +43,12 @@ npm run wpt:report -- --output wpt-report.md
 ```
 
 The default `CI` workflow keeps pull requests fast by always running the
-Quality job, then classifying changed files into native, package-artifact, and
-WPT buckets. Native changes run the OS/Node matrix with unit tests. Native or
-WPT changes run a small WPT smoke subset on Ubuntu Node 24. Native or package
-artifact changes run a clean packed-source build check.
+Quality job, then classifying changed files into native, package-artifact, WPT,
+and Chrome E2E buckets. Native changes run the OS/Node matrix with unit tests. Runtime,
+native, package, or Chrome E2E changes run the strict Chrome interoperability
+suite on Ubuntu Node 24. Native or WPT changes run a small WPT smoke subset on
+Ubuntu Node 24. Native or package artifact changes run a clean packed-source
+build check.
 
 The current classifier treats these paths as native-relevant: `lib/`, `src/`,
 `test/`, `CMakeLists.txt`, package files, `index.d.ts`,
@@ -53,8 +56,24 @@ The current classifier treats these paths as native-relevant: `lib/`, `src/`,
 Package-artifact paths include package files, `CMakeLists.txt`, `lib/`, `src/`,
 `scripts/check-package-artifact.js`, and `scripts/install-native.js`. WPT paths
 include `wpt-manifest.json` and the WPT/reporting/evidence scripts. Workflow
-or action changes run all three buckets. Documentation and agent-note changes
+or action changes run all four buckets. Documentation and agent-note changes
 normally run only the Quality job.
+
+## Chrome Interoperability
+
+WPT remains the JavaScript compatibility contract. The Chrome E2E suite checks
+wire interoperability with a real browser:
+
+```sh
+npm run build
+npm run e2e:chrome
+```
+
+Google Chrome must be installed. Set `CHROME_PATH` when it is not in a standard
+platform location. The suite has no retries and covers both offerer directions,
+negotiated and in-band channels, reliability options, text/binary/Blob payloads,
+message-size limits, buffering, close propagation, repeated connections, and
+ICE restart behavior.
 
 The full selected WPT matrix is in the `Conformance` workflow, which runs on
 manual dispatch, weekly schedule, and version tags.

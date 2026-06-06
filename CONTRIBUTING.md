@@ -27,6 +27,7 @@ npm test
 npm run api:check
 npm run types:check
 npm run pack:check
+npm run e2e:chrome
 npm run wpt:selection:check
 npm run wpt:smoke
 npm run wpt:smoke:check

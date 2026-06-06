@@ -68,6 +68,10 @@ function candidateTransportEndpoint(candidate) {
   };
 }
 
+function descriptionIceUfrag(description) {
+  return /(?:^|\r?\n)a=ice-ufrag:([^\r\n]+)/m.exec(description?.sdp || "")?.[1] ?? null;
+}
+
 function collectMessages(channel, count, timeout = 10000) {
   return new Promise((resolve, reject) => {
     const messages = [];
@@ -345,11 +349,22 @@ test("restartIce renegotiates without closing data channels", async (t) => {
   assert.equal(local.negotiated, true);
   assert.equal(remote.negotiated, true);
 
+  const previousIceUfrag = descriptionIceUfrag(offerer.localDescription);
   offerer.restartIce();
-  await exchangeSessionDescriptions(offerer, answerer);
+  const restartOffer = await offerer.createOffer();
+  assert.equal(descriptionIceUfrag(restartOffer), previousIceUfrag);
+  await offerer.setLocalDescription(restartOffer);
+  await answerer.setRemoteDescription(offerer.localDescription);
+  const restartAnswer = await answerer.createAnswer();
+  await answerer.setLocalDescription(restartAnswer);
+  await offerer.setRemoteDescription(answerer.localDescription);
 
   assert.notEqual(local.readyState, "closed");
   assert.notEqual(remote.readyState, "closed");
+  await Promise.all([waitForOpen(local), waitForOpen(remote)]);
+  const messages = collectMessages(remote, 1);
+  local.send("after restart");
+  assert.deepEqual(await messages, ["after restart"]);
 
   offerer.close();
   answerer.close();

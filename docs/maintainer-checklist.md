@@ -14,6 +14,7 @@ npm test
 npm run api:check
 npm run types:check
 npm run pack:check
+npm run e2e:chrome
 npm run wpt:selection:check
 npm run wpt:smoke
 npm run wpt:smoke:check
@@ -35,8 +36,8 @@ npm run wpt:report -- --output wpt-report.md
 - configure npm trusted publishing for `.github/workflows/release.yml`, with
   GitHub environment `npm` if release approvals are required;
 - protect `main` after the first green public run;
-- require `Quality`, the OS/Node CI matrix, `Package artifact`, and `WPT smoke`
-  before merging;
+- require `Quality`, the OS/Node CI matrix, `Package artifact`, `Chrome E2E`,
+  and `WPT smoke` before merging;
 - require a green `Conformance` workflow before publishing a release.
 
 ## Release Readiness

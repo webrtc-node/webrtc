@@ -186,8 +186,9 @@ expected-pass WPT set until native ICE-server error events are available.
 The default libdatachannel/libjuice path only accepts custom local ICE
 credentials before candidate gathering starts. After gathering has started, the
 facade treats `restartIce()` as a W3C-shaped renegotiation request and preserves
-existing data channels through the offer/answer exchange, but it does not claim
-fresh native ICE ufrag/password credentials.
+existing data channels through the offer/answer exchange. It keeps the existing
+ICE ufrag/password because advertising credentials that the native transport did
+not adopt would disconnect browser peers.
 
 Impact: the selected suite covers data-channel liveness with
 `RTCDataChannel-iceRestart.html`, closed-state no-op behavior from
@@ -197,8 +198,10 @@ gathering timing from
 gathering is already complete, the JS facade replays browser-shaped
 `gathering`/`complete` events for the restart offer so WPT-visible task timing
 matches the WebRTC API, but this does not imply fresh native ICE credentials.
-WPT cases that assert fresh ICE credentials, media behavior, or detailed
-restart signaling remain outside the current expected-pass set.
+Chrome E2E verifies that this fallback remains connected. Browser-initiated ICE
+restart is applied natively and uses fresh remote credentials. WPT cases that
+assert fresh local ICE credentials, media behavior, or detailed restart
+signaling remain outside the current expected-pass set.
 
 ## SCTP stream limit
 

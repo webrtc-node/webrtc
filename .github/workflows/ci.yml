@@ -21,6 +21,7 @@ jobs:
       native: ${{ steps.classify.outputs.native }}
       package_artifact: ${{ steps.classify.outputs.package_artifact }}
       wpt: ${{ steps.classify.outputs.wpt }}
+      chrome_e2e: ${{ steps.classify.outputs.chrome_e2e }}
 
     steps:
       - uses: actions/checkout@v6
@@ -36,6 +37,7 @@ jobs:
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "package_artifact=true" >> "$GITHUB_OUTPUT"
             echo "wpt=true" >> "$GITHUB_OUTPUT"
+            echo "chrome_e2e=true" >> "$GITHUB_OUTPUT"
             echo "No comparable base commit; running full CI." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -44,6 +46,7 @@ jobs:
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "package_artifact=true" >> "$GITHUB_OUTPUT"
             echo "wpt=true" >> "$GITHUB_OUTPUT"
+            echo "chrome_e2e=true" >> "$GITHUB_OUTPUT"
             echo "Could not fetch base commit; running full CI." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -53,6 +56,7 @@ jobs:
           native_changed="false"
           package_changed="false"
           wpt_changed="false"
+          chrome_e2e_changed="false"
           workflow_changed="false"
           while IFS= read -r file; do
             [ -z "$file" ] && continue
@@ -76,21 +80,28 @@ jobs:
                 wpt_changed="true"
                 ;;
             esac
+            case "$file" in
+              lib/*|src/*|test/e2e/*|CMakeLists.txt|package.json|package-lock.json)
+                chrome_e2e_changed="true"
+                ;;
+            esac
           done < changed-files.txt
 
           if [ "$workflow_changed" = "true" ]; then
             native_changed="true"
             package_changed="true"
             wpt_changed="true"
+            chrome_e2e_changed="true"
           fi
 
           echo "native=$native_changed" >> "$GITHUB_OUTPUT"
           echo "package_artifact=$package_changed" >> "$GITHUB_OUTPUT"
           echo "wpt=$wpt_changed" >> "$GITHUB_OUTPUT"
+          echo "chrome_e2e=$chrome_e2e_changed" >> "$GITHUB_OUTPUT"
 
           if [ "$workflow_changed" = "true" ]; then
             echo "Workflow/action files changed; running full CI." >> "$GITHUB_STEP_SUMMARY"
-          elif [ "$native_changed" = "true" ] || [ "$package_changed" = "true" ] || [ "$wpt_changed" = "true" ]; then
+          elif [ "$native_changed" = "true" ] || [ "$package_changed" = "true" ] || [ "$wpt_changed" = "true" ] || [ "$chrome_e2e_changed" = "true" ]; then
             echo "Relevant files changed; running targeted CI jobs." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No native, package, or WPT files changed; skipping heavy CI jobs." >> "$GITHUB_STEP_SUMMARY"
@@ -243,3 +254,37 @@ jobs:
             wpt-manifest.txt
             wpt-report.md
             wpt-results.json
+
+  chrome-e2e:
+    name: Chrome E2E
+    runs-on: ubuntu-latest
+    needs: [changes, quality]
+    if: needs.changes.outputs.chrome_e2e == 'true'
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: ./.github/actions/setup-native-build
+
+      - run: npm ci
+
+      - run: npm run native:check
+
+      - run: npm run build
+
+      - name: Verify Chrome installation
+        shell: bash
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            google-chrome --version
+          else
+            google-chrome-stable --version
+          fi
+
+      - run: npm run e2e:chrome

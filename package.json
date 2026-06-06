@@ -46,6 +46,7 @@
     "build": "cmake-js compile",
     "check": "biome check .",
     "clean": "cmake-js clean",
+    "e2e:chrome": "node --test --test-force-exit --test-timeout=120000 test/e2e/chrome.test.js",
     "example:datachannel": "node examples/datachannel.js",
     "format": "biome format --write .",
     "format:check": "biome format .",
@@ -78,6 +79,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
+    "playwright-core": "1.60.0",
     "typescript": "^6.0.3"
   },
   "engines": {
