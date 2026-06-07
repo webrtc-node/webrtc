@@ -72,6 +72,13 @@ function descriptionIceUfrag(description) {
   return /(?:^|\r?\n)a=ice-ufrag:([^\r\n]+)/m.exec(description?.sdp || "")?.[1] ?? null;
 }
 
+function descriptionWithMaxMessageSize(description, value) {
+  return {
+    type: description.type,
+    sdp: description.sdp.replace(/^a=max-message-size:\d+\r\n/m, `a=max-message-size:${value}\r\n`),
+  };
+}
+
 function collectMessages(channel, count, timeout = 10000) {
   return new Promise((resolve, reject) => {
     const messages = [];
@@ -425,6 +432,33 @@ test("data-channel negotiation exposes an SCTP transport facade", async (t) => {
 
   offerer.close();
   assert.equal(offerer.sctp.state, "closed");
+  answerer.close();
+});
+
+test("parameterless answer is applied during repeated data-channel renegotiation", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
+  offerer.createDataChannel("renegotiate");
+
+  for (const value of [1, 2, 0, 1]) {
+    await offerer.setLocalDescription();
+    await answerer.setRemoteDescription(
+      descriptionWithMaxMessageSize(offerer.localDescription, value),
+    );
+    assert.equal(answerer.signalingState, "have-remote-offer");
+
+    await answerer.setLocalDescription();
+    assert.equal(answerer.signalingState, "stable");
+    assert.equal(answerer.sctp instanceof RTCSctpTransport, true);
+    if (value > 0) assert.equal(answerer.sctp.maxMessageSize, value);
+    else assert.equal(answerer.sctp.maxMessageSize > 0, true);
+
+    await offerer.setRemoteDescription(answerer.localDescription);
+    assert.equal(offerer.signalingState, "stable");
+  }
+
+  offerer.close();
   answerer.close();
 });
 
