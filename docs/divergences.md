@@ -43,11 +43,18 @@ transport after construction, so `setConfiguration()` is a W3C-compatible facade
 operation for validation and JS-visible state rather than a native ICE restart
 or transport reconfiguration mechanism.
 
+Authenticated TURN credentials from the W3C `username` and `credential` fields
+are forwarded to libdatachannel. The bundled libjuice ICE backend supports TURN
+over UDP only. `stuns:` URLs, `turn:` URLs with `transport=tcp`, and `turns:`
+URLs are accepted by WebIDL validation but cannot produce candidates with this
+build.
+
 Impact: the selected WPT suite covers constructor, `getConfiguration()`, and
 `setConfiguration()` validation for ICE servers, ICE candidate pool size,
 certificates, bundle policy, RTCP mux policy, and ICE transport policy. Media
 candidate-gathering and media SDP RTCP-mux validation cases remain outside the
-expected-pass set.
+expected-pass set. Hosted peers behind managed NAT should configure a reachable
+TURN UDP endpoint in the constructor before native candidate gathering starts.
 
 ## Certificates
 

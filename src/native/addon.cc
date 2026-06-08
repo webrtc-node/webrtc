@@ -800,6 +800,21 @@ Napi::Object CandidateToObject(Napi::Env env, const rtc::Candidate &candidate) {
 	return object;
 }
 
+void AppendIceServer(rtc::Configuration &config, const Napi::Object &server,
+                     const Napi::Value &urlValue) {
+	if (!urlValue.IsString())
+		return;
+
+	rtc::IceServer iceServer(urlValue.ToString().Utf8Value());
+	if (iceServer.type == rtc::IceServer::Type::Turn) {
+		if (server.Has("username") && server.Get("username").IsString())
+			iceServer.username = server.Get("username").ToString().Utf8Value();
+		if (server.Has("credential") && server.Get("credential").IsString())
+			iceServer.password = server.Get("credential").ToString().Utf8Value();
+	}
+	config.iceServers.push_back(std::move(iceServer));
+}
+
 rtc::Configuration ParseConfiguration(const Napi::CallbackInfo &info) {
 	rtc::Configuration config;
 	config.disableAutoNegotiation = true;
@@ -829,11 +844,10 @@ rtc::Configuration ParseConfiguration(const Napi::CallbackInfo &info) {
 			if (urls.IsArray()) {
 				Napi::Array urlArray = urls.As<Napi::Array>();
 				for (uint32_t j = 0; j < urlArray.Length(); ++j) {
-					if (urlArray.Get(j).IsString())
-						config.iceServers.emplace_back(urlArray.Get(j).ToString().Utf8Value());
+					AppendIceServer(config, server, urlArray.Get(j));
 				}
 			} else if (urls.IsString()) {
-				config.iceServers.emplace_back(urls.ToString().Utf8Value());
+				AppendIceServer(config, server, urls);
 			}
 		}
 	}

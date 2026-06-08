@@ -1,6 +1,6 @@
 {
   "name": "@mertushka/webrtc-node",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "W3C-style RTCPeerConnection and RTCDataChannel for Node.js, backed by libdatachannel.",
   "author": "mertushka",
   "homepage": "https://github.com/mertushka/webrtc-node#readme",
@@ -57,7 +57,7 @@
     "prebuild:package": "node scripts/package-prebuild.js",
     "prebuild:check": "node scripts/check-prebuilds.js",
     "api:check": "node scripts/check-api-surface.js",
-    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/ci-evidence.test.js",
+    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/ci-evidence.test.js test/turn.test.js",
     "types:check": "tsc -p tsconfig.types.json",
     "wpt:ensure": "node scripts/ensure-wpt.js",
     "wpt:smoke": "node scripts/run-wpt-smoke.js",

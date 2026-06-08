@@ -55,6 +55,16 @@ requireMatch("dispatcher release on close", addon, /\.Release\s*\(/);
 requireMatch("weak callback captures", addon, /\[weak\]/);
 requireMatch("peer callback reset", addon, /peerConnection->resetCallbacks\s*\(\)/);
 requireMatch("channel callback reset", addon, /->resetCallbacks\s*\(\)/);
+requireMatch(
+  "TURN username forwarding",
+  addon,
+  /iceServer\.username\s*=\s*server\.Get\("username"\)/,
+);
+requireMatch(
+  "TURN credential forwarding",
+  addon,
+  /iceServer\.password\s*=\s*server\.Get\("credential"\)/,
+);
 
 forbidMatch("direct V8 namespace usage", addon, /\bv8::/);
 forbidMatch("direct V8 include", addon, /#include\s+[<"]v8(?:-[^>"]+)?\.h[>"]/);
