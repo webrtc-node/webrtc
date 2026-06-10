@@ -127,10 +127,13 @@ runner passes `RTCDataChannel-close.html`, including remote `closing`, repeated
 open/send/close, and peer-close `RTCErrorEvent` cases.
 
 For same-process peers that have exchanged SDP through this facade, the JS layer
-also pairs peer connections and data channels by SDP/stream id. That pairing is
-used only to synthesize remote data-channel close/error events when native close
-callbacks are late or uneven under stress; send-drain closes still wait for
-native delivery so queued messages are not truncated.
+also pairs peer connections and data channels by SDP/stream id. That pairing
+synthesizes remote data-channel close/error events when native close callbacks
+are late or uneven under stress. During ICE restart, it also permits one
+healthy-state native close callback to be ignored within a bounded window,
+avoiding the known restart race without suppressing later closes indefinitely.
+Send-drain closes still wait for native delivery so queued messages are not
+truncated.
 
 ## Incoming data channel event timing
 

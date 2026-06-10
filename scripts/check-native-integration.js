@@ -70,6 +70,21 @@ requireMatch("weak callback captures", addon, /\[weak\]/);
 requireMatch("peer callback reset", addon, /peerConnection->resetCallbacks\s*\(\)/);
 requireMatch("channel callback reset", addon, /->resetCallbacks\s*\(\)/);
 requireMatch(
+  "closed channel map removal",
+  addon,
+  /void\s+RemoveChannel[\s\S]*channels\.erase\s*\(/,
+);
+requireMatch(
+  "unsigned buffered amount threshold conversion",
+  addon,
+  /SetBufferedAmountLowThreshold[\s\S]*Uint32Value\s*\(\)/,
+);
+requireMatch(
+  "nonzero channel id allocator",
+  addon,
+  /AllocateChannelId[\s\S]*while\s*\(\s*id\s*==\s*0\s*\)/,
+);
+requireMatch(
   "TURN username forwarding",
   addon,
   /iceServer\.username\s*=\s*server\.Get\("username"\)/,
@@ -87,6 +102,11 @@ forbidMatch("direct Node addon include", addon, /#include\s+[<"]node(?:_object_w
 forbidMatch("NAN include", addon, /#include\s+[<"]nan\.h[>"]/);
 forbidMatch("NAN namespace usage", addon, /\bNan::/);
 forbidMatch("non-Node-API module initializer", addon, /\bNODE_MODULE\s*\(/);
+forbidMatch(
+  "signed buffered amount threshold conversion",
+  addon,
+  /SetBufferedAmountLowThreshold[\s\S]{0,300}Int64Value\s*\(\)/,
+);
 
 const callbackCallMatches = [...addon.matchAll(/\bcallback\.Call\s*\(/g)];
 if (callbackCallMatches.length !== 3) {

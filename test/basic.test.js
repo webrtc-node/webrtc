@@ -7,6 +7,8 @@ const {
   RTCSctpTransport,
   RTCCertificate,
   RTCDataChannelEvent,
+  Event,
+  EventTarget,
   RTCIceCandidate,
   RTCIceCandidatePair,
   RTCSessionDescription,
@@ -195,6 +197,22 @@ test("RTCSessionDescription and RTCIceCandidate expose WebRTC-shaped JSON", () =
   assert.equal(candidate.sdpMid, "0");
 });
 
+test("once event listeners are removed before invocation", () => {
+  const target = new EventTarget();
+  let calls = 0;
+  target.addEventListener(
+    "nested",
+    () => {
+      calls += 1;
+      target.dispatchEvent(new Event("nested"));
+    },
+    { once: true },
+  );
+
+  target.dispatchEvent(new Event("nested"));
+  assert.equal(calls, 1);
+});
+
 test("createDataChannel exposes core W3C attributes before negotiation", () => {
   const pc = new RTCPeerConnection();
   const dc = pc.createDataChannel("chat", {
@@ -212,6 +230,32 @@ test("createDataChannel exposes core W3C attributes before negotiation", () => {
   assert.equal(dc.binaryType, "arraybuffer");
   assert.equal(dc.bufferedAmount, 0);
   assert.equal(dc.id, null);
+  pc.close();
+});
+
+test("native close suppression is restart-scoped and one-shot", () => {
+  const pc = new RTCPeerConnection();
+  const dc = pc.createDataChannel("close-suppression");
+
+  pc._pairedPeer = {};
+  pc._connectionState = "connected";
+  pc._iceConnectionState = "connected";
+  pc._sctpTransport = { state: "connected" };
+  dc._readyState = "open";
+  dc._pairedChannel = { readyState: "open" };
+
+  assert.equal(dc._shouldSuppressSpuriousNativeClose(), false);
+  dc._armNativeCloseSuppression();
+  assert.equal(dc._shouldSuppressSpuriousNativeClose(), true);
+  assert.equal(dc._shouldSuppressSpuriousNativeClose(), false);
+  dc._armNativeCloseSuppression();
+  dc._nativeCloseSuppressionDeadline = Date.now() - 1;
+  assert.equal(dc._shouldSuppressSpuriousNativeClose(), false);
+
+  dc._pairedChannel = null;
+  dc._readyState = "connecting";
+  pc._pairedPeer = null;
+  pc._sctpTransport = null;
   pc.close();
 });
 

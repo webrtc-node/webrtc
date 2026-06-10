@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -26,8 +27,16 @@ struct ChannelBinding;
 struct EventDispatcher;
 struct PeerBinding;
 
-std::atomic<int> nextChannelId{1};
+std::atomic<uint32_t> nextChannelId{1};
 constexpr auto PEER_CLOSE_TIMEOUT = std::chrono::seconds(5);
+
+uint32_t AllocateChannelId() {
+	uint32_t id;
+	do {
+		id = nextChannelId.fetch_add(1, std::memory_order_relaxed);
+	} while (id == 0);
+	return id;
+}
 
 struct PeerCloseSignal {
 	std::mutex mutex;
@@ -182,7 +191,7 @@ struct ChannelOptions {
 struct NativeEvent {
 	std::string target;
 	std::string type;
-	int channelId = 0;
+	uint32_t channelId = 0;
 	std::shared_ptr<ChannelBinding> channel;
 	std::string state;
 	std::string descriptionType;
@@ -210,7 +219,7 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 
 		bool scheduleDispatch = false;
 		std::lock_guard<std::mutex> lock(lifecycleMutex);
-		if (!active.load()) {
+		if (!active) {
 			return;
 		}
 
@@ -228,7 +237,7 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 	void EmitDirect(NativeEvent event) {
 		auto *queued = new NativeEvent(std::move(event));
 		std::lock_guard<std::mutex> lock(lifecycleMutex);
-		if (!active.load()) {
+		if (!active) {
 			delete queued;
 			return;
 		}
@@ -242,8 +251,10 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 		std::lock_guard<std::mutex> lock(lifecycleMutex);
 		pendingEvents.clear();
 		dispatchScheduled = false;
-		if (active.exchange(false))
+		if (active) {
+			active = false;
 			tsfn.Release();
+		}
 	}
 
 private:
@@ -271,7 +282,7 @@ private:
 		}
 
 		std::lock_guard<std::mutex> lock(lifecycleMutex);
-		if (!active.load() || pendingEvents.empty()) {
+		if (!active || pendingEvents.empty()) {
 			dispatchScheduled = false;
 			return;
 		}
@@ -316,7 +327,7 @@ private:
 
 	static Napi::Object EventToObject(Napi::Env env, NativeEvent &event);
 
-	std::atomic<bool> active{true};
+	bool active = true;
 	std::mutex lifecycleMutex;
 	std::vector<NativeEvent> pendingEvents;
 	bool dispatchScheduled = false;
@@ -324,11 +335,15 @@ private:
 };
 
 struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
+	using ClosedCallback = std::function<void(uint32_t, const ChannelBinding *)>;
+
 	static std::shared_ptr<ChannelBinding> Create(std::shared_ptr<rtc::DataChannel> dataChannel,
 	                                              std::shared_ptr<EventDispatcher> dispatcher,
-	                                              ChannelOptions options) {
-		auto binding = std::shared_ptr<ChannelBinding>(
-		    new ChannelBinding(std::move(dataChannel), std::move(dispatcher), std::move(options)));
+	                                              ChannelOptions options,
+	                                              ClosedCallback closedCallback) {
+		auto binding = std::shared_ptr<ChannelBinding>(new ChannelBinding(
+		    std::move(dataChannel), std::move(dispatcher), std::move(options),
+		    std::move(closedCallback)));
 		binding->AttachCallbacks();
 		return binding;
 	}
@@ -362,28 +377,31 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	void Destroy() {
 		{
 			std::lock_guard<std::mutex> lock(callbacksMutex);
-			if (!callbacksActive.exchange(false))
+			if (!callbacksActive)
 				return;
+			callbacksActive = false;
 		}
 		auto dc = dataChannel;
 		if (dc)
 			dc->resetCallbacks();
 	}
 
-	const int id;
+	const uint32_t id;
 	std::shared_ptr<rtc::DataChannel> dataChannel;
 	std::shared_ptr<EventDispatcher> dispatcher;
 	ChannelOptions options;
 
 private:
 	ChannelBinding(std::shared_ptr<rtc::DataChannel> dataChannel_,
-	               std::shared_ptr<EventDispatcher> dispatcher_, ChannelOptions options_)
-	    : id(nextChannelId.fetch_add(1)), dataChannel(std::move(dataChannel_)),
-	      dispatcher(std::move(dispatcher_)), options(std::move(options_)) {}
+	               std::shared_ptr<EventDispatcher> dispatcher_, ChannelOptions options_,
+	               ClosedCallback closedCallback_)
+	    : id(AllocateChannelId()), dataChannel(std::move(dataChannel_)),
+	      dispatcher(std::move(dispatcher_)), options(std::move(options_)),
+	      closedCallback(std::move(closedCallback_)) {}
 
 	void Emit(NativeEvent event) {
 		std::lock_guard<std::mutex> lock(callbacksMutex);
-		if (!callbacksActive.load())
+		if (!callbacksActive)
 			return;
 		dispatcher->Emit(std::move(event));
 	}
@@ -408,6 +426,8 @@ private:
 				event.type = "close";
 				event.channelId = self->id;
 				self->Emit(std::move(event));
+				if (self->closedCallback)
+					self->closedCallback(self->id, self.get());
 			}
 		});
 
@@ -450,8 +470,9 @@ private:
 		});
 	}
 
-	std::atomic<bool> callbacksActive{true};
+	bool callbacksActive = true;
 	std::mutex callbacksMutex;
+	ClosedCallback closedCallback;
 };
 
 class NativeDataChannel : public Napi::ObjectWrap<NativeDataChannel> {
@@ -541,7 +562,7 @@ private:
 	Napi::Value SetBufferedAmountLowThreshold(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			size_t value = info[0].ToNumber().Int64Value();
+			size_t value = info[0].ToNumber().Uint32Value();
 			binding_->dataChannel->setBufferedAmountLowThreshold(value);
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -766,9 +787,19 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 
 	std::shared_ptr<ChannelBinding> AddChannel(std::shared_ptr<rtc::DataChannel> dataChannel,
 	                                           ChannelOptions options) {
-		auto channel = ChannelBinding::Create(std::move(dataChannel), dispatcher, std::move(options));
-		std::lock_guard<std::mutex> lock(channelsMutex);
-		channels[channel->id] = channel;
+		std::weak_ptr<PeerBinding> weak = shared_from_this();
+		auto channel = ChannelBinding::Create(
+		    std::move(dataChannel), dispatcher, std::move(options),
+		    [weak](uint32_t id, const ChannelBinding *expected) {
+			    if (auto self = weak.lock())
+				    self->RemoveChannel(id, expected);
+		    });
+		{
+			std::lock_guard<std::mutex> lock(channelsMutex);
+			channels[channel->id] = channel;
+		}
+		if (channel->dataChannel->isClosed())
+			RemoveChannel(channel->id, channel.get());
 		return channel;
 	}
 
@@ -786,7 +817,7 @@ private:
 
 	void Emit(NativeEvent event) {
 		std::lock_guard<std::mutex> lock(callbacksMutex);
-		if (!callbacksActive.load())
+		if (!callbacksActive)
 			return;
 		dispatcher->Emit(std::move(event));
 	}
@@ -794,11 +825,19 @@ private:
 	void DeactivateCallbacks() {
 		{
 			std::lock_guard<std::mutex> lock(callbacksMutex);
-			if (!callbacksActive.exchange(false))
+			if (!callbacksActive)
 				return;
+			callbacksActive = false;
 		}
 		if (peerConnection)
 			peerConnection->resetCallbacks();
+	}
+
+	void RemoveChannel(uint32_t id, const ChannelBinding *expected) {
+		std::lock_guard<std::mutex> lock(channelsMutex);
+		auto found = channels.find(id);
+		if (found != channels.end() && found->second.get() == expected)
+			channels.erase(found);
 	}
 
 	std::optional<PeerTeardownWork> PrepareShutdown() {
@@ -917,10 +956,10 @@ private:
 	}
 
 	std::atomic<bool> shutdown{false};
-	std::atomic<bool> callbacksActive{true};
+	bool callbacksActive = true;
 	std::mutex callbacksMutex;
 	std::mutex channelsMutex;
-	std::unordered_map<int, std::shared_ptr<ChannelBinding>> channels;
+	std::unordered_map<uint32_t, std::shared_ptr<ChannelBinding>> channels;
 };
 
 class NativePeerConnection : public Napi::ObjectWrap<NativePeerConnection> {
@@ -1167,11 +1206,12 @@ Napi::Value GenerateCertificate(const Napi::CallbackInfo &info) {
 		Napi::Object result = Napi::Object::New(env);
 		result.Set("certificatePem", material.certificatePem);
 		result.Set("keyPem", material.keyPem);
-		result.Set("fingerprints", Napi::Array::New(env, 1));
+		Napi::Array fingerprints = Napi::Array::New(env, 1);
 		Napi::Object fingerprint = Napi::Object::New(env);
 		fingerprint.Set("algorithm", "sha-256");
 		fingerprint.Set("value", material.fingerprint);
-		result.Get("fingerprints").As<Napi::Array>().Set(uint32_t{0}, fingerprint);
+		fingerprints.Set(uint32_t{0}, fingerprint);
+		result.Set("fingerprints", fingerprints);
 		return result;
 	} catch (const std::exception &e) {
 		Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
