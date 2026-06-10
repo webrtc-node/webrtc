@@ -49,9 +49,9 @@ prebuild when available, then falls back to a `cmake-js` source build.
 
 | OS | Prebuild targets | Node 20 | Node 22 | Node 24 |
 | --- | --- | --- | --- | --- |
-| Linux | x64 glibc, x64 musl | yes | yes | yes |
-| macOS | x64, arm64 | yes | yes | yes |
-| Windows | x64 | yes | yes | yes |
+| Linux | x64 glibc, x64 musl | ✅ | ✅ | ✅ |
+| macOS | x64, arm64 | ✅ | ✅ | ✅ |
+| Windows | x64, arm64 | ✅ | ✅ | ✅ |
 
 Source builds require CMake, a C++17 compiler, and OpenSSL development
 libraries.

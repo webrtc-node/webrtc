@@ -66,12 +66,12 @@ jobs:
                 ;;
             esac
             case "$file" in
-              lib/*|src/*|test/*|CMakeLists.txt|package.json|package-lock.json|index.d.ts|scripts/check-api-surface.js|scripts/check-native-integration.js)
+              lib/*|src/*|test/*|CMakeLists.txt|vcpkg.json|package.json|package-lock.json|index.d.ts|scripts/check-api-surface.js|scripts/check-native-integration.js)
                 native_changed="true"
                 ;;
             esac
             case "$file" in
-              package.json|package-lock.json|CMakeLists.txt|lib/*|src/*|scripts/check-package-artifact.js|scripts/install-native.js)
+              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-linux-addon-symbols.js|scripts/check-package-artifact.js|scripts/check-prebuilds.js|scripts/check-tls-coexistence.js|scripts/install-native.js|scripts/package-prebuild.js)
                 package_changed="true"
                 ;;
             esac
@@ -193,6 +193,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: [20, 22, 24]
+        include:
+          - os: windows-11-arm
+            node: 24
 
     steps:
       - uses: actions/checkout@v6

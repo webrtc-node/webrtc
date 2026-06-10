@@ -134,9 +134,9 @@ if the GitHub release environment is kept.
 
 The `Published Install` workflow runs after a successful `Release` workflow or
 by manual dispatch. It installs the published npm package on Linux glibc, Linux
-musl, macOS x64, macOS arm64, and Windows x64, then verifies both CommonJS and
-ESM imports. It sets `WEBRTC_NODE_PREBUILD_ONLY=1` so missing or broken release
-assets fail instead of compiling from source.
+musl, macOS x64, macOS arm64, Windows x64, and Windows arm64, then verifies both
+CommonJS and ESM imports. It sets `WEBRTC_NODE_PREBUILD_ONLY=1` so missing or
+broken release assets fail instead of compiling from source.
 
 Manual `workflow_dispatch` releases expect a GitHub Release named
 `v<package.json version>` to already exist, because prebuilt archives are
@@ -154,6 +154,12 @@ Supported release targets are:
 - `darwin-x64`
 - `darwin-arm64`
 - `win32-x64`
+- `win32-arm64`
+
+Windows release builds use the pinned root `vcpkg.json` manifest with static
+OpenSSL triplets. GitHub Actions builds and validates x64 on `windows-latest`
+and ARM64 natively on `windows-11-arm`; Windows release archives therefore do
+not bundle OpenSSL runtime DLLs.
 
 Use `WEBRTC_NODE_NATIVE_PATH=/absolute/path/to/webrtc_node.node` to test a
 specific local native binary. Use `npm install --build-from-source` to force the

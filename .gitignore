@@ -2,6 +2,7 @@ build/
 node_modules/
 libdatachannel/
 prebuild-artifacts/
+vcpkg_installed/
 wpt/
 *.log
 *.tgz

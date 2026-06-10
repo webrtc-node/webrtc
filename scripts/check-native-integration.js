@@ -10,12 +10,35 @@ const certificatePath = path.join(root, "src", "native", "certificate.cc");
 const cmakePath = path.join(root, "CMakeLists.txt");
 const manifestPath = path.join(root, "wpt-manifest.json");
 const packagePath = path.join(root, "package.json");
+const setupNativeBuildPath = path.join(
+  root,
+  ".github",
+  "actions",
+  "setup-native-build",
+  "action.yml",
+);
+const ciWorkflowPath = path.join(root, ".github", "workflows", "ci.yml");
+const publishedInstallWorkflowPath = path.join(
+  root,
+  ".github",
+  "workflows",
+  "published-install.yml",
+);
+const releaseWorkflowPath = path.join(root, ".github", "workflows", "release.yml");
+const prebuildCheckPath = path.join(root, "scripts", "check-prebuilds.js");
+const vcpkgManifestPath = path.join(root, "vcpkg.json");
 
 const addon = fs.readFileSync(addonPath, "utf8");
 const certificate = fs.readFileSync(certificatePath, "utf8");
 const cmake = fs.readFileSync(cmakePath, "utf8");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+const setupNativeBuild = fs.readFileSync(setupNativeBuildPath, "utf8");
+const ciWorkflow = fs.readFileSync(ciWorkflowPath, "utf8");
+const publishedInstallWorkflow = fs.readFileSync(publishedInstallWorkflowPath, "utf8");
+const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, "utf8");
+const prebuildCheck = fs.readFileSync(prebuildCheckPath, "utf8");
+const vcpkgManifest = JSON.parse(fs.readFileSync(vcpkgManifestPath, "utf8"));
 
 function fail(message) {
   console.error(`Native integration check failed: ${message}`);
@@ -171,6 +194,21 @@ requireMatch(
 requireMatch("Node-API version definition", cmake, /NAPI_VERSION=\$\{WEBRTC_NODE_NAPI_VERSION\}/);
 requireMatch("prebuild napi build version", cmake, /napi_build_version/);
 requireMatch("release static OpenSSL option", cmake, /WEBRTC_NODE_STATIC_OPENSSL/);
+requireMatch(
+  "environment CMake toolchain forwarding",
+  cmake,
+  /ENV\{CMAKE_TOOLCHAIN_FILE\}[\s\S]*set\s*\(\s*CMAKE_TOOLCHAIN_FILE/,
+);
+requireMatch(
+  "environment vcpkg triplet forwarding",
+  cmake,
+  /ENV\{VCPKG_TARGET_TRIPLET\}[\s\S]*set\s*\(\s*VCPKG_TARGET_TRIPLET/,
+);
+requireMatch(
+  "environment vcpkg install directory forwarding",
+  cmake,
+  /ENV\{VCPKG_INSTALLED_DIR\}[\s\S]*set\s*\(\s*VCPKG_INSTALLED_DIR/,
+);
 requireMatch("Linux hidden symbol visibility", cmake, /-fvisibility=hidden/);
 requireMatch("Linux hidden inline visibility", cmake, /-fvisibility-inlines-hidden/);
 requireMatch("Linux static symbol hiding", cmake, /"LINKER:--exclude-libs,ALL"/);
@@ -186,6 +224,51 @@ requireMatch(
 );
 requireMatch("node-addon-api include discovery", cmake, /require\('node-addon-api'\)\.include_dir/);
 requireMatch("static libdatachannel target", cmake, /LibDataChannel::LibDataChannelStatic/);
+
+if (!/^[0-9a-f]{40}$/.test(vcpkgManifest["builtin-baseline"] || "")) {
+  fail("vcpkg builtin baseline must be a pinned 40-character commit");
+}
+const opensslDependency = (vcpkgManifest.dependencies || []).find(
+  (dependency) =>
+    dependency === "openssl" ||
+    (dependency && typeof dependency === "object" && dependency.name === "openssl"),
+);
+if (!opensslDependency) fail("vcpkg OpenSSL dependency is missing");
+if (
+  typeof opensslDependency !== "object" ||
+  !Array.isArray(opensslDependency.features) ||
+  !opensslDependency.features.includes("tools")
+) {
+  fail("vcpkg OpenSSL tools feature is missing");
+}
+requireMatch("Windows x64 static vcpkg triplet", setupNativeBuild, /x64-windows-static/);
+requireMatch("Windows ARM64 static vcpkg triplet", setupNativeBuild, /arm64-windows-static/);
+requireMatch(
+  "pinned vcpkg baseline checkout",
+  setupNativeBuild,
+  /git -C \$vcpkgRoot checkout --force \$baseline/,
+);
+requireMatch(
+  "vcpkg manifest installation",
+  setupNativeBuild,
+  /vcpkg\.exe"\) install[\s\S]*--x-manifest-root=/,
+);
+forbidMatch("Chocolatey OpenSSL installation", setupNativeBuild, /choco install openssl/);
+requireMatch("Windows ARM64 CI runner", ciWorkflow, /os:\s*windows-11-arm/);
+requireMatch("Windows ARM64 release target", releaseWorkflow, /target:\s*win32-arm64/);
+requireMatch("Windows ARM64 release runner", releaseWorkflow, /os:\s*windows-11-arm/);
+requireMatch(
+  "Windows static OpenSSL release build",
+  releaseWorkflow,
+  /prebuild-windows:[\s\S]*--CDWEBRTC_NODE_STATIC_OPENSSL=ON/,
+);
+forbidMatch("Windows release OpenSSL DLL collection", releaseWorkflow, /OPENSSL_BIN_DIR/);
+requireMatch(
+  "Windows ARM64 published install target",
+  publishedInstallWorkflow,
+  /target:\s*win32-arm64[\s\S]*os:\s*windows-11-arm/,
+);
+requireMatch("Windows ARM64 required prebuild", prebuildCheck, /"win32-arm64"/);
 
 const localLibDataChannel = path.join(root, "libdatachannel");
 if (fs.existsSync(path.join(localLibDataChannel, ".git"))) {

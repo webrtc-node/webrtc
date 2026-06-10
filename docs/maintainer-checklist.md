@@ -60,7 +60,7 @@ Before npm publication:
 - confirm `prebuild-linux-*`, `prebuild-macos`, `prebuild-windows`, and
   `Publish npm package` are green for the release workflow;
 - confirm the `Published Install` workflow is green for Linux glibc, Linux musl,
-  macOS x64, macOS arm64, and Windows x64;
+  macOS x64, macOS arm64, Windows x64, and Windows arm64;
 - for asset-only rebuilds of an already-published version, manually dispatch
   the `Release` workflow with `publish_npm` disabled;
 - do not create or store an `NPM_TOKEN`; the release workflow publishes through

@@ -1,5 +1,20 @@
 cmake_minimum_required(VERSION 3.21)
 
+if(DEFINED ENV{CMAKE_TOOLCHAIN_FILE} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+  set(CMAKE_TOOLCHAIN_FILE "$ENV{CMAKE_TOOLCHAIN_FILE}" CACHE FILEPATH
+      "Toolchain file provided by the native build environment.")
+endif()
+
+if(DEFINED ENV{VCPKG_TARGET_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
+  set(VCPKG_TARGET_TRIPLET "$ENV{VCPKG_TARGET_TRIPLET}" CACHE STRING
+      "vcpkg target triplet provided by the native build environment.")
+endif()
+
+if(DEFINED ENV{VCPKG_INSTALLED_DIR} AND NOT DEFINED VCPKG_INSTALLED_DIR)
+  set(VCPKG_INSTALLED_DIR "$ENV{VCPKG_INSTALLED_DIR}" CACHE PATH
+      "vcpkg installed package directory provided by the native build environment.")
+endif()
+
 project(webrtc_node LANGUAGES CXX)
 
 include(FetchContent)

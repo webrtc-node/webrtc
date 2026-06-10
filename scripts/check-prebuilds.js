@@ -12,6 +12,7 @@ const requiredTargets = [
   "darwin-x64",
   "darwin-arm64",
   "win32-x64",
+  "win32-arm64",
 ];
 
 function fail(message) {

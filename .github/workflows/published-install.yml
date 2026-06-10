@@ -114,6 +114,8 @@ jobs:
             os: macos-15
           - target: win32-x64
             os: windows-latest
+          - target: win32-arm64
+            os: windows-11-arm
 
     steps:
       - uses: actions/setup-node@v6

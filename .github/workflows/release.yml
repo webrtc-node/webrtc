@@ -16,8 +16,7 @@ on:
     types: [published]
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   prebuild-linux:
@@ -102,9 +101,19 @@ jobs:
           path: prebuild-artifacts/*.tar.gz
 
   prebuild-windows:
-    name: Prebuild win32-x64
-    runs-on: windows-latest
+    name: Prebuild ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win32-x64
+            arch: x64
+          - os: windows-11-arm
+            target: win32-arm64
+            arch: arm64
 
     steps:
       - uses: actions/checkout@v6
@@ -120,30 +129,23 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - run: npm run build
+      - run: npm run build -- --arch=${{ matrix.arch }} --CDWEBRTC_NODE_STATIC_OPENSSL=ON
 
-      - name: Package prebuild
-        shell: pwsh
-        run: |
-          $dlls = Get-ChildItem $env:OPENSSL_BIN_DIR -Filter "*.dll" | Where-Object {
-            $_.Name -like "libcrypto-*.dll" -or $_.Name -like "libssl-*.dll"
-          } | ForEach-Object { $_.FullName }
-          if ($dlls.Count -lt 2) {
-            throw "Expected OpenSSL libcrypto and libssl runtime DLLs in $env:OPENSSL_BIN_DIR"
-          }
-          $env:PREBUILD_EXTRA_FILES = ($dlls -join ";")
-          npm run prebuild:package -- --platform=win32 --arch=x64
+      - run: npm run prebuild:package -- --platform=win32 --arch=${{ matrix.arch }}
 
       - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: prebuild-win32-x64
+          name: prebuild-${{ matrix.target }}
           path: prebuild-artifacts/*.tar.gz
 
   publish:
     name: Publish npm package
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     needs:
       - prebuild-linux
       - prebuild-macos
