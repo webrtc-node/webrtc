@@ -80,7 +80,8 @@ async function main() {
     socket = tls.connect({
       host: "127.0.0.1",
       port: address.port,
-      rejectUnauthorized: false,
+      ca: fs.readFileSync(certificatePath),
+      servername: "localhost",
     });
     await new Promise((resolve, reject) => {
       socket.once("secureConnect", resolve);
