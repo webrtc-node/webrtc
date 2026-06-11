@@ -265,7 +265,16 @@ requireMatch(
 );
 requireMatch("CodeQL C++ analysis", codeqlWorkflow, /languages:\s*c-cpp/);
 requireMatch("CodeQL manual native build", codeqlWorkflow, /build-mode:\s*manual/);
-requireMatch("CodeQL native addon compilation", codeqlWorkflow, /npm run build/);
+requireMatch(
+  "CodeQL dependency warmup build",
+  codeqlWorkflow,
+  /Build native dependencies outside CodeQL tracing[\s\S]*npm run build[\s\S]*github\/codeql-action\/init@v4/,
+);
+requireMatch(
+  "CodeQL first-party native rebuild",
+  codeqlWorkflow,
+  /Rebuild first-party native sources for CodeQL[\s\S]*touch src\/native\/addon\.cc src\/native\/certificate\.cc[\s\S]*npm run build/,
+);
 requireMatch("CodeQL security event permission", codeqlWorkflow, /security-events:\s*write/);
 requireMatch(
   "release conformance gate",

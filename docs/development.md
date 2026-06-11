@@ -63,7 +63,19 @@ normally run only the Quality job.
 applicable conditional jobs passed or were intentionally skipped. CodeQL runs
 independently on pull requests, pushes to `main`, and a weekly schedule.
 JavaScript/TypeScript analysis is buildless; C++ analysis manually builds the
-native addon so the database includes the real Node-API compilation.
+native addon so the database includes the real Node-API compilation. The C++
+job warm-builds fetched dependencies before CodeQL initialization, then
+rebuilds the first-party addon sources under tracing. Findings in ignored
+libdatachannel or usrsctp build trees are upstream concerns rather than
+repository-owned code.
+
+Two JavaScript alerts are intentionally classified as test-harness-only:
+
+- `test/turn.test.js` implements the legacy MD5 and SHA-1 TURN long-term
+  credential calculation required to validate native credential forwarding.
+- `scripts/run-wpt-subset.js` extracts scripts from the pinned local WPT
+  checkout; its regular expression is not used to sanitize or render untrusted
+  HTML.
 
 ## Chrome Interoperability
 
