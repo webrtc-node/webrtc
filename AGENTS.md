@@ -112,6 +112,26 @@ When changing public API, update `lib/index.js`, `index.d.ts`,
 `scripts/check-api-surface.js` if needed, local tests, and the WPT manifest or
 docs when conformance status changes.
 
+## Security and Release Automation
+
+Keep the independent CodeQL workflow enabled for JavaScript/TypeScript and the
+manually built C++ addon. Run it on pull requests, pushes to `main`, and a
+schedule with only `contents: read` and `security-events: write` permissions.
+Treat unresolved new high or critical alerts as release blockers.
+
+Protect `main` and require the stable `CI required` gate plus both CodeQL
+language checks. Publish npm releases only after the version tag's strict
+Conformance workflow succeeds. Keep npm trusted publishing on GitHub OIDC with
+provenance; never add a long-lived npm publishing token.
+
+Keep private vulnerability reporting and Dependabot enabled. Release prebuild
+downloads must reject corrupt, malformed, or wrong-platform artifacts.
+
+Work on focused branches, use Conventional Commit messages, and open pull
+requests as drafts unless explicitly requested otherwise. Do not commit
+directly to `main`, merge with failing required checks, or publish versions,
+tags, releases, or replacement assets without explicit maintainer approval.
+
 ## Style and Artifacts
 
 Use the existing JavaScript style: CommonJS modules, two-space indentation,

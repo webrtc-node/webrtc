@@ -7,9 +7,9 @@ lifetime behavior, and cross-platform CI evidence against your use case.
 
 ## Reporting
 
-For security-sensitive issues, open a private GitHub security advisory if the
-repository has advisories enabled. Otherwise contact the maintainer privately
-before publishing exploit details.
+For security-sensitive issues, use the repository's private vulnerability
+reporting form under GitHub Security Advisories. Do not open a public issue or
+publish exploit details before the report is reviewed.
 
 Include:
 

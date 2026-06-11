@@ -16,6 +16,7 @@ milestone.
 - [ ] `npm run wpt:selection:check`
 - [ ] `npm run wpt:test`
 - [ ] `npm run wpt:check:strict`
+- [ ] CodeQL JavaScript/TypeScript and C/C++ checks
 
 ## WPT impact
 
@@ -29,4 +30,5 @@ State whether Chrome E2E behavior or coverage changes.
 ## Notes
 
 Mention any libdatachannel pin, WPT pin, native lifetime, or callback-threading
+impact. For workflow or release changes, describe permission and publication
 impact.

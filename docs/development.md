@@ -59,6 +59,12 @@ include `wpt-manifest.json` and the WPT/reporting/evidence scripts. Workflow
 or action changes run all four buckets. Documentation and agent-note changes
 normally run only the Quality job.
 
+`CI required` is the stable branch-protection check. It succeeds only when the
+applicable conditional jobs passed or were intentionally skipped. CodeQL runs
+independently on pull requests, pushes to `main`, and a weekly schedule.
+JavaScript/TypeScript analysis is buildless; C++ analysis manually builds the
+native addon so the database includes the real Node-API compilation.
+
 ## Chrome Interoperability
 
 WPT remains the JavaScript compatibility contract. The Chrome E2E suite checks
@@ -126,6 +132,10 @@ build `build/Release/webrtc_node.node`, then `npm run prebuild:package` creates
 publish job downloads those artifacts, verifies the expected prebuild set,
 uploads them to the GitHub Release, runs `pack:check`, and publishes the source
 package. Prebuilds are not bundled inside the npm tarball.
+
+The release workflow also waits for the successful strict `Conformance` run
+associated with the release tag. Prebuild jobs may run in parallel, but npm
+publication cannot begin until the matching tag run is complete and green.
 
 Publishing uses npm trusted publishing with GitHub Actions OIDC, not an
 `NPM_TOKEN` secret. Configure the npm package trusted publisher for repository

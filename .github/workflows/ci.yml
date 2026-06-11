@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -308,3 +310,36 @@ jobs:
 
       - name: Run Chrome E2E
         run: npm run e2e:chrome
+
+  ci-required:
+    name: CI required
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - quality
+      - package-artifact
+      - build-test
+      - wpt-smoke
+      - chrome-e2e
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify required CI jobs
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const jobs = JSON.parse(process.env.JOB_RESULTS);
+          const failed = Object.entries(jobs).filter(
+            ([, job]) => job.result !== "success" && job.result !== "skipped",
+          );
+          if (failed.length > 0) {
+            for (const [name, job] of failed) {
+              console.error(`${name}: ${job.result}`);
+            }
+            process.exit(1);
+          }
+          console.log("All required CI jobs passed or were intentionally skipped.");
+          NODE

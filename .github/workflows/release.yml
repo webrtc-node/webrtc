@@ -19,6 +19,68 @@ permissions:
   contents: read
 
 jobs:
+  conformance-gate:
+    name: Require tag conformance
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 105
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Wait for strict tag conformance
+        if: github.event_name == 'release' || inputs.publish_npm
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          if [ "$EVENT_NAME" != "release" ]; then
+            tag="v$(node -p "require('./package.json').version")"
+          fi
+
+          git fetch --force --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+          target_sha="$(git rev-list -n 1 "$tag")"
+          deadline=$((SECONDS + 6000))
+
+          echo "Waiting for Conformance on $tag ($target_sha)."
+          while (( SECONDS < deadline )); do
+            run="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/conformance.yml/runs" \
+                -f head_sha="$target_sha" \
+                -f event=push \
+                -f per_page=20 \
+                --jq '((.workflow_runs | sort_by(.run_number) | last) // empty) | [.id, .status, (.conclusion // "pending"), .html_url] | map(tostring) | join("|")'
+            )"
+
+            if [ -z "$run" ]; then
+              echo "No matching Conformance run yet; checking again in 30 seconds."
+            else
+              IFS='|' read -r run_id status conclusion url <<< "$run"
+              echo "Conformance run $run_id is $status${conclusion:+ ($conclusion)}: $url"
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  echo "Strict tag conformance passed." >> "$GITHUB_STEP_SUMMARY"
+                  exit 0
+                fi
+                echo "Conformance completed with conclusion: $conclusion" >&2
+                exit 1
+              fi
+            fi
+            sleep 30
+          done
+
+          echo "Timed out waiting for tag conformance." >&2
+          exit 1
+
   prebuild-linux:
     name: Prebuild ${{ matrix.target }}
     runs-on: ubuntu-latest
@@ -147,6 +209,7 @@ jobs:
       contents: write
       id-token: write
     needs:
+      - conformance-gate
       - prebuild-linux
       - prebuild-macos
       - prebuild-windows

@@ -18,6 +18,7 @@ const setupNativeBuildPath = path.join(
   "action.yml",
 );
 const ciWorkflowPath = path.join(root, ".github", "workflows", "ci.yml");
+const codeqlWorkflowPath = path.join(root, ".github", "workflows", "codeql.yml");
 const publishedInstallWorkflowPath = path.join(
   root,
   ".github",
@@ -35,6 +36,7 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 const setupNativeBuild = fs.readFileSync(setupNativeBuildPath, "utf8");
 const ciWorkflow = fs.readFileSync(ciWorkflowPath, "utf8");
+const codeqlWorkflow = fs.readFileSync(codeqlWorkflowPath, "utf8");
 const publishedInstallWorkflow = fs.readFileSync(publishedInstallWorkflowPath, "utf8");
 const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, "utf8");
 const prebuildCheck = fs.readFileSync(prebuildCheckPath, "utf8");
@@ -255,6 +257,26 @@ requireMatch(
 );
 forbidMatch("Chocolatey OpenSSL installation", setupNativeBuild, /choco install openssl/);
 requireMatch("Windows ARM64 CI runner", ciWorkflow, /os:\s*windows-11-arm/);
+requireMatch("stable required CI gate", ciWorkflow, /ci-required:[\s\S]*name:\s*CI required/);
+requireMatch(
+  "CodeQL JavaScript and TypeScript analysis",
+  codeqlWorkflow,
+  /languages:\s*javascript-typescript/,
+);
+requireMatch("CodeQL C++ analysis", codeqlWorkflow, /languages:\s*c-cpp/);
+requireMatch("CodeQL manual native build", codeqlWorkflow, /build-mode:\s*manual/);
+requireMatch("CodeQL native addon compilation", codeqlWorkflow, /npm run build/);
+requireMatch("CodeQL security event permission", codeqlWorkflow, /security-events:\s*write/);
+requireMatch(
+  "release conformance gate",
+  releaseWorkflow,
+  /conformance-gate:[\s\S]*conformance\.yml\/runs/,
+);
+requireMatch(
+  "release publication dependency on conformance",
+  releaseWorkflow,
+  /publish:[\s\S]*needs:[\s\S]*-\s*conformance-gate/,
+);
 requireMatch("Windows ARM64 release target", releaseWorkflow, /target:\s*win32-arm64/);
 requireMatch("Windows ARM64 release runner", releaseWorkflow, /os:\s*windows-11-arm/);
 requireMatch(
