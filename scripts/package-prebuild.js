@@ -4,10 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const libc = require("detect-libc");
 const tar = require("tar");
+const { moduleName, writeChecksumFile } = require("./prebuild-integrity");
 
 const root = path.resolve(__dirname, "..");
 const packageJson = require("../package.json");
-const moduleName = "webrtc_node.node";
 
 function option(name, defaultValue = undefined) {
   const prefix = `--${name}=`;
@@ -49,21 +49,12 @@ async function main() {
   fs.mkdirSync(stagingDir, { recursive: true });
   fs.copyFileSync(source, path.join(stagingDir, moduleName));
 
-  const extraFiles = String(option("extra", process.env.PREBUILD_EXTRA_FILES || "") || "")
-    .split(";")
-    .map((file) => file.trim())
-    .filter(Boolean);
-
-  for (const extraFile of extraFiles) {
-    const resolved = path.resolve(extraFile);
-    if (!fs.existsSync(resolved)) fail(`extra file not found at ${resolved}`);
-    fs.copyFileSync(resolved, path.join(stagingDir, path.basename(resolved)));
-  }
-
-  await tar.c({ gzip: true, file: archivePath, cwd: stagingDir }, fs.readdirSync(stagingDir));
+  await tar.c({ gzip: true, file: archivePath, cwd: stagingDir }, [moduleName]);
   fs.rmSync(stagingDir, { recursive: true, force: true });
+  const checksumPath = writeChecksumFile(archivePath);
 
   console.log(`Packaged ${path.relative(root, archivePath).replace(/\\/g, "/")}`);
+  console.log(`Checksummed ${path.relative(root, checksumPath).replace(/\\/g, "/")}`);
 }
 
 main().catch((error) => fail(error.message || String(error)));

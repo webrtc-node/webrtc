@@ -73,7 +73,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-linux-addon-symbols.js|scripts/check-package-artifact.js|scripts/check-prebuilds.js|scripts/check-tls-coexistence.js|scripts/install-native.js|scripts/package-prebuild.js)
+              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-linux-addon-symbols.js|scripts/check-package-artifact.js|scripts/check-prebuilds.js|scripts/check-tls-coexistence.js|scripts/install-native.js|scripts/package-prebuild.js|scripts/prebuild-integrity.js)
                 package_changed="true"
                 ;;
             esac

@@ -44,6 +44,7 @@ const expectedFiles = new Set([
   "src/native/certificate.cc",
   "src/native/certificate.hpp",
   "scripts/install-native.js",
+  "scripts/prebuild-integrity.js",
 ]);
 
 for (const file of expectedFiles) {

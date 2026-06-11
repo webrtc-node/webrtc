@@ -45,7 +45,8 @@ offer/answer exchange.
 ## Supported Platforms
 
 Node.js 20 or newer is required. The npm package downloads a matching Node-API
-prebuild when available, then falls back to a `cmake-js` source build.
+prebuild when available, verifies its SHA-256 digest and target, then falls back
+to a `cmake-js` source build.
 
 | OS | Prebuild targets | Node 20 | Node 22 | Node 24 |
 | --- | --- | --- | --- | --- |

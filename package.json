@@ -38,6 +38,7 @@
   "files": [
     "lib",
     "scripts/install-native.js",
+    "scripts/prebuild-integrity.js",
     "src/native/addon.cc",
     "src/native/certificate.cc",
     "src/native/certificate.hpp",
@@ -61,7 +62,7 @@
     "prebuild:symbols:check": "node scripts/check-linux-addon-symbols.js",
     "tls:check": "node scripts/check-tls-coexistence.js",
     "api:check": "node scripts/check-api-surface.js",
-    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/ci-evidence.test.js test/turn.test.js",
+    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/ci-evidence.test.js test/prebuild-integrity.test.js test/turn.test.js",
     "types:check": "tsc -p tsconfig.types.json",
     "wpt:ensure": "node scripts/ensure-wpt.js",
     "wpt:smoke": "node scripts/run-wpt-smoke.js",

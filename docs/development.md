@@ -54,10 +54,11 @@ The current classifier treats these paths as native-relevant: `lib/`, `src/`,
 `test/`, `CMakeLists.txt`, package files, `index.d.ts`,
 `scripts/check-api-surface.js`, and `scripts/check-native-integration.js`.
 Package-artifact paths include package files, `CMakeLists.txt`, `lib/`, `src/`,
-`scripts/check-package-artifact.js`, and `scripts/install-native.js`. WPT paths
-include `wpt-manifest.json` and the WPT/reporting/evidence scripts. Workflow
-or action changes run all four buckets. Documentation and agent-note changes
-normally run only the Quality job.
+`scripts/check-package-artifact.js`, `scripts/install-native.js`, and the
+prebuild packaging, validation, and integrity scripts. WPT paths include
+`wpt-manifest.json` and the WPT/reporting/evidence scripts. Workflow or action
+changes run all four buckets. Documentation and agent-note changes normally run
+only the Quality job.
 
 `CI required` is the stable branch-protection check. It succeeds only when the
 applicable conditional jobs passed or were intentionally skipped. CodeQL runs
@@ -140,10 +141,12 @@ addon, and requires the package. This guards against missing files in
 
 The release workflow keeps `cmake-js` as the native build backend. Platform jobs
 build `build/Release/webrtc_node.node`, then `npm run prebuild:package` creates
-`prebuild-artifacts/webrtc-node-v<version>-napi-v8-<target>.tar.gz`. The npm
-publish job downloads those artifacts, verifies the expected prebuild set,
+`prebuild-artifacts/webrtc-node-v<version>-napi-v8-<target>.tar.gz` and a
+matching `.sha256` file. The npm publish job downloads those artifacts, verifies
+the complete target set, checks every checksum, archive entry, and binary target,
 uploads them to the GitHub Release, runs `pack:check`, and publishes the source
-package. Prebuilds are not bundled inside the npm tarball.
+package. Prebuilds and generated checksums are not bundled inside the npm
+tarball.
 
 The release workflow also waits for the successful strict `Conformance` run
 associated with the release tag. Prebuild jobs may run in parallel, but npm
@@ -159,6 +162,12 @@ by manual dispatch. It installs the published npm package on Linux glibc, Linux
 musl, macOS x64, macOS arm64, Windows x64, and Windows arm64, then verifies both
 CommonJS and ESM imports. It sets `WEBRTC_NODE_PREBUILD_ONLY=1` so missing or
 broken release assets fail instead of compiling from source.
+
+The install script downloads the target archive and its sibling `.sha256`
+release asset. It enforces download limits, verifies the SHA-256 digest, accepts
+only a single regular `webrtc_node.node` archive entry, validates the binary
+format and CPU architecture, distinguishes Linux glibc from musl, and installs
+through a temporary path only after all checks pass.
 
 Manual `workflow_dispatch` releases expect a GitHub Release named
 `v<package.json version>` to already exist, because prebuilt archives are

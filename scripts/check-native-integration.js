@@ -27,6 +27,9 @@ const publishedInstallWorkflowPath = path.join(
 );
 const releaseWorkflowPath = path.join(root, ".github", "workflows", "release.yml");
 const prebuildCheckPath = path.join(root, "scripts", "check-prebuilds.js");
+const prebuildIntegrityPath = path.join(root, "scripts", "prebuild-integrity.js");
+const packagePrebuildPath = path.join(root, "scripts", "package-prebuild.js");
+const installNativePath = path.join(root, "scripts", "install-native.js");
 const vcpkgManifestPath = path.join(root, "vcpkg.json");
 
 const addon = fs.readFileSync(addonPath, "utf8");
@@ -40,6 +43,9 @@ const codeqlWorkflow = fs.readFileSync(codeqlWorkflowPath, "utf8");
 const publishedInstallWorkflow = fs.readFileSync(publishedInstallWorkflowPath, "utf8");
 const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, "utf8");
 const prebuildCheck = fs.readFileSync(prebuildCheckPath, "utf8");
+const prebuildIntegrity = fs.readFileSync(prebuildIntegrityPath, "utf8");
+const packagePrebuild = fs.readFileSync(packagePrebuildPath, "utf8");
+const installNative = fs.readFileSync(installNativePath, "utf8");
 const vcpkgManifest = JSON.parse(fs.readFileSync(vcpkgManifestPath, "utf8"));
 
 function fail(message) {
@@ -300,6 +306,23 @@ requireMatch(
   /target:\s*win32-arm64[\s\S]*os:\s*windows-11-arm/,
 );
 requireMatch("Windows ARM64 required prebuild", prebuildCheck, /"win32-arm64"/);
+requireMatch("prebuild checksum verification", prebuildIntegrity, /timingSafeEqual/);
+requireMatch(
+  "prebuild archive entry allowlist",
+  prebuildIntegrity,
+  /entries\.length\s*!==\s*1[\s\S]*entry\.path\s*!==\s*moduleName/,
+);
+requireMatch("prebuild binary target verification", prebuildIntegrity, /verifyBinaryTarget/);
+requireMatch("prebuild checksum generation", packagePrebuild, /writeChecksumFile\s*\(/);
+requireMatch("installer checksum download", installNative, /checksumFileName\s*\(/);
+requireMatch("installer validated extraction", installNative, /installArchive\s*\(/);
+requireMatch("release asset allowlist", prebuildCheck, /unexpected prebuild release asset/);
+requireMatch("release checksum artifact upload", releaseWorkflow, /path:\s*prebuild-artifacts\/\*/);
+requireMatch(
+  "release checksum asset upload",
+  releaseWorkflow,
+  /gh release upload "\$tag" prebuild-artifacts\/\* --clobber/,
+);
 
 const localLibDataChannel = path.join(root, "libdatachannel");
 if (fs.existsSync(path.join(localLibDataChannel, ".git"))) {

@@ -62,6 +62,8 @@ Before npm publication:
   outside the working tree;
 - confirm `prebuild-linux-*`, `prebuild-macos`, `prebuild-windows`, and
   `Publish npm package` are green for the release workflow;
+- confirm every prebuild archive has a sibling `.sha256` release asset and
+  `npm run prebuild:check` validates the complete set;
 - confirm the `Published Install` workflow is green for Linux glibc, Linux musl,
   macOS x64, macOS arm64, Windows x64, and Windows arm64;
 - for asset-only rebuilds of an already-published version, manually dispatch

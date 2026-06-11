@@ -120,7 +120,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*.tar.gz
+          path: prebuild-artifacts/*
 
   prebuild-macos:
     name: Prebuild ${{ matrix.target }}
@@ -160,7 +160,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*.tar.gz
+          path: prebuild-artifacts/*
 
   prebuild-windows:
     name: Prebuild ${{ matrix.target }}
@@ -200,7 +200,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*.tar.gz
+          path: prebuild-artifacts/*
 
   publish:
     name: Publish npm package
@@ -265,7 +265,7 @@ jobs:
             tag="v$(node -p "require('./package.json').version")"
           fi
           gh release view "$tag" >/dev/null
-          gh release upload "$tag" prebuild-artifacts/*.tar.gz --clobber
+          gh release upload "$tag" prebuild-artifacts/* --clobber
 
       - name: Publish to npm
         if: github.event_name != 'workflow_dispatch' || inputs.publish_npm
