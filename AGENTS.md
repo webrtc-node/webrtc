@@ -120,9 +120,10 @@ schedule with only `contents: read` and `security-events: write` permissions.
 Treat unresolved new high or critical alerts as release blockers.
 
 Protect `main` and require the stable `CI required` gate plus both CodeQL
-language checks. Publish npm releases only after the version tag's strict
-Conformance workflow succeeds. Keep npm trusted publishing on GitHub OIDC with
-provenance; never add a long-lived npm publishing token.
+language checks. Keep the version tag's strict Conformance workflow independent
+from publication; do not wait for it to publish, but require a green result
+before making updated conformance claims. Keep npm trusted publishing on GitHub
+OIDC with provenance; never add a long-lived npm publishing token.
 
 Keep private vulnerability reporting and Dependabot enabled. Release prebuild
 downloads must reject corrupt, malformed, or wrong-platform artifacts.

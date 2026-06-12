@@ -43,7 +43,7 @@ For native transport and teardown diagnostics, set
 - protect `main` and require pull requests;
 - require `CI required`, `CodeQL JavaScript/TypeScript`, and `CodeQL C/C++`
   before merging;
-- keep the release workflow's tag Conformance gate enabled.
+- keep tag-triggered strict Conformance enabled as independent release evidence.
 
 ## Release Readiness
 
@@ -54,8 +54,9 @@ Before npm publication:
 - publish through the GitHub `Release` workflow so Linux, macOS, and Windows
   Node-API prebuilds are attached to the GitHub Release before npm publication;
 - ensure the GitHub Release tag matches `v<package.json version>`;
-- push the version tag so the `Conformance` workflow runs; the release workflow
-  waits for its strict result before publishing to npm;
+- push the version tag so the independent strict `Conformance` workflow runs;
+  do not wait for it to publish, but require a green result before making
+  updated conformance claims;
 - confirm both CodeQL language checks are green with no unresolved new high or
   critical alerts;
 - confirm the CI `Package artifact` job is green so the packed source builds

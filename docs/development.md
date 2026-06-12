@@ -148,9 +148,10 @@ uploads them to the GitHub Release, runs `pack:check`, and publishes the source
 package. Prebuilds and generated checksums are not bundled inside the npm
 tarball.
 
-The release workflow also waits for the successful strict `Conformance` run
-associated with the release tag. Prebuild jobs may run in parallel, but npm
-publication cannot begin until the matching tag run is complete and green.
+The version tag starts the strict `Conformance` workflow independently. Release
+prebuilds and publication do not wait for the full selected WPT matrix; use its
+result as release evidence and require it before making updated conformance
+claims.
 
 Publishing uses npm trusted publishing with GitHub Actions OIDC, not an
 `NPM_TOKEN` secret. Configure the npm package trusted publisher for repository

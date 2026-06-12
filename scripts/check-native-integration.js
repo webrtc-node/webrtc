@@ -19,6 +19,7 @@ const setupNativeBuildPath = path.join(
 );
 const ciWorkflowPath = path.join(root, ".github", "workflows", "ci.yml");
 const codeqlWorkflowPath = path.join(root, ".github", "workflows", "codeql.yml");
+const conformanceWorkflowPath = path.join(root, ".github", "workflows", "conformance.yml");
 const publishedInstallWorkflowPath = path.join(
   root,
   ".github",
@@ -40,6 +41,7 @@ const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 const setupNativeBuild = fs.readFileSync(setupNativeBuildPath, "utf8");
 const ciWorkflow = fs.readFileSync(ciWorkflowPath, "utf8");
 const codeqlWorkflow = fs.readFileSync(codeqlWorkflowPath, "utf8");
+const conformanceWorkflow = fs.readFileSync(conformanceWorkflowPath, "utf8");
 const publishedInstallWorkflow = fs.readFileSync(publishedInstallWorkflowPath, "utf8");
 const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, "utf8");
 const prebuildCheck = fs.readFileSync(prebuildCheckPath, "utf8");
@@ -283,15 +285,12 @@ requireMatch(
 );
 requireMatch("CodeQL security event permission", codeqlWorkflow, /security-events:\s*write/);
 requireMatch(
-  "release conformance gate",
-  releaseWorkflow,
-  /conformance-gate:[\s\S]*conformance\.yml\/runs/,
+  "version tag Conformance trigger",
+  conformanceWorkflow,
+  /push:[\s\S]*tags:[\s\S]*-\s*"v\*"/,
 );
-requireMatch(
-  "release publication dependency on conformance",
-  releaseWorkflow,
-  /publish:[\s\S]*needs:[\s\S]*-\s*conformance-gate/,
-);
+forbidMatch("release conformance polling gate", releaseWorkflow, /conformance\.yml\/runs/);
+forbidMatch("release publication dependency on conformance", releaseWorkflow, /conformance-gate/);
 requireMatch("Windows ARM64 release target", releaseWorkflow, /target:\s*win32-arm64/);
 requireMatch("Windows ARM64 release runner", releaseWorkflow, /os:\s*windows-11-arm/);
 requireMatch(
