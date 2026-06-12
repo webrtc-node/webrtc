@@ -27,6 +27,7 @@ const publishedInstallWorkflowPath = path.join(
   "published-install.yml",
 );
 const releaseWorkflowPath = path.join(root, ".github", "workflows", "release.yml");
+const wptShardedPath = path.join(root, "scripts", "run-wpt-sharded.js");
 const prebuildCheckPath = path.join(root, "scripts", "check-prebuilds.js");
 const prebuildIntegrityPath = path.join(root, "scripts", "prebuild-integrity.js");
 const packagePrebuildPath = path.join(root, "scripts", "package-prebuild.js");
@@ -44,6 +45,7 @@ const codeqlWorkflow = fs.readFileSync(codeqlWorkflowPath, "utf8");
 const conformanceWorkflow = fs.readFileSync(conformanceWorkflowPath, "utf8");
 const publishedInstallWorkflow = fs.readFileSync(publishedInstallWorkflowPath, "utf8");
 const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, "utf8");
+const wptSharded = fs.readFileSync(wptShardedPath, "utf8");
 const prebuildCheck = fs.readFileSync(prebuildCheckPath, "utf8");
 const prebuildIntegrity = fs.readFileSync(prebuildIntegrityPath, "utf8");
 const packagePrebuild = fs.readFileSync(packagePrebuildPath, "utf8");
@@ -289,6 +291,13 @@ requireMatch(
   conformanceWorkflow,
   /push:[\s\S]*tags:[\s\S]*-\s*"v\*"/,
 );
+requireMatch(
+  "Conformance sharded WPT command",
+  conformanceWorkflow,
+  /npm run wpt:test:sharded -- --shards=3/,
+);
+requireMatch("WPT shard parallel execution", wptSharded, /Promise\.all/);
+requireMatch("WPT shard result merge", wptSharded, /mergeWptSummaries/);
 forbidMatch("release conformance polling gate", releaseWorkflow, /conformance\.yml\/runs/);
 forbidMatch("release publication dependency on conformance", releaseWorkflow, /conformance-gate/);
 requireMatch("Windows ARM64 release target", releaseWorkflow, /target:\s*win32-arm64/);

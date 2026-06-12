@@ -79,7 +79,7 @@ jobs:
 
       - run: npm run wpt:selection:check
 
-      - run: npm run wpt:test
+      - run: npm run wpt:test:sharded -- --shards=3
 
       - run: npm run wpt:check:strict
 

@@ -9,8 +9,7 @@ This project targets the WebRTC data-channel profile exposed through
 The current selected suite contains **620 expected-passing WPT subtests**. CI
 validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
-smoke check; release readiness should be judged from the full Conformance
-workflow.
+smoke check.
 
 ## Selected Scope
 
@@ -44,6 +43,12 @@ npm run wpt:report -- --output wpt-report.md
 
 `wpt:test` writes `wpt-results.json`. `wpt:check:strict` requires every selected
 subtest to pass and fails if a worker retry was needed.
+
+Hosted Conformance uses `npm run wpt:test:sharded` with three deterministic
+subtest shards running concurrently inside each OS/Node job. The shard outputs
+are merged into the same complete `wpt-results.json`; the strict checker and
+evidence verifier still require all 620 unique subtests with no failures or
+retries.
 
 ## CI Evidence
 

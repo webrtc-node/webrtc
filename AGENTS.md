@@ -84,6 +84,7 @@ Full conformance validation is intentionally separate from ordinary push/PR CI:
 
 ```sh
 npm run wpt:test
+npm run wpt:test:sharded
 npm run wpt:check:strict
 npm run ci:evidence
 ```

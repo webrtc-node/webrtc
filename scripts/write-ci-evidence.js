@@ -108,7 +108,7 @@ const evidence = {
     "npm run types:check",
     "npm run wpt:ensure",
     "npm run wpt:selection:check",
-    "npm run wpt:test",
+    "npm run wpt:test:sharded",
     "npm run wpt:check:strict",
     "npm run wpt:report",
   ],

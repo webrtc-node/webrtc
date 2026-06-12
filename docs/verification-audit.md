@@ -59,7 +59,7 @@ authoritative logs prove the full matrix:
 
 The Quality job must pass `npm ci`, `check`, `types:check`, and `pack:check`.
 Each matrix job must pass `npm ci`, `native:check`, `build`, `test`, `api:check`,
-`types:check`, `wpt:ensure`, `wpt:selection:check`, `wpt:test`,
+`types:check`, `wpt:ensure`, `wpt:selection:check`, `wpt:test:sharded`,
 `wpt:check:strict`, `wpt:report`, and `ci:evidence`.
 
 After downloading all workflow artifacts into `ci-artifacts/`, run

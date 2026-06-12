@@ -98,7 +98,9 @@ transport state. One lifetime scenario deliberately cycles negotiated,
 partial-reliability, buffered, and ordinary channels in the same process.
 
 The full selected WPT matrix is in the `Conformance` workflow, which runs on
-manual dispatch, weekly schedule, and version tags.
+manual dispatch, weekly schedule, and version tags. Each OS/Node job runs three
+deterministic WPT shards concurrently, then merges them into one strict
+620-subtest result artifact.
 
 By default, WPT is fetched into the ignored `wpt/` cache. Set `WPT_DIR` to use a
 different pinned checkout.

@@ -18,8 +18,20 @@ const workerDelayMs = Number(process.env.WPT_WORKER_DELAY_MS || 200);
 const workerRetries = Math.max(0, Number(process.env.WPT_WORKER_RETRIES || 0));
 const workerTimeoutMs = Number(process.env.WPT_WORKER_TIMEOUT_MS || 300000);
 const listTestsOnly = process.env.WPT_LIST_TESTS === "1";
+const shardCount = Number(process.env.WPT_SHARD_COUNT || 1);
+const shardIndex = Number(process.env.WPT_SHARD_INDEX || 0);
+const logPrefix = process.env.WPT_LOG_PREFIX || "";
+
+if (!Number.isInteger(shardCount) || shardCount < 1) {
+  throw new Error("WPT_SHARD_COUNT must be a positive integer");
+}
+if (!Number.isInteger(shardIndex) || shardIndex < 0 || shardIndex >= shardCount) {
+  throw new Error("WPT_SHARD_INDEX must identify an existing shard");
+}
 
 if (!isWorker) ensureWpt({ quiet: true });
+
+const { shardForTest } = require("./wpt-sharding");
 
 const perTestIsolatedFiles = new Set([
   "webrtc/RTCPeerConnection-createDataChannel.html",
@@ -499,7 +511,9 @@ function shouldRun(spec, name) {
     !includes.some((pattern) => name.includes(pattern))
   )
     return false;
-  return !excludes.some((pattern) => name.includes(pattern));
+  if (excludes.some((pattern) => name.includes(pattern))) return false;
+  if (shardCount === 1) return true;
+  return shardForTest(`${spec.file}${spec.search || ""}`, name, shardCount) === shardIndex;
 }
 
 class FileReaderShim extends webrtc.EventTarget {
@@ -959,8 +973,14 @@ function makeTempJsonPath(name) {
 async function runIsolated(specsToRun) {
   for (let index = 0; index < specsToRun.length; ++index) {
     const spec = specsToRun[index];
-    if (perTestIsolatedFiles.has(spec.file)) {
+    if (perTestIsolatedFiles.has(spec.file) || shardCount > 1) {
       const tests = runListWorker(spec, index);
+      if (tests.length === 0) continue;
+      if (!perTestIsolatedFiles.has(spec.file)) {
+        runSpecWorker(spec, String(index));
+        await delay(workerDelayMs);
+        continue;
+      }
       for (let testIndex = 0; testIndex < tests.length; ++testIndex) {
         runSpecWorker(
           {
@@ -1061,7 +1081,7 @@ function recordResult(result) {
 function formatResultLine(result) {
   const suffix = result.status === "FAIL" ? ` - ${result.message}` : "";
   const retrySuffix = result.retries ? ` (retried ${result.retries})` : "";
-  return `${result.status} ${result.file} :: ${result.name}${retrySuffix}${suffix}`;
+  return `${logPrefix}${result.status} ${result.file} :: ${result.name}${retrySuffix}${suffix}`;
 }
 
 function workerOutcomeFailed(outcome) {
@@ -1155,7 +1175,7 @@ function writeSummary({ quiet = false } = {}) {
         console.log(formatResultLine(result));
       }
     }
-    console.log(`WPT subset: ${summary.pass}/${summary.total} passed`);
+    console.log(`${logPrefix}WPT subset: ${summary.pass}/${summary.total} passed`);
   }
 
   if (summary.fail > 0) process.exitCode = 1;
