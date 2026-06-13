@@ -1,5 +1,7 @@
 "use strict";
 
+const crypto = require("node:crypto");
+
 function testIdentity(file, name) {
   if (typeof file !== "string" || file.length === 0) {
     throw new Error("WPT result file must be a non-empty string");
@@ -115,9 +117,31 @@ function mergeWptSummaries(summaries) {
   };
 }
 
+function validateWptSelectionTotal(total, expectedTotal = null) {
+  if (!Number.isInteger(total) || total < 0) {
+    throw new Error("WPT selected subtest total must be a non-negative integer");
+  }
+  if (total === 0) {
+    throw new Error("WPT run selected no subtests");
+  }
+  if (expectedTotal !== null && total !== expectedTotal) {
+    throw new Error(`WPT run selected ${total} subtests, expected ${expectedTotal}`);
+  }
+}
+
+function wptSelectionDigest(identities) {
+  const sorted = [...identities].sort();
+  if (sorted.some((identity) => typeof identity !== "string" || identity.length === 0)) {
+    throw new Error("WPT selection identities must be non-empty strings");
+  }
+  return crypto.createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
+}
+
 module.exports = {
   assignWptSpecGroups,
   mergeWptSummaries,
   shardForTest,
   testIdentity,
+  validateWptSelectionTotal,
+  wptSelectionDigest,
 };

@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { mergeWptSummaries } = require("./wpt-sharding");
+const { mergeWptSummaries, validateWptSelectionTotal } = require("./wpt-sharding");
 
 const root = path.resolve(__dirname, "..");
 const manifest = require("../wpt-manifest.json");
@@ -15,6 +15,9 @@ const shardCount = Number(
   shardArgument?.slice("--shards=".length) || process.env.WPT_SHARD_COUNT || 3,
 );
 const outputPath = path.resolve(process.env.WPT_RESULTS || path.join(root, "wpt-results.json"));
+const runnerPath = path.resolve(
+  process.env.WPT_SHARD_RUNNER || path.join(__dirname, "run-wpt-subset.js"),
+);
 const expectedTotal = process.env.WPT_EXPECTED_TOTAL
   ? Number(process.env.WPT_EXPECTED_TOTAL)
   : selectors.length === 0
@@ -40,21 +43,17 @@ function tempResultsPath(index) {
 
 function runShard(index, resultsPath) {
   return new Promise((resolve) => {
-    const child = spawn(
-      process.execPath,
-      ["--expose-gc", path.join(__dirname, "run-wpt-subset.js"), ...selectors],
-      {
-        cwd: root,
-        env: {
-          ...process.env,
-          WPT_LOG_PREFIX: `[shard ${index + 1}/${shardCount}] `,
-          WPT_SHARD_COUNT: String(shardCount),
-          WPT_SHARD_INDEX: String(index),
-          WPT_WORKER_RESULTS: resultsPath,
-        },
-        stdio: "inherit",
+    const child = spawn(process.execPath, ["--expose-gc", runnerPath, ...selectors], {
+      cwd: root,
+      env: {
+        ...process.env,
+        WPT_LOG_PREFIX: `[shard ${index + 1}/${shardCount}] `,
+        WPT_SHARD_COUNT: String(shardCount),
+        WPT_SHARD_INDEX: String(index),
+        WPT_WORKER_RESULTS: resultsPath,
       },
-    );
+      stdio: "inherit",
+    });
 
     child.on("error", (error) => resolve({ index, error, code: null, signal: null }));
     child.on("exit", (code, signal) => resolve({ index, error: null, code, signal }));
@@ -153,10 +152,10 @@ async function main() {
     console.log(`WPT shards: ${summary.pass}/${summary.total} passed across ${shardCount} shards`);
 
     if (summary.fail > 0) process.exitCode = 1;
-    if (expectedTotal !== null && summary.total !== expectedTotal) {
-      console.error(
-        `WPT sharded run selected ${summary.total} subtests, expected ${expectedTotal}`,
-      );
+    try {
+      validateWptSelectionTotal(summary.total, expectedTotal);
+    } catch (error) {
+      console.error(`WPT sharded run failed: ${error.message}`);
       process.exitCode = 1;
     }
   } finally {

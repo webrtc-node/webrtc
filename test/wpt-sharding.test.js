@@ -1,8 +1,45 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
-const { assignWptSpecGroups, mergeWptSummaries, shardForTest } = require("../scripts/wpt-sharding");
+const {
+  assignWptSpecGroups,
+  mergeWptSummaries,
+  shardForTest,
+  validateWptSelectionTotal,
+  wptSelectionDigest,
+} = require("../scripts/wpt-sharding");
+
+const root = path.resolve(__dirname, "..");
+const shardRunner = path.join(__dirname, "fixtures", "wpt-shard-runner.js");
+
+function runShardedFixture(mode) {
+  const output = path.join(
+    os.tmpdir(),
+    `webrtc-node-wpt-sharding-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+  );
+  try {
+    return spawnSync(
+      process.execPath,
+      [path.join(root, "scripts", "run-wpt-sharded.js"), "--shards=3", mode],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          WPT_RESULTS: output,
+          WPT_SHARD_RUNNER: shardRunner,
+        },
+        encoding: "utf8",
+      },
+    );
+  } finally {
+    fs.rmSync(output, { force: true });
+  }
+}
 
 test("WPT shard assignment is deterministic and exhaustive", () => {
   const shardCount = 3;
@@ -83,4 +120,33 @@ test("WPT shard merger rejects overlapping results", () => {
       ]),
     /duplicate WPT result/,
   );
+});
+
+test("WPT selection validation rejects an empty targeted run", () => {
+  assert.throws(() => validateWptSelectionTotal(0), /selected no subtests/);
+  assert.doesNotThrow(() => validateWptSelectionTotal(1));
+});
+
+test("WPT selection validation enforces an expected total", () => {
+  assert.throws(() => validateWptSelectionTotal(3, 4), /selected 3 subtests, expected 4/);
+  assert.doesNotThrow(() => validateWptSelectionTotal(4, 4));
+});
+
+test("WPT selection digest is deterministic and identity-sensitive", () => {
+  const first = wptSelectionDigest(["b\0second", "a\0first"]);
+  const second = wptSelectionDigest(["a\0first", "b\0second"]);
+  assert.equal(first, second);
+  assert.notEqual(first, wptSelectionDigest(["a\0first", "b\0changed"]));
+});
+
+test("sharded WPT runner rejects an empty merged selection", () => {
+  const result = runShardedFixture("empty");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /selected no subtests/);
+});
+
+test("sharded WPT runner permits empty shards when the merged selection is nonempty", () => {
+  const result = runShardedFixture("single");
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /WPT shards: 1\/1 passed across 3 shards/);
 });

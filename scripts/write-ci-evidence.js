@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { testIdentity, wptSelectionDigest } = require("./wpt-sharding");
 
 const root = path.resolve(__dirname, "..");
 const args = process.argv.slice(2);
@@ -46,13 +47,22 @@ if (results.results.length !== results.total) {
 const pass = results.results.filter((result) => result.status === "PASS").length;
 const failCount = results.results.filter((result) => result.status === "FAIL").length;
 const retries = results.results.filter((result) => Number(result.retries) > 0).length;
+const identities = results.results.map((result) => testIdentity(result.file, result.name));
+const identitySet = new Set(identities);
+const selectedSubtestsSha256 = wptSelectionDigest(identitySet);
 
 if (pass !== results.pass) fail(`PASS count ${pass} does not match summary ${results.pass}`);
 if (failCount !== results.fail)
   fail(`FAIL count ${failCount} does not match summary ${results.fail}`);
+if (identitySet.size !== identities.length) fail("WPT results contain duplicate test identities");
 if (manifest.expectedSelectedSubtests && results.total !== manifest.expectedSelectedSubtests) {
   fail(
     `result total ${results.total} does not match manifest ${manifest.expectedSelectedSubtests}`,
+  );
+}
+if (selectedSubtestsSha256 !== manifest.selectedSubtestsSha256) {
+  fail(
+    `result identity digest ${selectedSubtestsSha256} does not match manifest ${manifest.selectedSubtestsSha256}`,
   );
 }
 if (results.fail !== 0 || retries !== 0 || pass !== results.total) {
@@ -98,6 +108,7 @@ const evidence = {
     fail: failCount,
     retries,
     resultFiles: new Set(results.results.map((result) => result.file)).size,
+    selectedSubtestsSha256,
   },
   gates: [
     "npm ci",

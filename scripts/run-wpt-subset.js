@@ -18,6 +18,7 @@ const workerDelayMs = Number(process.env.WPT_WORKER_DELAY_MS || 200);
 const workerRetries = Math.max(0, Number(process.env.WPT_WORKER_RETRIES || 0));
 const workerTimeoutMs = Number(process.env.WPT_WORKER_TIMEOUT_MS || 300000);
 const listTestsOnly = process.env.WPT_LIST_TESTS === "1";
+const listTestIdentities = !isWorker && process.env.WPT_LIST_IDENTITIES === "1";
 const shardCount = Number(process.env.WPT_SHARD_COUNT || 1);
 const shardIndex = Number(process.env.WPT_SHARD_INDEX || 0);
 const logPrefix = process.env.WPT_LOG_PREFIX || "";
@@ -31,7 +32,7 @@ if (!Number.isInteger(shardIndex) || shardIndex < 0 || shardIndex >= shardCount)
 
 if (!isWorker) ensureWpt({ quiet: true });
 
-const { assignWptSpecGroups, shardForTest } = require("./wpt-sharding");
+const { assignWptSpecGroups, shardForTest, validateWptSelectionTotal } = require("./wpt-sharding");
 
 const perTestIsolatedFiles = new Set([
   "webrtc/RTCPeerConnection-createDataChannel.html",
@@ -1065,9 +1066,17 @@ function specGroupKey(spec, index) {
 function listIsolatedTests(specsToRun) {
   const tests = [];
   for (let index = 0; index < specsToRun.length; ++index) {
-    tests.push(...runListWorker(specsToRun[index], index));
+    const spec = specsToRun[index];
+    const names = runListWorker(spec, index);
+    tests.push(...formatListedTests(spec, names));
   }
   return tests;
+}
+
+function formatListedTests(spec, names) {
+  if (!listTestIdentities) return names;
+  const file = `${spec.file}${spec.search || ""}`;
+  return names.map((name) => ({ file, name }));
 }
 
 function runListWorker(spec, index) {
@@ -1233,6 +1242,7 @@ function runWorker(spec, index, extraEnv = {}) {
 function writeTestList(tests) {
   const outputFile = workerResultsFile || path.join(root, "wpt-results.json");
   fs.writeFileSync(outputFile, `${JSON.stringify({ tests }, null, 2)}\n`);
+  if (!isWorker) validateWptSelectionTotal(tests.length);
 }
 
 function writeSummary({ quiet = false } = {}) {
@@ -1256,6 +1266,14 @@ function writeSummary({ quiet = false } = {}) {
   }
 
   if (summary.fail > 0) process.exitCode = 1;
+  if (!isWorker && shardCount === 1) {
+    try {
+      validateWptSelectionTotal(summary.total);
+    } catch (error) {
+      console.error(`${logPrefix}WPT subset failed: ${error.message}`);
+      process.exitCode = 1;
+    }
+  }
 }
 
 (async () => {
@@ -1263,7 +1281,7 @@ function writeSummary({ quiet = false } = {}) {
     if (listTestsOnly) {
       const tests = [];
       for (const spec of specs) {
-        tests.push(...(await runFile(spec)));
+        tests.push(...formatListedTests(spec, await runFile(spec)));
       }
       writeTestList(tests);
       return;

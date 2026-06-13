@@ -3,6 +3,7 @@
   "libdatachannelCommit": "502ae351495792192ef21788e093b48e34ab393e",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
   "expectedSelectedSubtests": 620,
+  "selectedSubtestsSha256": "967896888c9496738e4911ec1eff073a1d0fff701352729c3de2e51665e8bb97",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
