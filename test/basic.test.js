@@ -679,6 +679,40 @@ test("data-channel opening burst is delivered after the datachannel event task",
   answerer.close();
 });
 
+test("native message batches do not overtake queued messages", async (t) => {
+  const peerConnection = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(peerConnection));
+  const channel = peerConnection.createDataChannel("queued-before-native-batch");
+  const queuedEvents = ["message 0", "message 1"].map((data) => ({
+    type: "message",
+    binary: false,
+    data,
+  }));
+  const nativeBatch = ["message 2", "message 3"].map((data) => ({
+    type: "message",
+    binary: false,
+    data,
+  }));
+  const received = [];
+  const done = new Promise((resolve) => {
+    channel.onmessage = (event) => {
+      received.push(event.data);
+      if (received.length === queuedEvents.length + nativeBatch.length) resolve();
+    };
+  });
+
+  channel._queueMessageEvents(queuedEvents);
+  if (!channel._dispatchNativeMessageBatch(nativeBatch)) {
+    channel._queueMessageEvents(nativeBatch);
+  }
+  await done;
+
+  assert.deepEqual(
+    received,
+    [...queuedEvents, ...nativeBatch].map((event) => event.data),
+  );
+});
+
 test("message listener added during onmessage receives later burst messages", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
