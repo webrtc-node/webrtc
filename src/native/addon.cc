@@ -508,9 +508,13 @@ public:
 			address = info[2].ToString().Utf8Value();
 		}
 
-		binding_ = IceUdpMuxBinding::Create(env, info[1].As<Napi::Function>(),
-		                                   static_cast<uint16_t>(port), std::move(address));
-		RegisterIceUdpMuxBinding(binding_);
+		try {
+			binding_ = IceUdpMuxBinding::Create(env, info[1].As<Napi::Function>(),
+			                                   static_cast<uint16_t>(port), std::move(address));
+			RegisterIceUdpMuxBinding(binding_);
+		} catch (const std::exception &e) {
+			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
+		}
 	}
 
 	~NativeIceUdpMuxListener() override {

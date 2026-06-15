@@ -161,6 +161,17 @@ test("IceUdpMuxListener reports its endpoint and stops callback delivery", async
   );
 });
 
+test("IceUdpMuxListener reports occupied ports as JavaScript exceptions", async (t) => {
+  const port = await unusedUdpPort();
+  const listener = new nonstandard.IceUdpMuxListener(port, "127.0.0.1");
+  t.after(() => listener.close());
+
+  assert.throws(
+    () => new nonstandard.IceUdpMuxListener(port, "127.0.0.1"),
+    /Failed to register ICE UDP mux listener/,
+  );
+});
+
 test("nonstandard peer configuration is pre-construction and secure by default", () => {
   const peerConnection = new RTCPeerConnection();
   assert.equal(peerConnection._nonstandardConfiguration.disableFingerprintVerification, false);
@@ -273,8 +284,12 @@ test("enableIceUdpMux gathers on the listener port", async (t) => {
   });
   await peerConnection.setLocalDescription(await peerConnection.createOffer());
   await waitForIceGatheringComplete(peerConnection);
+  const candidateUsesMuxPort = new RegExp(
+    `^a=candidate:.*\\s${port}\\s+typ\\s+host(?:\\s|$)`,
+    "im",
+  );
   await waitForValue(() =>
-    peerConnection.localDescription?.sdp.includes(` 127.0.0.1 ${port} typ host`) ? true : null,
+    candidateUsesMuxPort.test(peerConnection.localDescription?.sdp ?? "") ? true : null,
   );
 });
 
@@ -403,10 +418,22 @@ test("garbage-collected UDP mux listeners release their native port", async () =
           new Promise((resolve) => setTimeout(() => resolve(false), 10)),
         ]);
         if (result) {
-          await new Promise((resolve) => setImmediate(resolve));
-          const replacement = new nonstandard.IceUdpMuxListener(${port}, "127.0.0.1");
-          replacement.close();
-          return;
+          let lastError;
+          while (Date.now() < deadline) {
+            try {
+              const replacement = new nonstandard.IceUdpMuxListener(${port}, "127.0.0.1");
+              replacement.close();
+              return;
+            } catch (error) {
+              lastError = error;
+              global.gc();
+              await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+          }
+          throw new Error(
+            "ICE UDP mux listener did not release its port: " +
+              (lastError?.stack ?? lastError),
+          );
         }
       }
       throw new Error("ICE UDP mux listener was not garbage collected");
@@ -416,8 +443,17 @@ test("garbage-collected UDP mux listeners release their native port", async () =
     });
   `;
   const child = spawn(process.execPath, ["--expose-gc", "-e", script], {
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+  });
+  let childOutput = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    childOutput += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    childOutput += chunk;
   });
   const exit = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -433,5 +469,5 @@ test("garbage-collected UDP mux listeners release their native port", async () =
       resolve({ code, signal });
     });
   });
-  assert.deepEqual(await exit, { code: 0, signal: null });
+  assert.deepEqual(await exit, { code: 0, signal: null }, childOutput);
 });
