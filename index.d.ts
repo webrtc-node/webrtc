@@ -336,5 +336,55 @@ export class RTCPeerConnection extends EventTarget {
 }
 
 export namespace nonstandard {
+  interface IceUdpMuxRequest {
+    ufrag: string;
+    localUfrag: string;
+    host: string;
+    port: number;
+  }
+
+  interface IceUdpMuxListener {
+    port(): number;
+    address(): string | undefined;
+    onUnhandledStunRequest(callback: (request: IceUdpMuxRequest) => void): void;
+    close(): void;
+    stop(): void;
+  }
+
+  interface PeerConnectionConfiguration {
+    enableIceUdpMux?: boolean;
+    disableFingerprintVerification?: boolean;
+    maxMessageSize?: number;
+  }
+
+  interface LocalIceCredentials {
+    iceUfrag: string;
+    icePwd: string;
+  }
+
+  interface CertificateFingerprint {
+    algorithm: string;
+    value: string;
+  }
+
+  interface ImportedCertificate {
+    certificatePem: string;
+    privateKeyPem: string;
+    expires?: number;
+  }
+
+  const IceUdpMuxListener: {
+    new (port: number, address?: string): IceUdpMuxListener;
+  };
+  const configurePeerConnection: (
+    peerConnection: RTCPeerConnection,
+    configuration: PeerConnectionConfiguration,
+  ) => void;
+  const setLocalIceCredentials: (
+    peerConnection: RTCPeerConnection,
+    credentials: LocalIceCredentials,
+  ) => void;
+  const getRemoteFingerprint: (peerConnection: RTCPeerConnection) => CertificateFingerprint | null;
+  const importCertificate: (material: ImportedCertificate) => RTCCertificate;
   const native: unknown;
 }

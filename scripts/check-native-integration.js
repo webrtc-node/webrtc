@@ -101,6 +101,9 @@ requireMatch("Node-API module initializer", addon, /\bNODE_API_MODULE\s*\(/);
 requireMatch("ThreadSafeFunction dispatcher", addon, /Napi::ThreadSafeFunction::New/);
 requireMatch("nonblocking callback dispatch", addon, /\.NonBlockingCall\s*\(/);
 requireMatch("dispatcher release on close", addon, /\.Release\s*\(/);
+requireMatch("ICE UDP mux listener binding", addon, /rtc::IceUdpMuxListener/);
+requireMatch("ICE UDP mux callback reset", addon, /OnUnhandledStunRequest[\s\S]*std::function/);
+requireMatch("ICE UDP mux shutdown cleanup", addon, /CloseAllIceUdpMuxBindings/);
 requireMatch("weak callback captures", addon, /\[weak\]/);
 requireMatch("peer callback reset", addon, /peerConnection->resetCallbacks\s*\(\)/);
 requireMatch("channel callback reset", addon, /->resetCallbacks\s*\(\)/);
@@ -130,6 +133,19 @@ requireMatch(
   /iceServer\.password\s*=\s*server\.Get\("credential"\)/,
 );
 forbidMatch("forced transport MTU", addon, /config\.mtu\s*=/);
+requireMatch(
+  "ICE UDP mux peer configuration",
+  addon,
+  /config\.enableIceUdpMux\s*=\s*input\.Get\("enableIceUdpMux"\)/,
+);
+requireMatch(
+  "explicit fingerprint verification configuration",
+  addon,
+  /config\.disableFingerprintVerification\s*=/,
+);
+requireMatch("maximum message size configuration", addon, /config\.maxMessageSize\s*=/);
+requireMatch("remote fingerprint bridge", addon, /peerConnection->remoteFingerprint\s*\(\)/);
+requireMatch("certificate import validation", certificate, /X509_check_private_key\s*\(/);
 
 forbidMatch("direct V8 namespace usage", addon, /\bv8::/);
 forbidMatch("direct V8 include", addon, /#include\s+[<"]v8(?:-[^>"]+)?\.h[>"]/);
@@ -144,9 +160,9 @@ forbidMatch(
 );
 
 const callbackCallMatches = [...addon.matchAll(/\bcallback\.Call\s*\(/g)];
-if (callbackCallMatches.length !== 3) {
+if (callbackCallMatches.length !== 4) {
   fail(
-    `expected exactly three callback.Call sites inside EventDispatcher dispatch paths, found ${callbackCallMatches.length}`,
+    `expected exactly four callback.Call sites inside native dispatch paths, found ${callbackCallMatches.length}`,
   );
 }
 requireMatch(

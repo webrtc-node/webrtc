@@ -4,6 +4,19 @@ This package targets W3C-style `RTCPeerConnection` and `RTCDataChannel`
 behavior for Node.js. It intentionally does not expose browser media APIs. The
 current implementation diverges from W3C WebRTC in the following places.
 
+## Nonstandard libdatachannel extensions
+
+The typed `nonstandard` namespace exposes ICE UDP muxing, pre-construction
+libdatachannel options, explicit initial local ICE credentials, observed remote
+fingerprints, and PEM certificate import for WebRTC Direct integrations. These
+operations are implementation-specific and excluded from W3C compatibility
+claims.
+
+Fingerprint verification remains enabled unless
+`disableFingerprintVerification: true` is explicitly configured before native
+peer construction. That option is intended only for protocols that authenticate
+the observed fingerprint through a separate verified identity exchange.
+
 ## Local SDP application
 
 `libdatachannel` generates local SDP inside `setLocalDescription()`. It does not

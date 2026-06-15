@@ -99,6 +99,35 @@ channel.onerror = (received: RTCErrorEvent) => {
 
 const error = new RTCError({ errorDetail: "data-channel-failure" }, "failed");
 const errorEvent = new RTCErrorEvent("error", { error });
+const udpMux = new nonstandard.IceUdpMuxListener(5000, "127.0.0.1");
+const udpMuxPort: number = udpMux.port();
+const udpMuxAddress: string | undefined = udpMux.address();
+udpMux.onUnhandledStunRequest((request) => {
+  const ufrag: string = request.ufrag;
+  const localUfrag: string = request.localUfrag;
+  const host: string = request.host;
+  const port: number = request.port;
+  void ufrag;
+  void localUfrag;
+  void host;
+  void port;
+});
+nonstandard.configurePeerConnection(pc, {
+  enableIceUdpMux: true,
+  disableFingerprintVerification: false,
+  maxMessageSize: 262144,
+});
+nonstandard.setLocalIceCredentials(pc, {
+  iceUfrag: "typedUfrag",
+  icePwd: "typedPasswordCredential12",
+});
+const remoteFingerprint: nonstandard.CertificateFingerprint | null =
+  nonstandard.getRemoteFingerprint(pc);
+const importedCertificate: RTCCertificate = nonstandard.importCertificate({
+  certificatePem: "certificate",
+  privateKeyPem: "private-key",
+  expires: Date.now() + 60000,
+});
 const nativeSurface: unknown = nonstandard.native;
 
 void dispatched;
@@ -116,5 +145,11 @@ void maybeIce;
 void maybePair;
 void remoteCertificates;
 void errorEvent;
+void udpMuxPort;
+void udpMuxAddress;
+void remoteFingerprint;
+void importedCertificate;
 void nativeSurface;
+udpMux.close();
+udpMux.stop();
 pc.close();

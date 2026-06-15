@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -115,6 +116,47 @@ std::string FingerprintForCertificate(X509 *certificate) {
 	return output.str();
 }
 
+double CertificateExpirationMilliseconds(X509 *certificate) {
+	int days = 0;
+	int seconds = 0;
+	if (ASN1_TIME_diff(&days, &seconds, nullptr, X509_get0_notAfter(certificate)) != 1)
+		throw std::runtime_error("Failed to read certificate expiration");
+
+	const auto now = std::chrono::system_clock::now().time_since_epoch();
+	const auto remaining = std::chrono::hours(days * 24LL) + std::chrono::seconds(seconds);
+	return static_cast<double>(
+	    std::chrono::duration_cast<std::chrono::milliseconds>(now + remaining).count());
+}
+
+X509Ptr ReadCertificate(const std::string &certificatePem) {
+	if (certificatePem.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+		throw std::invalid_argument("Certificate PEM is too large");
+	BioPtr bio(BIO_new_mem_buf(certificatePem.data(), static_cast<int>(certificatePem.size())),
+	           BIO_free);
+	if (!bio)
+		throw std::runtime_error("Failed to allocate certificate PEM BIO");
+
+	ERR_clear_error();
+	X509Ptr certificate(PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr), X509_free);
+	if (!certificate)
+		throw std::runtime_error("Invalid certificate PEM: " + OpenSslErrorString());
+	return certificate;
+}
+
+EvpPkeyPtr ReadPrivateKey(const std::string &keyPem) {
+	if (keyPem.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+		throw std::invalid_argument("Private key PEM is too large");
+	BioPtr bio(BIO_new_mem_buf(keyPem.data(), static_cast<int>(keyPem.size())), BIO_free);
+	if (!bio)
+		throw std::runtime_error("Failed to allocate private key PEM BIO");
+
+	ERR_clear_error();
+	EvpPkeyPtr key(PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr), EVP_PKEY_free);
+	if (!key)
+		throw std::runtime_error("Invalid private key PEM: " + OpenSslErrorString());
+	return key;
+}
+
 } // namespace
 
 CertificateMaterial GenerateCertificateMaterial(const std::string &algorithm, uint32_t modulusLength,
@@ -153,7 +195,21 @@ CertificateMaterial GenerateCertificateMaterial(const std::string &algorithm, ui
 	             "Failed to encode private key PEM");
 
 	return {BioToString(certificateBio.get()), BioToString(keyBio.get()),
-	        FingerprintForCertificate(certificate.get())};
+	        FingerprintForCertificate(certificate.get()),
+	        CertificateExpirationMilliseconds(certificate.get())};
+}
+
+CertificateMaterial ImportCertificateMaterial(const std::string &certificatePem,
+                                              const std::string &keyPem) {
+	auto certificate = ReadCertificate(certificatePem);
+	auto key = ReadPrivateKey(keyPem);
+
+	ERR_clear_error();
+	if (X509_check_private_key(certificate.get(), key.get()) != 1)
+		throw std::runtime_error("Certificate and private key do not match");
+
+	return {certificatePem, keyPem, FingerprintForCertificate(certificate.get()),
+	        CertificateExpirationMilliseconds(certificate.get())};
 }
 
 } // namespace webrtc_node

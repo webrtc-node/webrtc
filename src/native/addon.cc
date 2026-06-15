@@ -3,13 +3,16 @@
 
 #include "certificate.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -23,8 +26,10 @@
 namespace {
 
 class NativeDataChannel;
+class NativeIceUdpMuxListener;
 struct ChannelBinding;
 struct EventDispatcher;
+struct IceUdpMuxBinding;
 struct PeerBinding;
 
 std::atomic<uint32_t> nextChannelId{1};
@@ -332,6 +337,205 @@ private:
 	std::vector<NativeEvent> pendingEvents;
 	bool dispatchScheduled = false;
 	Napi::ThreadSafeFunction tsfn;
+};
+
+struct IceUdpMuxDispatch {
+	std::shared_ptr<IceUdpMuxBinding> binding;
+	rtc::IceUdpMuxRequest request;
+};
+
+struct IceUdpMuxBinding : public std::enable_shared_from_this<IceUdpMuxBinding> {
+	static std::shared_ptr<IceUdpMuxBinding> Create(Napi::Env env, Napi::Function callback,
+	                                                uint16_t port,
+	                                                std::optional<std::string> address) {
+		auto binding = std::shared_ptr<IceUdpMuxBinding>(
+		    new IceUdpMuxBinding(env, callback, port, std::move(address)));
+		try {
+			binding->iceUdpMuxListener =
+			    std::make_unique<rtc::IceUdpMuxListener>(binding->port, binding->address);
+			binding->AttachCallback();
+		} catch (...) {
+			binding->Close();
+			throw;
+		}
+		return binding;
+	}
+
+	~IceUdpMuxBinding() { Close(); }
+
+	void Emit(rtc::IceUdpMuxRequest request) {
+		std::lock_guard<std::mutex> lock(lifecycleMutex);
+		if (!active)
+			return;
+
+		auto *dispatch = new IceUdpMuxDispatch{shared_from_this(), std::move(request)};
+		napi_status status = tsfn.NonBlockingCall(dispatch, Dispatch);
+		if (status != napi_ok)
+			delete dispatch;
+	}
+
+	void Close() {
+		std::unique_ptr<rtc::IceUdpMuxListener> listener;
+		bool release = false;
+		{
+			std::lock_guard<std::mutex> lock(lifecycleMutex);
+			if (!active)
+				return;
+			active = false;
+			listener = std::move(iceUdpMuxListener);
+			release = !tsfnReleased;
+			tsfnReleased = true;
+		}
+
+		if (listener) {
+			try {
+				listener->OnUnhandledStunRequest(
+				    std::function<void(rtc::IceUdpMuxRequest)>{});
+				listener->stop();
+			} catch (...) {
+			}
+		}
+		if (release)
+			tsfn.Release();
+	}
+
+	uint16_t Port() const { return port; }
+
+	const std::optional<std::string> &Address() const { return address; }
+
+private:
+	IceUdpMuxBinding(Napi::Env env, Napi::Function callback, uint16_t port_,
+	                 std::optional<std::string> address_)
+	    : port(port_), address(std::move(address_)),
+	      tsfn(Napi::ThreadSafeFunction::New(env, callback, "webrtc-node ICE UDP mux", 0, 1)) {
+		tsfn.Unref(env);
+	}
+
+	void AttachCallback() {
+		std::weak_ptr<IceUdpMuxBinding> weak = shared_from_this();
+		iceUdpMuxListener->OnUnhandledStunRequest([weak](rtc::IceUdpMuxRequest request) {
+			if (auto self = weak.lock())
+				self->Emit(std::move(request));
+		});
+	}
+
+	static void Dispatch(Napi::Env env, Napi::Function callback, IceUdpMuxDispatch *dispatch) {
+		std::unique_ptr<IceUdpMuxDispatch> scoped(dispatch);
+		{
+			std::lock_guard<std::mutex> lock(scoped->binding->lifecycleMutex);
+			if (!scoped->binding->active)
+				return;
+		}
+
+		Napi::Object request = Napi::Object::New(env);
+		request.Set("ufrag", scoped->request.remoteUfrag);
+		request.Set("localUfrag", scoped->request.localUfrag);
+		request.Set("host", scoped->request.remoteAddress);
+		request.Set("port", scoped->request.remotePort);
+		callback.Call({request});
+	}
+
+	const uint16_t port;
+	const std::optional<std::string> address;
+	bool active = true;
+	bool tsfnReleased = false;
+	std::mutex lifecycleMutex;
+	Napi::ThreadSafeFunction tsfn;
+	std::unique_ptr<rtc::IceUdpMuxListener> iceUdpMuxListener;
+};
+
+std::mutex &IceUdpMuxRegistryMutex() {
+	static std::mutex mutex;
+	return mutex;
+}
+
+std::vector<std::weak_ptr<IceUdpMuxBinding>> &IceUdpMuxRegistry() {
+	static std::vector<std::weak_ptr<IceUdpMuxBinding>> registry;
+	return registry;
+}
+
+void RegisterIceUdpMuxBinding(const std::shared_ptr<IceUdpMuxBinding> &binding) {
+	std::lock_guard<std::mutex> lock(IceUdpMuxRegistryMutex());
+	auto &registry = IceUdpMuxRegistry();
+	registry.erase(std::remove_if(registry.begin(), registry.end(),
+	                              [](const auto &entry) { return entry.expired(); }),
+	               registry.end());
+	registry.push_back(binding);
+}
+
+void CloseAllIceUdpMuxBindings() {
+	std::vector<std::shared_ptr<IceUdpMuxBinding>> bindings;
+	{
+		std::lock_guard<std::mutex> lock(IceUdpMuxRegistryMutex());
+		for (auto &entry : IceUdpMuxRegistry()) {
+			if (auto binding = entry.lock())
+				bindings.push_back(std::move(binding));
+		}
+		IceUdpMuxRegistry().clear();
+	}
+	for (auto &binding : bindings)
+		binding->Close();
+}
+
+class NativeIceUdpMuxListener : public Napi::ObjectWrap<NativeIceUdpMuxListener> {
+public:
+	static void Init(Napi::Env env, Napi::Object exports) {
+		Napi::Function func = DefineClass(
+		    env, "NativeIceUdpMuxListener",
+		    {
+		        InstanceMethod("port", &NativeIceUdpMuxListener::Port),
+		        InstanceMethod("address", &NativeIceUdpMuxListener::Address),
+		        InstanceMethod("close", &NativeIceUdpMuxListener::Close),
+		        InstanceMethod("stop", &NativeIceUdpMuxListener::Close),
+		    });
+		exports.Set("NativeIceUdpMuxListener", func);
+	}
+
+	NativeIceUdpMuxListener(const Napi::CallbackInfo &info)
+	    : Napi::ObjectWrap<NativeIceUdpMuxListener>(info) {
+		Napi::Env env = info.Env();
+		if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsFunction())
+			throw Napi::TypeError::New(
+			    env, "NativeIceUdpMuxListener requires a port and event callback");
+		uint32_t port = info[0].ToNumber().Uint32Value();
+		if (port > std::numeric_limits<uint16_t>::max())
+			throw Napi::RangeError::New(env, "ICE UDP mux port must be between 0 and 65535");
+
+		std::optional<std::string> address;
+		if (info.Length() > 2 && !info[2].IsUndefined() && !info[2].IsNull()) {
+			if (!info[2].IsString())
+				throw Napi::TypeError::New(env, "ICE UDP mux address must be a string");
+			address = info[2].ToString().Utf8Value();
+		}
+
+		binding_ = IceUdpMuxBinding::Create(env, info[1].As<Napi::Function>(),
+		                                   static_cast<uint16_t>(port), std::move(address));
+		RegisterIceUdpMuxBinding(binding_);
+	}
+
+	~NativeIceUdpMuxListener() override {
+		if (binding_)
+			binding_->Close();
+	}
+
+private:
+	std::shared_ptr<IceUdpMuxBinding> binding_;
+
+	Napi::Value Port(const Napi::CallbackInfo &info) {
+		return Napi::Number::New(info.Env(), binding_->Port());
+	}
+
+	Napi::Value Address(const Napi::CallbackInfo &info) {
+		const auto &address = binding_->Address();
+		if (!address)
+			return info.Env().Undefined();
+		return Napi::String::New(info.Env(), *address);
+	}
+
+	Napi::Value Close(const Napi::CallbackInfo &info) {
+		binding_->Close();
+		return info.Env().Undefined();
+	}
 };
 
 struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
@@ -700,6 +904,20 @@ rtc::Configuration ParseConfiguration(const Napi::CallbackInfo &info) {
 		if (policy == "relay")
 			config.iceTransportPolicy = rtc::TransportPolicy::Relay;
 	}
+	if (input.Has("enableIceUdpMux") && input.Get("enableIceUdpMux").IsBoolean())
+		config.enableIceUdpMux = input.Get("enableIceUdpMux").ToBoolean().Value();
+	if (input.Has("disableFingerprintVerification") &&
+	    input.Get("disableFingerprintVerification").IsBoolean())
+		config.disableFingerprintVerification =
+		    input.Get("disableFingerprintVerification").ToBoolean().Value();
+	if (input.Has("maxMessageSize") && !input.Get("maxMessageSize").IsUndefined() &&
+	    !input.Get("maxMessageSize").IsNull()) {
+		double value = input.Get("maxMessageSize").ToNumber().DoubleValue();
+		if (!std::isfinite(value) || value < 0 || std::floor(value) != value ||
+		    value > static_cast<double>(std::numeric_limits<size_t>::max()))
+			throw std::invalid_argument("maxMessageSize must be a non-negative integer");
+		config.maxMessageSize = static_cast<size_t>(value);
+	}
 	if (input.Has("iceServers") && input.Get("iceServers").IsArray()) {
 		Napi::Array servers = input.Get("iceServers").As<Napi::Array>();
 		for (uint32_t i = 0; i < servers.Length(); ++i) {
@@ -720,7 +938,11 @@ rtc::Configuration ParseConfiguration(const Napi::CallbackInfo &info) {
 			}
 		}
 	}
-	if (input.Has("certificates") && input.Get("certificates").IsArray()) {
+	if (input.Has("certificatePem") && input.Has("keyPem") &&
+	    input.Get("certificatePem").IsString() && input.Get("keyPem").IsString()) {
+		config.certificatePemFile = input.Get("certificatePem").ToString().Utf8Value();
+		config.keyPemFile = input.Get("keyPem").ToString().Utf8Value();
+	} else if (input.Has("certificates") && input.Get("certificates").IsArray()) {
 		Napi::Array certificates = input.Get("certificates").As<Napi::Array>();
 		if (certificates.Length() > 0 && certificates.Get(uint32_t{0}).IsObject()) {
 			Napi::Object certificate = certificates.Get(uint32_t{0}).As<Napi::Object>();
@@ -979,6 +1201,7 @@ public:
 		        InstanceMethod("gatherLocalCandidates", &NativePeerConnection::GatherLocalCandidates),
 		        InstanceMethod("localDescription", &NativePeerConnection::LocalDescription),
 		        InstanceMethod("remoteDescription", &NativePeerConnection::RemoteDescription),
+		        InstanceMethod("remoteFingerprint", &NativePeerConnection::RemoteFingerprint),
 		        InstanceMethod("selectedCandidatePair", &NativePeerConnection::SelectedCandidatePair),
 		        InstanceMethod("close", &NativePeerConnection::Close),
 		        InstanceAccessor("connectionState", &NativePeerConnection::GetConnectionState, nullptr),
@@ -1134,6 +1357,23 @@ private:
 		}
 	}
 
+	Napi::Value RemoteFingerprint(const Napi::CallbackInfo &info) {
+		Napi::Env env = info.Env();
+		try {
+			auto fingerprint = binding_->peerConnection->remoteFingerprint();
+			if (!fingerprint.isValid())
+				return env.Null();
+			Napi::Object result = Napi::Object::New(env);
+			result.Set("algorithm",
+			           rtc::CertificateFingerprint::AlgorithmIdentifier(fingerprint.algorithm));
+			result.Set("value", fingerprint.value);
+			return result;
+		} catch (const std::exception &e) {
+			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
+			return env.Undefined();
+		}
+	}
+
 	Napi::Value SelectedCandidatePair(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
@@ -1219,6 +1459,37 @@ Napi::Value GenerateCertificate(const Napi::CallbackInfo &info) {
 	}
 }
 
+Napi::Value ImportCertificate(const Napi::CallbackInfo &info) {
+	Napi::Env env = info.Env();
+	try {
+		if (info.Length() == 0 || !info[0].IsObject())
+			throw std::invalid_argument("importCertificate requires an options object");
+		Napi::Object options = info[0].As<Napi::Object>();
+		if (!options.Has("certificatePem") || !options.Get("certificatePem").IsString())
+			throw std::invalid_argument("certificatePem must be a string");
+		if (!options.Has("keyPem") || !options.Get("keyPem").IsString())
+			throw std::invalid_argument("keyPem must be a string");
+
+		auto material = webrtc_node::ImportCertificateMaterial(
+		    options.Get("certificatePem").ToString().Utf8Value(),
+		    options.Get("keyPem").ToString().Utf8Value());
+		Napi::Object result = Napi::Object::New(env);
+		result.Set("certificatePem", material.certificatePem);
+		result.Set("keyPem", material.keyPem);
+		result.Set("expires", material.expires);
+		Napi::Array fingerprints = Napi::Array::New(env, 1);
+		Napi::Object fingerprint = Napi::Object::New(env);
+		fingerprint.Set("algorithm", "sha-256");
+		fingerprint.Set("value", material.fingerprint);
+		fingerprints.Set(uint32_t{0}, fingerprint);
+		result.Set("fingerprints", fingerprints);
+		return result;
+	} catch (const std::exception &e) {
+		Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+}
+
 void ConfigureLibDataChannelLogging() {
 	const char *value = std::getenv("WEBRTC_NODE_LIBDATACHANNEL_LOG");
 	if (!value)
@@ -1240,9 +1511,13 @@ void ConfigureLibDataChannelLogging() {
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
 	ConfigureLibDataChannelLogging();
 	NativeDataChannel::Init(env, exports);
+	NativeIceUdpMuxListener::Init(env, exports);
 	NativePeerConnection::Init(env, exports);
 	exports.Set("generateCertificate", Napi::Function::New(env, GenerateCertificate));
+	exports.Set("importCertificate", Napi::Function::New(env, ImportCertificate));
+	env.AddCleanupHook([]() { CloseAllIceUdpMuxBindings(); });
 	exports.Set("cleanup", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
+		            CloseAllIceUdpMuxBindings();
 		            rtc::Cleanup().wait();
 		            return info.Env().Undefined();
 	            }));

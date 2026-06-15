@@ -6,6 +6,7 @@ Project-facing docs:
 - [Conformance](conformance.md)
 - [Development](development.md)
 - [Intentional Divergences](divergences.md)
+- [Nonstandard libdatachannel Extensions](nonstandard.md)
 
 Maintainer and planning docs:
 
