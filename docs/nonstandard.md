@@ -38,6 +38,11 @@ nonstandard.configurePeerConnection(pc, {
 });
 ```
 
+When `enableIceUdpMux` is true and an `IceUdpMuxListener` is active, the native
+peer connection is constrained to the listener's UDP port so libdatachannel
+joins the same mux socket. Without an active listener, libdatachannel chooses a
+port from its default ICE range.
+
 `disableFingerprintVerification` defaults to `false`. Set it to `true` only for
 a protocol that authenticates the remote certificate fingerprint through a
 separate, verified identity mechanism. Disabling DTLS fingerprint verification

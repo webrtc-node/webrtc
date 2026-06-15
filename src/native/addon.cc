@@ -403,6 +403,11 @@ struct IceUdpMuxBinding : public std::enable_shared_from_this<IceUdpMuxBinding> 
 
 	const std::optional<std::string> &Address() const { return address; }
 
+	bool IsActive() const {
+		std::lock_guard<std::mutex> lock(lifecycleMutex);
+		return active;
+	}
+
 private:
 	IceUdpMuxBinding(Napi::Env env, Napi::Function callback, uint16_t port_,
 	                 std::optional<std::string> address_)
@@ -439,7 +444,7 @@ private:
 	const std::optional<std::string> address;
 	bool active = true;
 	bool tsfnReleased = false;
-	std::mutex lifecycleMutex;
+	mutable std::mutex lifecycleMutex;
 	Napi::ThreadSafeFunction tsfn;
 	std::unique_ptr<rtc::IceUdpMuxListener> iceUdpMuxListener;
 };
@@ -461,6 +466,25 @@ void RegisterIceUdpMuxBinding(const std::shared_ptr<IceUdpMuxBinding> &binding) 
 	                              [](const auto &entry) { return entry.expired(); }),
 	               registry.end());
 	registry.push_back(binding);
+}
+
+std::optional<uint16_t> ActiveIceUdpMuxPort() {
+	std::lock_guard<std::mutex> lock(IceUdpMuxRegistryMutex());
+	auto &registry = IceUdpMuxRegistry();
+	std::optional<uint16_t> port;
+	registry.erase(std::remove_if(registry.begin(), registry.end(),
+	                              [&port](const auto &entry) {
+		                              auto binding = entry.lock();
+		                              if (!binding)
+			                              return true;
+		                              if (!binding->IsActive())
+			                              return true;
+		                              if (!port)
+			                              port = binding->Port();
+		                              return false;
+	                              }),
+	               registry.end());
+	return port;
 }
 
 void CloseAllIceUdpMuxBindings() {
@@ -910,6 +934,12 @@ rtc::Configuration ParseConfiguration(const Napi::CallbackInfo &info) {
 	}
 	if (input.Has("enableIceUdpMux") && input.Get("enableIceUdpMux").IsBoolean())
 		config.enableIceUdpMux = input.Get("enableIceUdpMux").ToBoolean().Value();
+	if (config.enableIceUdpMux) {
+		if (auto port = ActiveIceUdpMuxPort()) {
+			config.portRangeBegin = *port;
+			config.portRangeEnd = *port;
+		}
+	}
 	if (input.Has("disableFingerprintVerification") &&
 	    input.Get("disableFingerprintVerification").IsBoolean())
 		config.disableFingerprintVerification =
