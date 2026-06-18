@@ -1,5 +1,7 @@
 build/
 node_modules/
+bench/
+docs/throughput-baseline.md
 libdatachannel/
 prebuild-artifacts/
 vcpkg_installed/
@@ -8,8 +10,6 @@ wpt/
 *.tgz
 wpt-results.json
 wpt-report.md
-wpt-manifest.txt
-ci-evidence.json
 ci-artifacts/
 coverage/
 .nyc_output/

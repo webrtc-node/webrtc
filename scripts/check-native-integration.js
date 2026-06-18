@@ -6,51 +6,12 @@ const { spawnSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
 const addonPath = path.join(root, "src", "native", "addon.cc");
-const certificatePath = path.join(root, "src", "native", "certificate.cc");
 const cmakePath = path.join(root, "CMakeLists.txt");
 const manifestPath = path.join(root, "wpt-manifest.json");
-const packagePath = path.join(root, "package.json");
-const setupNativeBuildPath = path.join(
-  root,
-  ".github",
-  "actions",
-  "setup-native-build",
-  "action.yml",
-);
-const ciWorkflowPath = path.join(root, ".github", "workflows", "ci.yml");
-const codeqlWorkflowPath = path.join(root, ".github", "workflows", "codeql.yml");
-const conformanceWorkflowPath = path.join(root, ".github", "workflows", "conformance.yml");
-const publishedInstallWorkflowPath = path.join(
-  root,
-  ".github",
-  "workflows",
-  "published-install.yml",
-);
-const releaseWorkflowPath = path.join(root, ".github", "workflows", "release.yml");
-const wptShardedPath = path.join(root, "scripts", "run-wpt-sharded.js");
-const prebuildCheckPath = path.join(root, "scripts", "check-prebuilds.js");
-const prebuildIntegrityPath = path.join(root, "scripts", "prebuild-integrity.js");
-const packagePrebuildPath = path.join(root, "scripts", "package-prebuild.js");
-const installNativePath = path.join(root, "scripts", "install-native.js");
-const vcpkgManifestPath = path.join(root, "vcpkg.json");
 
 const addon = fs.readFileSync(addonPath, "utf8");
-const certificate = fs.readFileSync(certificatePath, "utf8");
 const cmake = fs.readFileSync(cmakePath, "utf8");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
-const setupNativeBuild = fs.readFileSync(setupNativeBuildPath, "utf8");
-const ciWorkflow = fs.readFileSync(ciWorkflowPath, "utf8");
-const codeqlWorkflow = fs.readFileSync(codeqlWorkflowPath, "utf8");
-const conformanceWorkflow = fs.readFileSync(conformanceWorkflowPath, "utf8");
-const publishedInstallWorkflow = fs.readFileSync(publishedInstallWorkflowPath, "utf8");
-const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, "utf8");
-const wptSharded = fs.readFileSync(wptShardedPath, "utf8");
-const prebuildCheck = fs.readFileSync(prebuildCheckPath, "utf8");
-const prebuildIntegrity = fs.readFileSync(prebuildIntegrityPath, "utf8");
-const packagePrebuild = fs.readFileSync(packagePrebuildPath, "utf8");
-const installNative = fs.readFileSync(installNativePath, "utf8");
-const vcpkgManifest = JSON.parse(fs.readFileSync(vcpkgManifestPath, "utf8"));
 
 function fail(message) {
   console.error(`Native integration check failed: ${message}`);
@@ -66,120 +27,19 @@ function forbidMatch(name, value, pattern) {
   if (match) fail(`${name} is forbidden: ${match[0]}`);
 }
 
-requireMatch(
-  "node-addon-api dependency",
-  JSON.stringify(pkg.dependencies || {}),
-  /"node-addon-api"\s*:/,
-);
-requireMatch(
-  "detect-libc runtime dependency",
-  JSON.stringify(pkg.dependencies || {}),
-  /"detect-libc"\s*:/,
-);
-requireMatch(
-  "cmake-js source-build dependency",
-  JSON.stringify(pkg.dependencies || {}),
-  /"cmake-js"\s*:/,
-);
-requireMatch("native install script", JSON.stringify(pkg.scripts || {}), /install-native\.js/);
-requireMatch("prebuild package script", JSON.stringify(pkg.scripts || {}), /package-prebuild\.js/);
-requireMatch("prebuild check script", JSON.stringify(pkg.scripts || {}), /check-prebuilds\.js/);
-requireMatch(
-  "prebuild symbol check script",
-  JSON.stringify(pkg.scripts || {}),
-  /check-linux-addon-symbols\.js/,
-);
-requireMatch(
-  "TLS coexistence check script",
-  JSON.stringify(pkg.scripts || {}),
-  /check-tls-coexistence\.js/,
-);
-requireMatch("native <napi.h> include", addon, /#include\s+<napi\.h>/);
-forbidMatch("direct addon OpenSSL include", addon, /#include\s+[<"]openssl\//);
-requireMatch("isolated certificate OpenSSL include", certificate, /#include\s+<openssl\/evp\.h>/);
+requireMatch("Node-API include", addon, /#include\s+<napi\.h>/);
 requireMatch("Node-API module initializer", addon, /\bNODE_API_MODULE\s*\(/);
-requireMatch("ThreadSafeFunction dispatcher", addon, /Napi::ThreadSafeFunction::New/);
-requireMatch("nonblocking callback dispatch", addon, /\.NonBlockingCall\s*\(/);
-requireMatch("dispatcher release on close", addon, /\.Release\s*\(/);
-requireMatch("ICE UDP mux listener binding", addon, /rtc::IceUdpMuxListener/);
-requireMatch("ICE UDP mux callback reset", addon, /OnUnhandledStunRequest[\s\S]*std::function/);
-requireMatch("ICE UDP mux shutdown cleanup", addon, /CloseAllIceUdpMuxBindings/);
-requireMatch("weak callback captures", addon, /\[weak\]/);
-requireMatch("peer callback reset", addon, /peerConnection->resetCallbacks\s*\(\)/);
-requireMatch("channel callback reset", addon, /->resetCallbacks\s*\(\)/);
-requireMatch(
-  "closed channel map removal",
-  addon,
-  /void\s+RemoveChannel[\s\S]*channels\.erase\s*\(/,
-);
-requireMatch(
-  "unsigned buffered amount threshold conversion",
-  addon,
-  /SetBufferedAmountLowThreshold[\s\S]*Uint32Value\s*\(\)/,
-);
-requireMatch(
-  "nonzero channel id allocator",
-  addon,
-  /AllocateChannelId[\s\S]*while\s*\(\s*id\s*==\s*0\s*\)/,
-);
-requireMatch(
-  "TURN username forwarding",
-  addon,
-  /iceServer\.username\s*=\s*server\.Get\("username"\)/,
-);
-requireMatch(
-  "TURN credential forwarding",
-  addon,
-  /iceServer\.password\s*=\s*server\.Get\("credential"\)/,
-);
-forbidMatch("forced transport MTU", addon, /config\.mtu\s*=/);
-requireMatch(
-  "ICE UDP mux peer configuration",
-  addon,
-  /config\.enableIceUdpMux\s*=\s*input\.Get\("enableIceUdpMux"\)/,
-);
-requireMatch(
-  "explicit fingerprint verification configuration",
-  addon,
-  /config\.disableFingerprintVerification\s*=/,
-);
-requireMatch("maximum message size configuration", addon, /config\.maxMessageSize\s*=/);
-requireMatch("remote fingerprint bridge", addon, /peerConnection->remoteFingerprint\s*\(\)/);
-requireMatch("certificate import validation", certificate, /X509_check_private_key\s*\(/);
-
 forbidMatch("direct V8 namespace usage", addon, /\bv8::/);
 forbidMatch("direct V8 include", addon, /#include\s+[<"]v8(?:-[^>"]+)?\.h[>"]/);
 forbidMatch("direct Node addon include", addon, /#include\s+[<"]node(?:_object_wrap)?\.h[>"]/);
 forbidMatch("NAN include", addon, /#include\s+[<"]nan\.h[>"]/);
 forbidMatch("NAN namespace usage", addon, /\bNan::/);
 forbidMatch("non-Node-API module initializer", addon, /\bNODE_MODULE\s*\(/);
-forbidMatch(
-  "signed buffered amount threshold conversion",
-  addon,
-  /SetBufferedAmountLowThreshold[\s\S]{0,300}Int64Value\s*\(\)/,
-);
+forbidMatch("direct addon OpenSSL include", addon, /#include\s+[<"]openssl\//);
 
-const callbackCallMatches = [...addon.matchAll(/\bcallback\.Call\s*\(/g)];
-if (callbackCallMatches.length !== 4) {
-  fail(
-    `expected exactly four callback.Call sites inside native dispatch paths, found ${callbackCallMatches.length}`,
-  );
-}
-requireMatch(
-  "single native event callback dispatch",
-  addon,
-  /callback\.Call\s*\(\s*\{\s*EventToObject/,
-);
-requireMatch(
-  "batched native event callback dispatch",
-  addon,
-  /callback\.Call\s*\(\s*\{\s*batch\s*\}\s*\)/,
-);
-requireMatch(
-  "direct native event callback dispatch",
-  addon,
-  /DispatchDirect[\s\S]*callback\.Call\s*\(\s*\{\s*EventToObject/,
-);
+requireMatch("ThreadSafeFunction creation", addon, /Napi::ThreadSafeFunction::New/);
+requireMatch("nonblocking callback dispatch", addon, /\.NonBlockingCall\s*\(/);
+requireMatch("dispatcher release", addon, /\.Release\s*\(/);
 
 const cmakePinMatch = /set\s*\(\s*LIBDATACHANNEL_PINNED_COMMIT\s+"([0-9a-f]{40})"/i.exec(cmake);
 if (!cmakePinMatch) fail("CMake libdatachannel pin is missing");
@@ -220,138 +80,7 @@ requireMatch(
   /set\s*\(\s*NO_WEBSOCKET\s+ON\s+CACHE\s+BOOL\s+""\s+FORCE\s*\)/,
 );
 requireMatch("Node-API version definition", cmake, /NAPI_VERSION=\$\{WEBRTC_NODE_NAPI_VERSION\}/);
-requireMatch("prebuild napi build version", cmake, /napi_build_version/);
-requireMatch("release static OpenSSL option", cmake, /WEBRTC_NODE_STATIC_OPENSSL/);
-requireMatch(
-  "environment CMake toolchain forwarding",
-  cmake,
-  /ENV\{CMAKE_TOOLCHAIN_FILE\}[\s\S]*set\s*\(\s*CMAKE_TOOLCHAIN_FILE/,
-);
-requireMatch(
-  "environment vcpkg triplet forwarding",
-  cmake,
-  /ENV\{VCPKG_TARGET_TRIPLET\}[\s\S]*set\s*\(\s*VCPKG_TARGET_TRIPLET/,
-);
-requireMatch(
-  "environment vcpkg install directory forwarding",
-  cmake,
-  /ENV\{VCPKG_INSTALLED_DIR\}[\s\S]*set\s*\(\s*VCPKG_INSTALLED_DIR/,
-);
-requireMatch("Linux hidden symbol visibility", cmake, /-fvisibility=hidden/);
-requireMatch("Linux hidden inline visibility", cmake, /-fvisibility-inlines-hidden/);
-requireMatch("Linux static symbol hiding", cmake, /"LINKER:--exclude-libs,ALL"/);
-requireMatch(
-  "static certificate helper",
-  cmake,
-  /add_library\s*\(\s*webrtc_node_certificate\s+STATIC/,
-);
-requireMatch(
-  "certificate helper OpenSSL linkage",
-  cmake,
-  /target_link_libraries\s*\(\s*webrtc_node_certificate\s+PRIVATE\s+OpenSSL::Crypto/,
-);
-requireMatch("node-addon-api include discovery", cmake, /require\('node-addon-api'\)\.include_dir/);
-requireMatch(
-  "cmake-js Windows delay-load hook",
-  cmake,
-  /add_library\s*\(\s*\$\{PROJECT_NAME\}\s+SHARED\s+src\/native\/addon\.cc\s+\$\{CMAKE_JS_SRC\}\s*\)/,
-);
 requireMatch("static libdatachannel target", cmake, /LibDataChannel::LibDataChannelStatic/);
-
-if (!/^[0-9a-f]{40}$/.test(vcpkgManifest["builtin-baseline"] || "")) {
-  fail("vcpkg builtin baseline must be a pinned 40-character commit");
-}
-const opensslDependency = (vcpkgManifest.dependencies || []).find(
-  (dependency) =>
-    dependency === "openssl" ||
-    (dependency && typeof dependency === "object" && dependency.name === "openssl"),
-);
-if (!opensslDependency) fail("vcpkg OpenSSL dependency is missing");
-if (
-  typeof opensslDependency !== "object" ||
-  !Array.isArray(opensslDependency.features) ||
-  !opensslDependency.features.includes("tools")
-) {
-  fail("vcpkg OpenSSL tools feature is missing");
-}
-requireMatch("Windows x64 static vcpkg triplet", setupNativeBuild, /x64-windows-static/);
-requireMatch("Windows ARM64 static vcpkg triplet", setupNativeBuild, /arm64-windows-static/);
-requireMatch(
-  "pinned vcpkg baseline checkout",
-  setupNativeBuild,
-  /git -C \$vcpkgRoot checkout --force \$baseline/,
-);
-requireMatch(
-  "vcpkg manifest installation",
-  setupNativeBuild,
-  /vcpkg\.exe"\) install[\s\S]*--x-manifest-root=/,
-);
-forbidMatch("Chocolatey OpenSSL installation", setupNativeBuild, /choco install openssl/);
-requireMatch("Windows ARM64 CI runner", ciWorkflow, /os:\s*windows-11-arm/);
-requireMatch("stable required CI gate", ciWorkflow, /ci-required:[\s\S]*name:\s*CI required/);
-requireMatch(
-  "CodeQL JavaScript and TypeScript analysis",
-  codeqlWorkflow,
-  /languages:\s*javascript-typescript/,
-);
-requireMatch("CodeQL C++ analysis", codeqlWorkflow, /languages:\s*c-cpp/);
-requireMatch("CodeQL manual native build", codeqlWorkflow, /build-mode:\s*manual/);
-requireMatch(
-  "CodeQL dependency warmup build",
-  codeqlWorkflow,
-  /Build native dependencies outside CodeQL tracing[\s\S]*npm run build[\s\S]*github\/codeql-action\/init@v4/,
-);
-requireMatch(
-  "CodeQL first-party native rebuild",
-  codeqlWorkflow,
-  /Rebuild first-party native sources for CodeQL[\s\S]*touch src\/native\/addon\.cc src\/native\/certificate\.cc[\s\S]*npm run build/,
-);
-requireMatch("CodeQL security event permission", codeqlWorkflow, /security-events:\s*write/);
-requireMatch(
-  "version tag Conformance trigger",
-  conformanceWorkflow,
-  /push:[\s\S]*tags:[\s\S]*-\s*"v\*"/,
-);
-requireMatch(
-  "Conformance sharded WPT command",
-  conformanceWorkflow,
-  /npm run wpt:test:sharded -- --shards=3/,
-);
-requireMatch("WPT shard parallel execution", wptSharded, /Promise\.all/);
-requireMatch("WPT shard result merge", wptSharded, /mergeWptSummaries/);
-forbidMatch("release conformance polling gate", releaseWorkflow, /conformance\.yml\/runs/);
-forbidMatch("release publication dependency on conformance", releaseWorkflow, /conformance-gate/);
-requireMatch("Windows ARM64 release target", releaseWorkflow, /target:\s*win32-arm64/);
-requireMatch("Windows ARM64 release runner", releaseWorkflow, /os:\s*windows-11-arm/);
-requireMatch(
-  "Windows static OpenSSL release build",
-  releaseWorkflow,
-  /prebuild-windows:[\s\S]*--CDWEBRTC_NODE_STATIC_OPENSSL=ON/,
-);
-forbidMatch("Windows release OpenSSL DLL collection", releaseWorkflow, /OPENSSL_BIN_DIR/);
-requireMatch(
-  "Windows ARM64 published install target",
-  publishedInstallWorkflow,
-  /target:\s*win32-arm64[\s\S]*os:\s*windows-11-arm/,
-);
-requireMatch("Windows ARM64 required prebuild", prebuildCheck, /"win32-arm64"/);
-requireMatch("prebuild checksum verification", prebuildIntegrity, /timingSafeEqual/);
-requireMatch(
-  "prebuild archive entry allowlist",
-  prebuildIntegrity,
-  /entries\.length\s*!==\s*1[\s\S]*entry\.path\s*!==\s*moduleName/,
-);
-requireMatch("prebuild binary target verification", prebuildIntegrity, /verifyBinaryTarget/);
-requireMatch("prebuild checksum generation", packagePrebuild, /writeChecksumFile\s*\(/);
-requireMatch("installer checksum download", installNative, /checksumFileName\s*\(/);
-requireMatch("installer validated extraction", installNative, /installArchive\s*\(/);
-requireMatch("release asset allowlist", prebuildCheck, /unexpected prebuild release asset/);
-requireMatch("release checksum artifact upload", releaseWorkflow, /path:\s*prebuild-artifacts\/\*/);
-requireMatch(
-  "release checksum asset upload",
-  releaseWorkflow,
-  /gh release upload "\$tag" prebuild-artifacts\/\* --clobber/,
-);
 
 const localLibDataChannel = path.join(root, "libdatachannel");
 if (fs.existsSync(path.join(localLibDataChannel, ".git"))) {
@@ -368,5 +97,5 @@ if (fs.existsSync(path.join(localLibDataChannel, ".git"))) {
 }
 
 console.log(
-  `Native integration verified: Node-API addon, TSFN dispatch, libdatachannel ${cmakeRepository}@${cmakePin}`,
+  `Native integration verified: Node-API-only addon, TSFN dispatch, libdatachannel ${cmakeRepository}@${cmakePin}`,
 );

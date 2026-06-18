@@ -49,24 +49,5 @@ weighted shards running concurrently inside each OS/Node job. Ordinary WPT
 files stay within one process so file-level setup and ordering are preserved;
 files already marked for per-test isolation distribute those isolated tests
 individually. The shard outputs are merged into the same complete
-`wpt-results.json`; the strict checker and evidence verifier still require all
-620 unique subtests with no failures or retries.
-
-## CI Evidence
-
-Each CI matrix job writes:
-
-- `ci-evidence.json`
-- `wpt-results.json`
-- `wpt-report.md`
-- `wpt-manifest.json`
-- `wpt-manifest.txt`
-
-After downloading CI artifacts into `ci-artifacts/`, validate the full matrix:
-
-```sh
-npm run ci:evidence:check -- --artifacts ci-artifacts
-```
-
-The verifier checks Linux, macOS, and Windows artifacts across Node 20, 22, and
-24. It rejects missing jobs, pin mismatches, WPT failures, and WPT retries.
+`wpt-results.json`; the strict checker still requires all 620 unique subtests
+with no failures or retries.

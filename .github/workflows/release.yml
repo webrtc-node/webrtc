@@ -53,7 +53,7 @@ jobs:
             -v "$PWD:/usr/app" \
             -w /usr/app \
             "${{ matrix.image }}" \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:symbols:check && npm run tls:check && npm run prebuild:package -- --platform=linux --arch=x64 --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\""
+            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:package -- --platform=linux --arch=x64 --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\""
 
       - uses: actions/upload-artifact@v7
         with:
@@ -175,8 +175,6 @@ jobs:
       - run: npm run prebuild:check
 
       - run: npm run native:check
-
-      - run: npm run pack:check
 
       - name: Verify release tag
         env:

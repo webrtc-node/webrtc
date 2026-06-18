@@ -12,12 +12,16 @@ npm run native:check
 npm run build
 ```
 
-See [docs/development.md](docs/development.md) for platform notes, Docker
-commands, and targeted WPT usage.
+See [docs/development.md](docs/development.md) for platform notes and targeted
+WPT usage.
 
-## Required Checks
+## Validation
 
-Before opening a pull request, run:
+Run checks that match the risk of the change. For documentation-only changes,
+`npm run check` is usually enough.
+
+For runtime, native, public API, package, or test changes, use the common local
+path:
 
 ```sh
 npm run check
@@ -26,14 +30,26 @@ npm run build
 npm test
 npm run api:check
 npm run types:check
-npm run pack:check
+npm run wpt:selection:check
+```
+
+Run Chrome E2E for browser interoperability, signaling, ICE, buffering,
+message, or close-propagation changes:
+
+```sh
 npm run e2e:chrome
+```
+
+Run WPT smoke for WebRTC facade or WPT harness changes:
+
+```sh
 npm run wpt:selection:check
 npm run wpt:smoke
 npm run wpt:smoke:check
 ```
 
-Run the selected WPT suite for WebRTC behavior changes:
+Run the full selected WPT suite before claiming conformance changes or after
+public WebRTC behavior changes:
 
 ```sh
 npm run wpt:test

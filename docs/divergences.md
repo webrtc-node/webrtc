@@ -8,7 +8,7 @@ current implementation diverges from W3C WebRTC in the following places.
 
 The typed `nonstandard` namespace exposes ICE UDP muxing, pre-construction
 libdatachannel options, explicit initial local ICE credentials, observed remote
-fingerprints, and PEM certificate import for WebRTC Direct integrations. These
+fingerprints, and PEM certificate import for advanced integrations. These
 operations are implementation-specific and excluded from W3C compatibility
 claims.
 

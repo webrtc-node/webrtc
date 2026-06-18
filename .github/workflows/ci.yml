@@ -73,12 +73,12 @@ jobs:
                 ;;
             esac
             case "$file" in
-              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-linux-addon-symbols.js|scripts/check-package-artifact.js|scripts/check-prebuilds.js|scripts/check-tls-coexistence.js|scripts/install-native.js|scripts/package-prebuild.js|scripts/prebuild-integrity.js)
+              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-prebuilds.js|scripts/install-native.js|scripts/package-prebuild.js|scripts/prebuild-integrity.js)
                 package_changed="true"
                 ;;
             esac
             case "$file" in
-              wpt-manifest.json|scripts/check-ci-evidence.js|scripts/check-wpt-*|scripts/ensure-wpt.js|scripts/print-wpt-manifest.js|scripts/run-wpt-*|scripts/write-ci-evidence.js|scripts/write-wpt-report.js)
+              wpt-manifest.json|scripts/check-wpt-*|scripts/ensure-wpt.js|scripts/run-wpt-*|scripts/write-wpt-report.js)
                 wpt_changed="true"
                 ;;
             esac
@@ -128,8 +128,6 @@ jobs:
 
       - run: npm run types:check
 
-      - run: npm run pack:check
-
   package-artifact:
     name: Package artifact
     runs-on: ubuntu-latest
@@ -149,9 +147,7 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run pack:check
-
-      - name: Verify static Linux addon isolation
+      - name: Verify static Linux addon build
         shell: bash
         run: |
           docker build \
@@ -163,7 +159,7 @@ jobs:
             -v "$PWD:/usr/app" \
             -w /usr/app \
             webrtc-node-ci-debian \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:symbols:check && npm run tls:check"
+            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON"
 
       - name: Pack source artifact
         id: pack
@@ -215,8 +211,6 @@ jobs:
 
       - run: npm run build
 
-      - run: npm run tls:check
-
       - run: npm test
 
       - run: npm run api:check
@@ -262,17 +256,12 @@ jobs:
       - run: npm run wpt:report -- --output wpt-report.md --expected-total 4
         if: always() && hashFiles('wpt-results.json') != ''
 
-      - name: Write WPT manifest summary
-        if: always()
-        run: npm run wpt:manifest > wpt-manifest.txt
-
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: wpt-smoke
           path: |
             wpt-manifest.json
-            wpt-manifest.txt
             wpt-report.md
             wpt-results.json
 

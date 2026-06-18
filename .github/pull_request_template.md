@@ -5,18 +5,20 @@ milestone.
 
 ## Verification
 
+Check commands that were run, and mark unrelated items as not applicable in the
+PR body.
+
+- [ ] `npm run check`
 - [ ] `npm run native:check`
 - [ ] `npm run build`
-- [ ] `npm run check`
 - [ ] `npm test`
 - [ ] `npm run api:check`
 - [ ] `npm run types:check`
-- [ ] `npm run pack:check`
 - [ ] `npm run e2e:chrome`
 - [ ] `npm run wpt:selection:check`
-- [ ] `npm run wpt:test`
-- [ ] `npm run wpt:check:strict`
-- [ ] CodeQL JavaScript/TypeScript and C/C++ checks
+- [ ] `npm run wpt:smoke`
+- [ ] `npm run wpt:smoke:check`
+- [ ] `npm run wpt:test` / `npm run wpt:check:strict`
 
 ## WPT impact
 

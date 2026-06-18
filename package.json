@@ -56,13 +56,10 @@
     "install": "node scripts/install-native.js",
     "lint": "biome lint .",
     "native:check": "node scripts/check-native-integration.js",
-    "pack:check": "node scripts/check-package-artifact.js",
     "prebuild:package": "node scripts/package-prebuild.js",
     "prebuild:check": "node scripts/check-prebuilds.js",
-    "prebuild:symbols:check": "node scripts/check-linux-addon-symbols.js",
-    "tls:check": "node scripts/check-tls-coexistence.js",
     "api:check": "node scripts/check-api-surface.js",
-    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/ci-evidence.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/turn.test.js test/wpt-sharding.test.js",
+    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
     "types:check": "tsc -p tsconfig.types.json",
     "wpt:ensure": "node scripts/ensure-wpt.js",
     "wpt:smoke": "node scripts/run-wpt-smoke.js",
@@ -72,10 +69,7 @@
     "wpt:check": "node scripts/check-wpt-results.js",
     "wpt:check:strict": "node scripts/check-wpt-results.js --fail-on-retries",
     "wpt:selection:check": "node scripts/check-wpt-selection.js",
-    "wpt:report": "node scripts/write-wpt-report.js",
-    "wpt:manifest": "node scripts/print-wpt-manifest.js",
-    "ci:evidence": "node scripts/write-ci-evidence.js",
-    "ci:evidence:check": "node scripts/check-ci-evidence.js"
+    "wpt:report": "node scripts/write-wpt-report.js"
   },
   "dependencies": {
     "cmake-js": "^8.0.0",

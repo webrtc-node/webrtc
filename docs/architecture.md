@@ -31,8 +31,8 @@ Keep browser-compatible behavior in JavaScript unless native behavior is
 required for correctness.
 
 The typed `nonstandard` namespace is the boundary for the small set of
-libdatachannel-specific operations required by WebRTC Direct. It does not
-change the standard facade and does not expose the complete native API.
+libdatachannel-specific operations exposed for advanced integrations. It does
+not change the standard facade and does not expose the complete native API.
 
 ## Type Declarations
 

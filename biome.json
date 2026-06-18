@@ -17,9 +17,7 @@
       "!*.log",
       "!*.tgz",
       "!wpt-results.json",
-      "!wpt-report.md",
-      "!wpt-manifest.txt",
-      "!ci-evidence.json"
+      "!wpt-report.md"
     ]
   },
   "formatter": {

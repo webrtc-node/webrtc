@@ -1,7 +1,7 @@
 # Nonstandard libdatachannel Extensions
 
 The `nonstandard` namespace exposes a small, typed set of libdatachannel
-capabilities needed by WebRTC Direct transports. These APIs are
+capabilities for advanced integrations. These APIs are
 implementation-specific, may change between minor releases, and are not part of
 this package's W3C compatibility claims.
 
