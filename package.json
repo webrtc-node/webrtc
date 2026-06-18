@@ -78,8 +78,8 @@
     "tar": "^7.5.15"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.16",
-    "playwright-core": "1.60.0",
+    "@biomejs/biome": "2.5.0",
+    "playwright-core": "1.61.0",
     "typescript": "^6.0.3"
   },
   "engines": {
