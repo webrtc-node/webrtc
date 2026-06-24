@@ -147,6 +147,7 @@ test("IceUdpMuxListener reports its endpoint and stops callback delivery", async
   assert.equal(requests[0].host, "127.0.0.1");
   assert.equal(Number.isInteger(requests[0].port), true);
 
+  const requestsBeforeClose = requests.length;
   listener.close();
   listener.close();
   listener.stop();
@@ -154,7 +155,7 @@ test("IceUdpMuxListener reports its endpoint and stops callback delivery", async
     sender.send(stunBindingRequest("closed:request"), port, "127.0.0.1", resolve);
   });
   await delay(100);
-  assert.equal(requests.length, 1);
+  assert.equal(requests.length, requestsBeforeClose);
   assert.throws(
     () => listener.onUnhandledStunRequest(() => {}),
     (error) => error?.name === "InvalidStateError",
