@@ -231,6 +231,31 @@ test("setRemoteDescription ignores late duplicate native signalingstatechange", 
   assert.deepEqual(states, ["have-remote-offer"]);
 });
 
+test("setLocalDescription emits repeated offer states across renegotiation", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
+  offerer.createDataChannel("initial");
+
+  const states = [];
+  offerer.addEventListener("signalingstatechange", () => states.push(offerer.signalingState));
+
+  const offer = await offerer.createOffer();
+  await offerer.setLocalDescription(offer);
+  await answerer.setRemoteDescription(offer);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription(answer);
+  await offerer.setRemoteDescription(answer);
+
+  assert.equal(offerer.signalingState, "stable");
+  offerer.createDataChannel("renegotiated");
+  const reoffer = await offerer.createOffer();
+  await offerer.setLocalDescription(reoffer);
+
+  assert.equal(offerer.signalingState, "have-local-offer");
+  assert.deepEqual(states, ["have-local-offer", "stable", "have-local-offer"]);
+});
+
 test("once event listeners are removed before invocation", () => {
   const target = new EventTarget();
   let calls = 0;
