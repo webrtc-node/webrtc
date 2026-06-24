@@ -54,6 +54,16 @@ struct PeerTeardownWork {
 	std::vector<std::shared_ptr<rtc::DataChannel>> dataChannels;
 };
 
+void CloseDataChannelForTeardown(const std::shared_ptr<rtc::DataChannel> &dataChannel) {
+	if (!dataChannel)
+		return;
+	try {
+		dataChannel->resetCallbacks();
+		dataChannel->close();
+	} catch (...) {
+	}
+}
+
 void RunPeerTeardown(PeerTeardownWork work) {
 	auto closeSignal = std::make_shared<PeerCloseSignal>();
 	work.peerConnection->onStateChange([closeSignal](rtc::PeerConnection::State state) {
@@ -67,10 +77,7 @@ void RunPeerTeardown(PeerTeardownWork work) {
 	});
 
 	for (auto &dataChannel : work.dataChannels) {
-		try {
-			dataChannel->close();
-		} catch (...) {
-		}
+		CloseDataChannelForTeardown(dataChannel);
 	}
 	work.dataChannels.clear();
 
@@ -264,7 +271,9 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 
 private:
 	EventDispatcher(Napi::Env env, Napi::Function callback)
-	    : tsfn(Napi::ThreadSafeFunction::New(env, callback, "webrtc-node events", 0, 1)) {}
+	    : tsfn(Napi::ThreadSafeFunction::New(env, callback, "webrtc-node events", 0, 1)) {
+		tsfn.Unref(env);
+	}
 
 	void Drain(Napi::Env env, Napi::Function callback) {
 		std::vector<NativeEvent> events;
@@ -1043,6 +1052,10 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 
 	std::shared_ptr<ChannelBinding> AddChannel(std::shared_ptr<rtc::DataChannel> dataChannel,
 	                                           ChannelOptions options) {
+		if (shutdown.load()) {
+			CloseDataChannelForTeardown(dataChannel);
+			return nullptr;
+		}
 		std::weak_ptr<PeerBinding> weak = shared_from_this();
 		auto channel = ChannelBinding::Create(
 		    std::move(dataChannel), dispatcher, std::move(options),
@@ -1050,9 +1063,18 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 			    if (auto self = weak.lock())
 				    self->RemoveChannel(id, expected);
 		    });
+		bool closeChannel = false;
 		{
 			std::lock_guard<std::mutex> lock(channelsMutex);
-			channels[channel->id] = channel;
+			if (shutdown.load())
+				closeChannel = true;
+			else
+				channels[channel->id] = channel;
+		}
+		if (closeChannel) {
+			channel->Destroy();
+			CloseDataChannelForTeardown(channel->dataChannel);
+			return nullptr;
 		}
 		if (channel->dataChannel->isClosed())
 			RemoveChannel(channel->id, channel.get());
@@ -1062,6 +1084,12 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 	void ClosePeer() { ScheduleShutdown(); }
 
 	void Destroy() { ScheduleShutdown(); }
+
+	void DestroySync() {
+		auto work = PrepareShutdown();
+		if (work)
+			RunPeerTeardown(std::move(*work));
+	}
 
 	std::shared_ptr<rtc::PeerConnection> peerConnection;
 	std::shared_ptr<EventDispatcher> dispatcher;
@@ -1201,6 +1229,8 @@ private:
 			if (auto self = weak.lock()) {
 				auto channel =
 				    self->AddChannel(dataChannel, ChannelBinding::IncomingOptions(dataChannel));
+				if (!channel)
+					return;
 				NativeEvent event;
 				event.target = "peerconnection";
 				event.type = "datachannel";
@@ -1217,6 +1247,39 @@ private:
 	std::mutex channelsMutex;
 	std::unordered_map<uint32_t, std::shared_ptr<ChannelBinding>> channels;
 };
+
+std::mutex &PeerRegistryMutex() {
+	static std::mutex mutex;
+	return mutex;
+}
+
+std::vector<std::weak_ptr<PeerBinding>> &PeerRegistry() {
+	static std::vector<std::weak_ptr<PeerBinding>> registry;
+	return registry;
+}
+
+void RegisterPeerBinding(const std::shared_ptr<PeerBinding> &binding) {
+	std::lock_guard<std::mutex> lock(PeerRegistryMutex());
+	auto &registry = PeerRegistry();
+	registry.erase(std::remove_if(registry.begin(), registry.end(),
+	                              [](const auto &entry) { return entry.expired(); }),
+	               registry.end());
+	registry.push_back(binding);
+}
+
+void CloseAllPeerBindings() {
+	std::vector<std::shared_ptr<PeerBinding>> bindings;
+	{
+		std::lock_guard<std::mutex> lock(PeerRegistryMutex());
+		for (auto &entry : PeerRegistry()) {
+			if (auto binding = entry.lock())
+				bindings.push_back(std::move(binding));
+		}
+		PeerRegistry().clear();
+	}
+	for (auto &binding : bindings)
+		binding->DestroySync();
+}
 
 class NativePeerConnection : public Napi::ObjectWrap<NativePeerConnection> {
 public:
@@ -1261,6 +1324,7 @@ public:
 			throw Napi::TypeError::New(env, "NativePeerConnection requires an event callback");
 		auto dispatcher = EventDispatcher::Create(env, info[1].As<Napi::Function>());
 		binding_ = PeerBinding::Create(ParseConfiguration(info), dispatcher);
+		RegisterPeerBinding(binding_);
 	}
 
 	~NativePeerConnection() override {
@@ -1542,6 +1606,12 @@ void ConfigureLibDataChannelLogging() {
 		rtc::InitLogger(rtc::LogLevel::Error);
 }
 
+void CleanupNative() {
+	CloseAllPeerBindings();
+	CloseAllIceUdpMuxBindings();
+	rtc::Cleanup().wait();
+}
+
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
 	ConfigureLibDataChannelLogging();
 	NativeDataChannel::Init(env, exports);
@@ -1549,10 +1619,9 @@ Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
 	NativePeerConnection::Init(env, exports);
 	exports.Set("generateCertificate", Napi::Function::New(env, GenerateCertificate));
 	exports.Set("importCertificate", Napi::Function::New(env, ImportCertificate));
-	env.AddCleanupHook([]() { CloseAllIceUdpMuxBindings(); });
+	env.AddCleanupHook([]() { CleanupNative(); });
 	exports.Set("cleanup", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
-		            CloseAllIceUdpMuxBindings();
-		            rtc::Cleanup().wait();
+		            CleanupNative();
 		            return info.Env().Undefined();
 	            }));
 	return exports;

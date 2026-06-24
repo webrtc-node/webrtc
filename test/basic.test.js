@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
+const path = require("node:path");
 const test = require("node:test");
 const {
   RTCPeerConnection,
@@ -78,6 +80,34 @@ function descriptionWithMaxMessageSize(description, value) {
   return {
     type: description.type,
     sdp: description.sdp.replace(/^a=max-message-size:\d+\r\n/m, `a=max-message-size:${value}\r\n`),
+  };
+}
+
+function fakeNativeDataChannel() {
+  return {
+    bindingId: 98765,
+    id: 0,
+    label: "late",
+    ordered: true,
+    maxPacketLifeTime: null,
+    maxRetransmits: null,
+    protocol: "",
+    negotiated: false,
+    bufferedAmount: 0,
+    isOpen: true,
+    isClosed: false,
+    maxMessageSize: 262144,
+    close() {
+      this.isOpen = false;
+      this.isClosed = true;
+    },
+    setBufferedAmountLowThreshold() {},
+    sendString() {
+      return true;
+    },
+    sendBinary() {
+      return true;
+    },
   };
 }
 
@@ -185,6 +215,36 @@ async function closeAllAndWait(...peers) {
   await delay(1500);
 }
 
+function runNodeScript(script, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["-e", script], {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let output = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`Child process did not exit within ${timeout}ms\n${output}`));
+    }, timeout);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, output });
+    });
+  });
+}
+
 test("RTCSessionDescription and RTCIceCandidate expose WebRTC-shaped JSON", () => {
   const description = new RTCSessionDescription({ type: "offer", sdp: "v=0\r\n" });
   assert.deepEqual(description.toJSON(), { type: "offer", sdp: "v=0\r\n" });
@@ -290,6 +350,42 @@ test("createDataChannel exposes core W3C attributes before negotiation", () => {
   assert.equal(dc.bufferedAmount, 0);
   assert.equal(dc.id, null);
   pc.close();
+});
+
+test("closed peer ignores late native datachannel events", async () => {
+  const pc = new RTCPeerConnection();
+  let dataChannelEvents = 0;
+  pc.ondatachannel = () => {
+    dataChannelEvents += 1;
+  };
+
+  pc.close();
+  const nativeChannel = fakeNativeDataChannel();
+  pc._handleNativeEvent({
+    target: "peerconnection",
+    type: "datachannel",
+    channelId: nativeChannel.bindingId,
+    channel: nativeChannel,
+    channelReadyState: "open",
+  });
+  await delay(25);
+
+  assert.equal(nativeChannel.isClosed, true);
+  assert.equal(pc._channels.size, 0);
+  assert.equal(pc._pendingDataChannelEvents.length, 0);
+  assert.equal(dataChannelEvents, 0);
+});
+
+test("unclosed native peer with a data channel does not keep Node alive", async () => {
+  const root = path.resolve(__dirname, "..");
+  const script = `
+    const { RTCPeerConnection } = require(${JSON.stringify(root)});
+    const peerConnection = new RTCPeerConnection({ iceServers: [] });
+    peerConnection.createDataChannel("unclosed-exit");
+  `;
+  const result = await runNodeScript(script);
+
+  assert.deepEqual(result, { code: 0, signal: null, output: "" });
 });
 
 test("native close suppression is restart-scoped and one-shot", () => {
