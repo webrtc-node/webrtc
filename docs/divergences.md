@@ -78,6 +78,9 @@ rejects `setConfiguration()` calls that change the certificate set, and passes
 the first configured certificate into libdatachannel's `rtc::Configuration` so
 the generated DTLS fingerprint appears in local SDP.
 
+Certificate generation supports object-form ECDSA P-256 and RSA SHA-256
+algorithms. String-form WebCrypto `AlgorithmIdentifier` values are rejected.
+
 libdatachannel accepts one certificate/key pair for a peer connection. The W3C
 configuration dictionary allows a sequence of certificates, and WPT has a case
 that expects all configured certificate fingerprints to appear in SDP. The

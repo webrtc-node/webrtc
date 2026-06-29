@@ -54,6 +54,8 @@ const certificatePromise: Promise<RTCCertificate> = RTCPeerConnection.generateCe
   namedCurve: "P-256",
   expires: 60000,
 });
+// @ts-expect-error string-form certificate algorithms are not supported.
+RTCPeerConnection.generateCertificate("ECDSA");
 const pc = new RTCPeerConnection();
 pc.setConfiguration({ iceServers: [{ urls: "stun:stun.example.org" }], iceCandidatePoolSize: 0 });
 const configuration = pc.getConfiguration();

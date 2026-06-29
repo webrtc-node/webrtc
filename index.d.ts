@@ -280,9 +280,7 @@ export class RTCSctpTransport extends EventTarget {
 }
 
 export class RTCPeerConnection extends EventTarget {
-  static generateCertificate(
-    algorithm: string | RTCCertificateKeygenAlgorithm,
-  ): Promise<RTCCertificate>;
+  static generateCertificate(algorithm: RTCCertificateKeygenAlgorithm): Promise<RTCCertificate>;
   constructor(configuration?: RTCConfiguration);
   readonly localDescription: RTCSessionDescription | null;
   readonly currentLocalDescription: RTCSessionDescription | null;
