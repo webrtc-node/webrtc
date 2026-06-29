@@ -615,6 +615,22 @@ test("generateCertificate returns a native-backed RTCCertificate", async (t) => 
   pc.close();
 });
 
+test("generateCertificate rejects string-form algorithms", async () => {
+  await assert.rejects(
+    RTCPeerConnection.generateCertificate("ECDSA"),
+    (error) => error.name === "NotSupportedError",
+  );
+});
+
+test("close resets iceGatheringState to new", () => {
+  const pc = new RTCPeerConnection();
+
+  pc._iceGatheringState = "complete";
+  pc.close();
+
+  assert.equal(pc.iceGatheringState, "new");
+});
+
 test("createDataChannel rejects duplicate negotiated ids until the channel closes", async (t) => {
   const pc = new RTCPeerConnection();
   t.after(() => closeAllAndWait(pc));
