@@ -8,7 +8,7 @@ this package's W3C compatibility claims.
 ## UDP mux
 
 ```js
-const { nonstandard } = require("@mertushka/webrtc-node");
+const { nonstandard } = require("@webrtc-node/webrtc");
 
 const listener = new nonstandard.IceUdpMuxListener(9090, "0.0.0.0");
 listener.onUnhandledStunRequest(({ ufrag, localUfrag, host, port }) => {
@@ -29,7 +29,7 @@ Call `configurePeerConnection()` before an operation such as
 the native peer connection.
 
 ```js
-const { RTCPeerConnection, nonstandard } = require("@mertushka/webrtc-node");
+const { RTCPeerConnection, nonstandard } = require("@webrtc-node/webrtc");
 
 const pc = new RTCPeerConnection({ certificates: [certificate] });
 nonstandard.configurePeerConnection(pc, {

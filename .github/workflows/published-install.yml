@@ -6,7 +6,7 @@ on:
       package_spec:
         description: npm package spec to install (tag or exact version)
         required: true
-        default: "@mertushka/webrtc-node@latest"
+        default: "@webrtc-node/webrtc@latest"
   workflow_run:
     workflows: ["Release"]
     types: [completed]
@@ -43,7 +43,7 @@ jobs:
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             spec="$INPUT_PACKAGE_SPEC"
           else
-            spec="@mertushka/webrtc-node@$(node -p "require('./package.json').version")"
+            spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
           fi
 
           for attempt in 1 2 3 4 5 6; do
@@ -95,8 +95,8 @@ jobs:
                 fi
                 sleep $((attempt * 10))
               done
-              node -e "const { RTCPeerConnection } = require(\"@mertushka/webrtc-node\"); const pc = new RTCPeerConnection(); pc.close(); console.log(\"cjs ok\");"
-              node --input-type=module -e "import { RTCPeerConnection } from \"@mertushka/webrtc-node\"; const pc = new RTCPeerConnection(); pc.close(); console.log(\"esm ok\");"
+              node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const pc = new RTCPeerConnection(); pc.close(); console.log(\"cjs ok\");"
+              node --input-type=module -e "import { RTCPeerConnection } from \"@webrtc-node/webrtc\"; const pc = new RTCPeerConnection(); pc.close(); console.log(\"esm ok\");"
             '
 
   hosted:
@@ -142,5 +142,5 @@ jobs:
             fi
             sleep $((attempt * 10))
           done
-          node -e "const { RTCPeerConnection } = require('@mertushka/webrtc-node'); const pc = new RTCPeerConnection(); pc.close(); console.log('cjs ok');"
-          node --input-type=module -e "import { RTCPeerConnection } from '@mertushka/webrtc-node'; const pc = new RTCPeerConnection(); pc.close(); console.log('esm ok');"
+          node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close(); console.log('cjs ok');"
+          node --input-type=module -e "import { RTCPeerConnection } from '@webrtc-node/webrtc'; const pc = new RTCPeerConnection(); pc.close(); console.log('esm ok');"

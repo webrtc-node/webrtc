@@ -1,8 +1,9 @@
 # Contributing
 
-Thanks for improving `@mertushka/webrtc-node`. This project targets
-browser-compatible `RTCPeerConnection` and `RTCDataChannel` behavior for
-Node.js, with selected WPT coverage as the compatibility contract.
+Thanks for improving `@webrtc-node/webrtc`, the data-channel-first WebRTC
+package for Node.js. This project targets browser-compatible
+`RTCPeerConnection` and `RTCDataChannel` behavior, with selected WPT coverage
+as the compatibility contract.
 
 ## Development Setup
 

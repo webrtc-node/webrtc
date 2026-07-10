@@ -1,6 +1,6 @@
 # Architecture
 
-The package is intentionally split between a thin native layer and a
+`@webrtc-node/webrtc` is intentionally split between a thin native layer and a
 browser-compatible JavaScript facade.
 
 ## Native Addon

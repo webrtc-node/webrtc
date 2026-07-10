@@ -13,7 +13,7 @@ const {
 
 const root = path.resolve(__dirname, "..");
 const packageJson = require("../package.json");
-const releaseBaseUrl = "https://github.com/mertushka/webrtc-node/releases/download";
+const releaseBaseUrl = "https://github.com/webrtc-node/webrtc/releases/download";
 
 function envFlag(name) {
   return /^(1|true|yes)$/i.test(String(process.env[name] || ""));

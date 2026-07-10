@@ -1,23 +1,25 @@
 {
-  "name": "@mertushka/webrtc-node",
+  "name": "@webrtc-node/webrtc",
   "version": "0.2.1",
-  "description": "W3C-style RTCPeerConnection and RTCDataChannel for Node.js, backed by libdatachannel.",
-  "author": "mertushka",
-  "homepage": "https://github.com/mertushka/webrtc-node#readme",
+  "description": "Data-channel-first WebRTC for Node.js with W3C-style RTCPeerConnection and RTCDataChannel APIs.",
+  "author": "webrtc-node contributors",
+  "homepage": "https://github.com/webrtc-node/webrtc#readme",
   "bugs": {
-    "url": "https://github.com/mertushka/webrtc-node/issues"
+    "url": "https://github.com/webrtc-node/webrtc/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mertushka/webrtc-node.git"
+    "url": "git+https://github.com/webrtc-node/webrtc.git"
   },
   "publishConfig": {
     "access": "public"
   },
   "keywords": [
     "webrtc",
+    "webrtc-node",
     "rtcpeerconnection",
     "rtcdatachannel",
+    "datachannel",
     "node",
     "node-api",
     "n-api",

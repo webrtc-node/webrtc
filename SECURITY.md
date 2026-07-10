@@ -1,9 +1,10 @@
 # Security Policy
 
-`@mertushka/webrtc-node` is a data-channel-first native WebRTC binding for
-Node.js. It is published, but it should not be treated as a security boundary
-for untrusted traffic without validating the selected WPT suite, native
-lifetime behavior, and cross-platform behavior against your use case.
+`@webrtc-node/webrtc` is a data-channel-first WebRTC package for Node.js backed
+by a native Node-API addon. It is published, but it should not be treated as a
+security boundary for untrusted traffic without validating the selected WPT
+suite, native lifetime behavior, and cross-platform behavior against your use
+case.
 
 ## Reporting
 

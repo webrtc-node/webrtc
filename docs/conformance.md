@@ -1,8 +1,8 @@
 # Conformance
 
-The compatibility target is the selected WPT subset in `wpt-manifest.json`.
-Real-browser wire interoperability is checked separately with
-`npm run e2e:chrome`; WPT remains the API semantics contract.
+The compatibility target for `@webrtc-node/webrtc` is the selected WPT subset
+in `wpt-manifest.json`. Real-browser wire interoperability is checked
+separately with `npm run e2e:chrome`; WPT remains the API semantics contract.
 This project targets the WebRTC data-channel profile exposed through
 `RTCPeerConnection` and `RTCDataChannel`.
 
