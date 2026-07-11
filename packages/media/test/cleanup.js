@@ -31,4 +31,5 @@ function verifyCleanup(extraSource) {
 
 verifyCleanup("");
 verifyCleanup("peer.close();");
+verifyCleanup("peer.close(); process.exit(0);");
 console.log("Media environment cleanup verified");

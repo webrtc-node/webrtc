@@ -166,13 +166,13 @@ struct AsyncPeerTeardown {
 };
 
 std::mutex &PeerTeardownMutex() {
-	static std::mutex mutex;
-	return mutex;
+	static auto *mutex = new std::mutex();
+	return *mutex;
 }
 
 std::vector<AsyncPeerTeardown> &PeerTeardowns() {
-	static std::vector<AsyncPeerTeardown> teardowns;
-	return teardowns;
+	static auto *teardowns = new std::vector<AsyncPeerTeardown>();
+	return *teardowns;
 }
 
 void SchedulePeerTeardown(PeerTeardownWork work) {
