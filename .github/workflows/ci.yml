@@ -149,6 +149,8 @@ jobs:
 
       - run: npm ci
 
+      - run: npm run build -w @webrtc-node/webrtc
+
       - name: Pack source artifact
         id: pack
         shell: bash
