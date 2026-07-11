@@ -149,20 +149,6 @@ jobs:
 
       - run: npm ci
 
-      - name: Verify static Linux addon build
-        shell: bash
-        run: |
-          docker build \
-            -f build-containers/Dockerfile.debian \
-            --build-arg NODE_VERSION=20 \
-            --build-arg DEBIAN_VERSION=bullseye \
-            -t webrtc-node-ci-debian .
-          docker run --rm \
-            -v "$PWD:/usr/app" \
-            -w /usr/app \
-            webrtc-node-ci-debian \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && node -e \"const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close();\""
-
       - name: Pack source artifact
         id: pack
         shell: bash
@@ -200,6 +186,20 @@ jobs:
           npm install
           npm run build
           node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close(); console.log('packed source require ok');"
+
+      - name: Verify static Linux addon build
+        shell: bash
+        run: |
+          docker build \
+            -f build-containers/Dockerfile.debian \
+            --build-arg NODE_VERSION=20 \
+            --build-arg DEBIAN_VERSION=bullseye \
+            -t webrtc-node-ci-debian .
+          docker run --rm \
+            -v "$PWD:/usr/app" \
+            -w /usr/app \
+            webrtc-node-ci-debian \
+            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && node -e \"const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close();\""
 
   build-test:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
