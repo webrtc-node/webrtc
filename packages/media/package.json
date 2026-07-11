@@ -39,7 +39,7 @@
     "index.d.ts"
   ],
   "scripts": {
-    "build": "node -e \"require('./lib')\"",
+    "build": "node --check lib/index.js",
     "check": "biome check .",
     "e2e:chrome": "node --test --test-force-exit --test-timeout=60000 test/e2e/chrome.test.js",
     "format": "biome format --write .",

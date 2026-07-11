@@ -38,7 +38,7 @@
     "index.d.ts"
   ],
   "scripts": {
-    "build": "node -e \"require('./lib')\"",
+    "build": "node --check lib/index.js",
     "check": "biome check .",
     "format": "biome format --write .",
     "package:check": "npm pack --dry-run --json",
