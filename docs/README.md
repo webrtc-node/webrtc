@@ -11,3 +11,4 @@ Project-facing docs:
 - [Intentional Divergences](divergences.md)
 - [Nonstandard libdatachannel Extensions](nonstandard.md)
 - [Package and Organization Roadmap](package-roadmap.md)
+- [Experimental Workspace Migration](workspace-migration.md)

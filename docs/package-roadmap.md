@@ -72,6 +72,12 @@ scripts/
 
 Until then, keep the current single-package repository layout.
 
+Experimental workspace migration branches may add root-level workspace
+metadata and validation guardrails before the first child package exists, but
+they must not publish empty package placeholders. See
+[Experimental Workspace Migration](workspace-migration.md) for the current
+guardrails and blockers.
+
 ## Release Model
 
 Use independent package versions unless a shared native ABI or coordinated
