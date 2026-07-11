@@ -1,6 +1,6 @@
 {
   "name": "@webrtc-node/webrtc",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Data-channel-first WebRTC for Node.js with W3C-style RTCPeerConnection and RTCDataChannel APIs.",
   "author": "webrtc-node contributors",
   "homepage": "https://github.com/webrtc-node/webrtc#readme",
