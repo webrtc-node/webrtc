@@ -113,12 +113,12 @@ else()
       deps/plog
       deps/usrsctp
       deps/libjuice
+      deps/libsrtp
     GIT_SUBMODULES_RECURSE TRUE
+    # Populate here and add the dependency only after all build options are forced below.
+    SOURCE_SUBDIR __webrtc_node_populate_only
   )
-  FetchContent_GetProperties(ldc)
-  if(NOT ldc_POPULATED)
-    FetchContent_Populate(ldc)
-  endif()
+  FetchContent_MakeAvailable(ldc)
   set(LIBDATACHANNEL_RESOLVED_SOURCE_DIR "${ldc_SOURCE_DIR}")
 endif()
 
@@ -126,7 +126,7 @@ verify_libdatachannel_pin("${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}")
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_DEPS_LIBS OFF CACHE BOOL "" FORCE)
-set(NO_MEDIA ON CACHE BOOL "" FORCE)
+set(NO_MEDIA OFF CACHE BOOL "" FORCE)
 set(NO_WEBSOCKET ON CACHE BOOL "" FORCE)
 set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
 set(NO_TESTS ON CACHE BOOL "" FORCE)

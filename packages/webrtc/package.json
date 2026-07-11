@@ -59,6 +59,7 @@
     "install": "node scripts/install-native.js",
     "lint": "biome lint .",
     "native:check": "node scripts/check-native-integration.js",
+    "package:check": "npm pack --dry-run --json",
     "prebuild:package": "node scripts/package-prebuild.js",
     "prebuild:check": "node scripts/check-prebuilds.js",
     "api:check": "node scripts/check-api-surface.js",

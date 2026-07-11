@@ -626,6 +626,10 @@ function hasDataMediaSection(description) {
   return /\r?\nm=application\b/i.test(description?.sdp || "");
 }
 
+function hasNegotiatedMediaSection(description) {
+  return /\r?\nm=(?:application|audio|video)\b/i.test(description?.sdp || "");
+}
+
 function hasTrickleIceOption(description) {
   return /\r?\na=ice-options:[^\r\n]*\btrickle\b/i.test(description?.sdp || "");
 }
@@ -4484,12 +4488,13 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _scheduleNativeCandidateGathering() {
-    if (this._closed || !this._native || !hasDataMediaSection(this._localDescription)) return;
+    if (this._closed || !this._native || !hasNegotiatedMediaSection(this._localDescription)) return;
     if (this._nativeCandidateGatheringScheduled) return;
     this._nativeCandidateGatheringScheduled = true;
     setImmediate(() => {
       this._nativeCandidateGatheringScheduled = false;
-      if (this._closed || !this._native || !hasDataMediaSection(this._localDescription)) return;
+      if (this._closed || !this._native || !hasNegotiatedMediaSection(this._localDescription))
+        return;
       try {
         this._native.gatherLocalCandidates();
       } catch {
@@ -4881,6 +4886,14 @@ function normalizeDataChannelInit(init) {
   return options;
 }
 
+function getNativePeerConnection(peerConnection) {
+  if (!(peerConnection instanceof RTCPeerConnection)) {
+    throw new TypeError("Expected an RTCPeerConnection from @webrtc-node/webrtc");
+  }
+  peerConnection._assertNotClosed();
+  return peerConnection._ensureNativePeerConnection();
+}
+
 module.exports = {
   RTCPeerConnection,
   RTCDataChannel,
@@ -4905,6 +4918,7 @@ module.exports = {
     setLocalIceCredentials,
     getRemoteFingerprint,
     importCertificate,
+    getNativePeerConnection,
     native,
   },
 };

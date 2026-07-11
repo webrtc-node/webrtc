@@ -71,16 +71,16 @@ requireMatch(
   /GIT_SUBMODULES[\s\S]*deps\/plog[\s\S]*deps\/usrsctp[\s\S]*deps\/libjuice/,
 );
 forbidMatch("unused nlohmann/json submodule fetch", cmake, /GIT_SUBMODULES[\s\S]*deps\/json/);
-forbidMatch("unused libsrtp submodule fetch", cmake, /GIT_SUBMODULES[\s\S]*deps\/libsrtp/);
+requireMatch("libSRTP submodule fetch", cmake, /GIT_SUBMODULES[\s\S]*deps\/libsrtp/);
 requireMatch(
   "local checkout pin verification",
   cmake,
   /verify_libdatachannel_pin\s*\(\s*"\$\{LIBDATACHANNEL_RESOLVED_SOURCE_DIR\}"\s*\)/,
 );
 requireMatch(
-  "NO_MEDIA scoped build",
+  "media-enabled build",
   cmake,
-  /set\s*\(\s*NO_MEDIA\s+ON\s+CACHE\s+BOOL\s+""\s+FORCE\s*\)/,
+  /set\s*\(\s*NO_MEDIA\s+OFF\s+CACHE\s+BOOL\s+""\s+FORCE\s*\)/,
 );
 requireMatch(
   "NO_WEBSOCKET scoped build",

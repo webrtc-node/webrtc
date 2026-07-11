@@ -125,7 +125,8 @@ function runBuild() {
 }
 
 async function main() {
-  const buildFromSource = envFlag("npm_config_build_from_source");
+  const buildFromSource =
+    envFlag("WEBRTC_NODE_BUILD_FROM_SOURCE") || envFlag("npm_config_build_from_source");
   const prebuildOnly = envFlag("WEBRTC_NODE_PREBUILD_ONLY");
   if (!buildFromSource && hasNativeAddon()) return;
 

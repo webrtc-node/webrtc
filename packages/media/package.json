@@ -1,0 +1,63 @@
+{
+  "name": "@webrtc-node/media",
+  "version": "0.2.1",
+  "description": "Encoded RTP and RTCP tracks for @webrtc-node/webrtc peer connections.",
+  "author": "webrtc-node contributors",
+  "homepage": "https://github.com/webrtc-node/webrtc/tree/main/packages/media#readme",
+  "bugs": {
+    "url": "https://github.com/webrtc-node/webrtc/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webrtc-node/webrtc.git",
+    "directory": "packages/media"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "webrtc",
+    "node",
+    "rtp",
+    "rtcp",
+    "media",
+    "libdatachannel"
+  ],
+  "main": "lib/index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./lib/index.js",
+      "import": "./lib/index.js",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "index.d.ts"
+  ],
+  "scripts": {
+    "build": "node -e \"require('./lib')\"",
+    "check": "biome check .",
+    "e2e:chrome": "node --test --test-force-exit --test-timeout=60000 test/e2e/chrome.test.js",
+    "format": "biome format --write .",
+    "package:check": "npm pack --dry-run --json",
+    "test": "node --test --test-timeout=30000 test/*.test.js && node test/cleanup.js",
+    "types:check": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@webrtc-node/webrtc": "^0.2.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.3",
+    "@webrtc-node/webrtc": "0.2.1",
+    "playwright-core": "1.61.1",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MPL-2.0"
+}

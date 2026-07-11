@@ -371,6 +371,29 @@ export namespace nonstandard {
     expires?: number;
   }
 
+  interface NativePeerConnectionExtension {
+    createTrack(
+      options: {
+        kind: "audio" | "video";
+        mid: string;
+        direction: "sendonly" | "recvonly" | "sendrecv" | "inactive";
+        codec: string;
+        payloadType: number;
+        profile?: string;
+        ssrc?: number;
+      },
+      callback: (event: unknown) => void,
+    ): unknown;
+    transportStats(): {
+      bytesSent: number;
+      bytesReceived: number;
+      roundTripTime: number | null;
+      localAddress: string | null;
+      remoteAddress: string | null;
+    };
+    clearTransportStats(): void;
+  }
+
   const IceUdpMuxListener: {
     new (port: number, address?: string): IceUdpMuxListener;
   };
@@ -384,5 +407,8 @@ export namespace nonstandard {
   ) => void;
   const getRemoteFingerprint: (peerConnection: RTCPeerConnection) => CertificateFingerprint | null;
   const importCertificate: (material: ImportedCertificate) => RTCCertificate;
+  const getNativePeerConnection: (
+    peerConnection: RTCPeerConnection,
+  ) => NativePeerConnectionExtension;
   const native: unknown;
 }

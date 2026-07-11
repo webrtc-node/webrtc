@@ -18,6 +18,7 @@ const requiredRootScripts = [
   "build",
   "check",
   "native:check",
+  "package:check",
   "test",
   "api:check",
   "types:check",
@@ -59,7 +60,7 @@ const requiredRuntimeScripts = [
   "prebuild:package",
   "prebuild:check",
 ];
-const requiredWorkspaceScripts = ["build", "check", "test", "types:check"];
+const requiredWorkspaceScripts = ["build", "check", "package:check", "test", "types:check"];
 
 function fail(message) {
   console.error(`Workspace package check failed: ${message}`);
@@ -120,10 +121,13 @@ function validateLockfile(packageLock) {
   if (!sameArray(lockRoot.workspaces, [workspacePattern])) {
     fail(`package-lock.json root workspaces must be exactly ["${workspacePattern}"]`);
   }
-  const runtimeLock = packageLock.packages?.["packages/webrtc"];
-  if (!runtimeLock) fail("package-lock.json is missing packages/webrtc");
-  if (runtimeLock.name !== runtimePackageName) {
-    fail(`package-lock.json packages/webrtc name must be ${runtimePackageName}`);
+  for (const [dirname, expectedName] of allowedWorkspacePackages) {
+    if (!fs.existsSync(path.join(root, "packages", dirname, "package.json"))) continue;
+    const packageEntry = packageLock.packages?.[`packages/${dirname}`];
+    if (!packageEntry) fail(`package-lock.json is missing packages/${dirname}`);
+    if (packageEntry.name !== expectedName) {
+      fail(`package-lock.json packages/${dirname} name must be ${expectedName}`);
+    }
   }
 }
 
@@ -167,6 +171,13 @@ function validateWorkspacePackage(dirname, packageJson) {
   requireString(packageJson.description, `${expectedName} description`);
   if (packageJson.license !== "MPL-2.0") fail(`${expectedName} must use MPL-2.0`);
   if (!packageJson.repository?.url) fail(`${expectedName} must declare repository metadata`);
+  if (packageJson.repository?.directory !== `packages/${dirname}`) {
+    fail(`${expectedName} repository directory must be packages/${dirname}`);
+  }
+  if (packageJson.publishConfig?.access !== "public") {
+    fail(`${expectedName} must explicitly publish with public access`);
+  }
+  if (packageJson.engines?.node !== ">=20") fail(`${expectedName} must support Node >=20`);
   if (!packageJson.main && !packageJson.exports) {
     fail(`${expectedName} must declare main or exports`);
   }
@@ -176,6 +187,24 @@ function validateWorkspacePackage(dirname, packageJson) {
   const readmePath = path.join(root, "packages", dirname, "README.md");
   if (!fs.existsSync(readmePath)) {
     fail(`${expectedName} must document scope and non-goals in packages/${dirname}/README.md`);
+  }
+  if (!fs.existsSync(path.join(root, "packages", dirname, "LICENSE"))) {
+    fail(`${expectedName} must include its license text`);
+  }
+  for (const dependencyGroup of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+    for (const [name, specifier] of Object.entries(packageJson[dependencyGroup] || {})) {
+      if (/^(?:file:|link:|workspace:)/.test(specifier)) {
+        fail(`${expectedName} ${dependencyGroup}.${name} must not use ${specifier}`);
+      }
+    }
+  }
+  if (dirname === "media" || dirname === "stats") {
+    if (packageJson.peerDependencies?.[runtimePackageName] !== `^${packageJson.version}`) {
+      fail(`${expectedName} must declare ${runtimePackageName} ^${packageJson.version}`);
+    }
+    if (packageJson.devDependencies?.[runtimePackageName] !== packageJson.version) {
+      fail(`${expectedName} must test against ${runtimePackageName} ${packageJson.version}`);
+    }
   }
 }
 

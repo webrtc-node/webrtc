@@ -5,6 +5,12 @@ capabilities for advanced integrations. These APIs are
 implementation-specific, may change between minor releases, and are not part of
 this package's W3C compatibility claims.
 
+`getNativePeerConnection()` is the typed integration boundary used by the
+`@webrtc-node/media` and `@webrtc-node/stats` companion packages. Application
+code should use those packages instead of calling the returned native
+capabilities directly. The function validates package identity and closed-peer
+state before exposing track and transport-counter operations.
+
 ## UDP mux
 
 ```js

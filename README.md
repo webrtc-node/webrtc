@@ -76,6 +76,12 @@ testing your workload.
 | Linux construct+close PC | 53k ops/s | 3.2k ops/s | 200 ops/s |
 | Linux negotiated DC create+close | 2.2k ops/s | 974 ops/s | 173 ops/s |
 
+## Optional Packages
+
+Optional workspace companions provide [encoded RTP/RTCP media](packages/media/README.md) and
+[transport statistics](packages/stats/README.md). They remain experimental and are not part of the
+browser-compatible facade exported by `@webrtc-node/webrtc`.
+
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Public

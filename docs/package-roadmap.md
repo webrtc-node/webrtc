@@ -2,35 +2,42 @@
 
 `webrtc-node` is the GitHub and npm organization for WebRTC APIs and tooling
 for Node.js. The organization should support a complete WebRTC stack over time
-without making data-channel-only users pay for media complexity.
+without putting low-level media APIs into the browser-compatible core facade.
 
-## Current Package
+## Current Packages
 
-`@webrtc-node/webrtc` is the stable runtime package. Its current scope is
+`@webrtc-node/webrtc` is the W3C-facing runtime package. Its current scope is
 W3C-style `RTCPeerConnection` and `RTCDataChannel` APIs backed by
 libdatachannel. In the experimental workspace branch its package root is
 `packages/webrtc`; the package name, exports, install behavior, prebuild asset
 names, and WPT conformance scope stay unchanged.
 
-Keep this package focused until additional APIs are mature enough to justify
-the dependency, testing, and maintenance cost. Do not add media, stats, or
-browser device APIs to the stable surface as placeholders.
+The experimental workspace also contains two implemented companion packages:
+
+- `@webrtc-node/media` provides explicit encoded RTP/RTCP tracks over
+  libdatachannel DTLS-SRTP. It does not implement browser capture, codecs, or
+  the `MediaStreamTrack`/transceiver object model.
+- `@webrtc-node/stats` provides immutable SCTP transport snapshots, selected
+  ICE endpoint context, deltas, and interval sampling. It does not claim to be
+  the browser `RTCStatsReport` object graph.
+
+These packages share a coordinated version because both consume a typed
+native companion capability supplied by `@webrtc-node/webrtc`.
 
 ## Package Boundaries
 
-Future packages should start as separate npm packages when they have a real
-implementation and a clear user story.
+Packages start only when they have a real implementation and a clear user story.
 
 - `@webrtc-node/webrtc`: stable WebRTC runtime package and default install.
-- `@webrtc-node/media`: optional media APIs and heavier media dependencies.
-- `@webrtc-node/stats`: stats collection, normalization, and report helpers.
+- `@webrtc-node/media`: encoded RTP/RTCP transport and media SDP negotiation.
+- `@webrtc-node/stats`: transport counter snapshots, deltas, and sampling.
 - `@webrtc-node/native`: shared native/build layer, only if duplication becomes
   a real maintenance problem.
 - `@webrtc-node/test-utils`: internal or development-only WPT, interop, and
   peer-pair helpers, only if tests outgrow the main package.
 
-Media and stats should incubate outside the stable core until their APIs are
-standards-shaped, tested, and ready for long-term compatibility support.
+Media and stats remain companion packages because their APIs are deliberately
+not browser facade APIs.
 
 ## Repository Layout
 
@@ -79,10 +86,10 @@ guardrails and blockers.
 
 ## Release Model
 
-Use independent package versions unless a shared native ABI or coordinated
-compatibility change requires lockstep releases. A patch release of
-`@webrtc-node/media` should not force a version bump of `@webrtc-node/webrtc`
-when the stable runtime package did not change.
+The three runtime packages use lockstep versions while media and stats depend
+on the companion native capability in `@webrtc-node/webrtc`. Release publishes
+the native package first, followed by media and stats, and validates all three
+packed artifacts together before publishing.
 
 Every public package should eventually use trusted publishing, provenance,
 prebuild validation when native artifacts are involved, and package-specific

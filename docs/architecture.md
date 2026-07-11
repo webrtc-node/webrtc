@@ -12,6 +12,10 @@ direct V8 or NAN APIs.
 Native callbacks never call JavaScript directly from `libdatachannel` callback
 threads. They dispatch back to Node through a thread-safe function.
 
+The addon is built with libdatachannel media support and libSRTP. Encoded track
+callbacks use the same dispatcher, batch packet delivery, and cap pending track
+packets so a stalled JavaScript consumer cannot create an unbounded queue.
+
 The native ICE UDP mux wrapper follows the same rule and unregisters its
 callback before releasing the dispatcher. Environment cleanup closes remaining
 listeners before libdatachannel global cleanup.
@@ -45,3 +49,8 @@ as needed.
 The public scope is `RTCPeerConnection` plus `RTCDataChannel` for the WebRTC
 data-channel profile. Media tracks, transceivers, RTP sender/receiver APIs,
 stats, DTMF, and capture devices are not implemented.
+
+`@webrtc-node/media` and `@webrtc-node/stats` are companion APIs rather than
+members of this W3C-facing surface. They use the typed nonstandard native
+capability to provide encoded RTP/RTCP transport and SCTP transport telemetry,
+respectively. Their narrower contracts are documented in their package READMEs.

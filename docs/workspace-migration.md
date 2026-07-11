@@ -13,14 +13,15 @@ The repository declares a root npm workspace pattern:
 packages/*
 ```
 
-The only workspace package is currently `packages/webrtc`. Empty public
-packages such as `@webrtc-node/media`, `@webrtc-node/stats`,
-`@webrtc-node/native`, and `@webrtc-node/test-utils` must not be added until
-they have real code, package metadata, tests, documentation, and package-local
-validation.
+The workspace contains `packages/webrtc`, `packages/media`, and
+`packages/stats`. Media owns encoded RTP/RTCP transport and stats owns
+transport snapshots and sampling. Neither package is a placeholder.
+`@webrtc-node/native` and `@webrtc-node/test-utils` remain absent because no
+independent package purpose currently justifies them.
 
 `@webrtc-node/webrtc` keeps its package identity, native install script,
-prebuild asset naming, WPT selection, and public API. Package-local build,
+prebuild asset naming, and WPT selection. Its native build now includes
+libSRTP so the media companion can use the same ABI-stable addon. Package-local build,
 test, type, API, native integration, and prebuild scripts live under
 `packages/webrtc`.
 
@@ -30,10 +31,10 @@ test, type, API, native integration, and prebuild scripts live under
 
 - the root package is named `webrtc-node-workspace`
 - the root package is private and cannot be published by accident
-- `packages/webrtc` is the only publishable package
+- every present package has publishable metadata, scripts, documentation, and license text
 - the workspace pattern is `packages/*`
 - native install and package file entries remain present in `packages/webrtc`
-- any future child package is one of the approved package names
+- every child package is one of the approved package names
 - future child packages declare metadata, scripts, exports or main, and README
   documentation
 
@@ -63,6 +64,7 @@ verification. Manual release workflow dispatches keep asset upload and npm
 publish behind explicit opt-in inputs so prebuild validation can run without
 creating release artifacts.
 
-Future packages remain intentionally absent. Creating `packages/media`,
-`packages/stats`, `packages/native`, or `packages/test-utils` would be a
-separate package stabilization project, not a workspace placeholder change.
+The branch remains experimental until the media-enabled prebuild matrix,
+three-package packed installation, full WPT run, release dry run, and
+published-install workflow are all green. No package may be published from
+this branch during validation.
