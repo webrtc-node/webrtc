@@ -287,8 +287,8 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 	~EventDispatcher() { Close(); }
 
 	void Emit(NativeEvent event) {
-		if ((event.target != "datachannel" && event.target != "track") ||
-		    event.type != "message") {
+		const bool queuedDataMessage = event.target == "datachannel" && event.type == "message";
+		if (event.target != "track" && !queuedDataMessage) {
 			EmitDirect(std::move(event));
 			return;
 		}
