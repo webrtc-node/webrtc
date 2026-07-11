@@ -59,7 +59,9 @@ release/prebuild workflows run successfully from the workspace layout. The
 sensitive paths are source builds, prebuild packaging, prebuild download and
 integrity checks, packed-source rebuilds, WPT smoke/full runs, CodeQL C++
 tracing, release asset upload, npm publish targeting, and published-install
-verification.
+verification. Manual release workflow dispatches keep asset upload and npm
+publish behind explicit opt-in inputs so prebuild validation can run without
+creating release artifacts.
 
 Future packages remain intentionally absent. Creating `packages/media`,
 `packages/stats`, `packages/native`, or `packages/test-utils` would be a
