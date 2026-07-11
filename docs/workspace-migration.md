@@ -1,35 +1,38 @@
 # Experimental Workspace Migration
 
 This branch is an experimental workspace migration branch. The stable package
-remains `@webrtc-node/webrtc`, and its package root remains the repository root
-until the release, prebuild, install, WPT, and published-install paths are
-rewired and validated for a moved package.
+remains `@webrtc-node/webrtc`, but its package root is now `packages/webrtc`.
+The repository root is a private npm workspace that delegates runtime package
+commands to that workspace.
 
 ## Current State
 
-The repository declares a root npm workspace pattern for future packages:
+The repository declares a root npm workspace pattern:
 
 ```text
 packages/*
 ```
 
-No child workspace package is currently present. That is intentional. Empty
-public packages such as `@webrtc-node/media`, `@webrtc-node/stats`,
+The only workspace package is currently `packages/webrtc`. Empty public
+packages such as `@webrtc-node/media`, `@webrtc-node/stats`,
 `@webrtc-node/native`, and `@webrtc-node/test-utils` must not be added until
 they have real code, package metadata, tests, documentation, and package-local
 validation.
 
-`@webrtc-node/webrtc` keeps its current package identity, root package files,
-native install script, prebuild asset naming, WPT selection, and public API.
+`@webrtc-node/webrtc` keeps its package identity, native install script,
+prebuild asset naming, WPT selection, and public API. Package-local build,
+test, type, API, native integration, and prebuild scripts live under
+`packages/webrtc`.
 
 ## Validation Guardrails
 
 `npm run workspace:check` validates that:
 
-- the root package is still named `@webrtc-node/webrtc`
-- the root package remains publishable
+- the root package is named `webrtc-node-workspace`
+- the root package is private and cannot be published by accident
+- `packages/webrtc` is the only publishable package
 - the workspace pattern is `packages/*`
-- native install and package file entries remain present
+- native install and package file entries remain present in `packages/webrtc`
 - any future child package is one of the approved package names
 - future child packages declare metadata, scripts, exports or main, and README
   documentation
@@ -49,12 +52,15 @@ ready to own its surface:
 - package-specific packed-content validation
 - compatible CI, release, prebuild, and published-install paths
 
-## Migration Blockers
+## Remaining Experimental Scope
 
-Moving the current package to `packages/webrtc` is not a mechanical rename. The
-current release path expects `package.json`, `CMakeLists.txt`, `lib/`, `src/`,
-`scripts/`, `index.d.ts`, WPT files, and prebuild artifacts at the repository
-root. Before that move is safe, the migration needs workspace-aware handling for
-the source build, prebuild packaging, prebuild download and integrity checks,
-packed-source rebuilds, WPT smoke/full runs, CodeQL C++ tracing, and published
-install verification.
+This branch remains experimental after local validation until GitHub CI and
+release/prebuild workflows run successfully from the workspace layout. The
+sensitive paths are source builds, prebuild packaging, prebuild download and
+integrity checks, packed-source rebuilds, WPT smoke/full runs, CodeQL C++
+tracing, release asset upload, npm publish targeting, and published-install
+verification.
+
+Future packages remain intentionally absent. Creating `packages/media`,
+`packages/stats`, `packages/native`, or `packages/test-utils` would be a
+separate package stabilization project, not a workspace placeholder change.

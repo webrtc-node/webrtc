@@ -5,7 +5,7 @@ browser-compatible JavaScript facade.
 
 ## Native Addon
 
-`src/native/addon.cc` owns `libdatachannel` handles and exposes a small
+`packages/webrtc/src/native/addon.cc` owns `libdatachannel` handles and exposes a small
 Node-API surface to JavaScript. It must remain ABI-stable and must not use
 direct V8 or NAN APIs.
 
@@ -18,7 +18,7 @@ listeners before libdatachannel global cleanup.
 
 ## JavaScript Facade
 
-`lib/index.js` implements the W3C-facing behavior:
+`packages/webrtc/lib/index.js` implements the W3C-facing behavior:
 
 - WebIDL-style conversions
 - DOM-style `EventTarget` behavior
@@ -36,8 +36,9 @@ not change the standard facade and does not expose the complete native API.
 
 ## Type Declarations
 
-`index.d.ts` describes the public API. Any runtime API change must update the
-declarations and `scripts/check-api-surface.js` as needed.
+`packages/webrtc/index.d.ts` describes the public API. Any runtime API change
+must update the declarations and `packages/webrtc/scripts/check-api-surface.js`
+as needed.
 
 ## Scope Boundary
 

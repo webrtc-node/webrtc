@@ -5,9 +5,10 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(root, "..", "..");
 const addonPath = path.join(root, "src", "native", "addon.cc");
 const cmakePath = path.join(root, "CMakeLists.txt");
-const manifestPath = path.join(root, "wpt-manifest.json");
+const manifestPath = path.join(repoRoot, "wpt-manifest.json");
 
 const addon = fs.readFileSync(addonPath, "utf8");
 const cmake = fs.readFileSync(cmakePath, "utf8");
@@ -62,8 +63,15 @@ if (cmakeRepository !== manifest.libdatachannelRepository) {
 requireMatch(
   "FetchContent libdatachannel fallback",
   cmake,
-  /FetchContent_Declare\s*\(\s*libdatachannel_pinned[\s\S]*GIT_TAG\s+"\$\{LIBDATACHANNEL_PINNED_COMMIT\}"/,
+  /FetchContent_Declare\s*\(\s*ldc[\s\S]*GIT_TAG\s+"\$\{LIBDATACHANNEL_PINNED_COMMIT\}"/,
 );
+requireMatch(
+  "scoped libdatachannel submodule fetch",
+  cmake,
+  /GIT_SUBMODULES[\s\S]*deps\/plog[\s\S]*deps\/usrsctp[\s\S]*deps\/libjuice/,
+);
+forbidMatch("unused nlohmann/json submodule fetch", cmake, /GIT_SUBMODULES[\s\S]*deps\/json/);
+forbidMatch("unused libsrtp submodule fetch", cmake, /GIT_SUBMODULES[\s\S]*deps\/libsrtp/);
 requireMatch(
   "local checkout pin verification",
   cmake,
@@ -82,7 +90,7 @@ requireMatch(
 requireMatch("Node-API version definition", cmake, /NAPI_VERSION=\$\{WEBRTC_NODE_NAPI_VERSION\}/);
 requireMatch("static libdatachannel target", cmake, /LibDataChannel::LibDataChannelStatic/);
 
-const localLibDataChannel = path.join(root, "libdatachannel");
+const localLibDataChannel = path.join(repoRoot, "libdatachannel");
 if (fs.existsSync(path.join(localLibDataChannel, ".git"))) {
   const git = spawnSync("git", ["-C", localLibDataChannel, "rev-parse", "HEAD"], {
     cwd: root,

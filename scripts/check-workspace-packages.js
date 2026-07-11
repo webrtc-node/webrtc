@@ -5,35 +5,15 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const workspacePattern = "packages/*";
-const rootPackageName = "@webrtc-node/webrtc";
+const rootPackageName = "webrtc-node-workspace";
+const runtimePackageName = "@webrtc-node/webrtc";
 const allowedWorkspacePackages = new Map([
-  ["webrtc", "@webrtc-node/webrtc"],
+  ["webrtc", runtimePackageName],
   ["media", "@webrtc-node/media"],
   ["stats", "@webrtc-node/stats"],
   ["native", "@webrtc-node/native"],
   ["test-utils", "@webrtc-node/test-utils"],
 ]);
-const requiredRootPackageEntries = [
-  "lib",
-  "scripts/install-native.js",
-  "scripts/prebuild-integrity.js",
-  "src/native/addon.cc",
-  "src/native/certificate.cc",
-  "src/native/certificate.hpp",
-  "CMakeLists.txt",
-  "index.d.ts",
-];
-const requiredRootFiles = [
-  "lib/index.js",
-  "lib/load-native.js",
-  "scripts/install-native.js",
-  "scripts/prebuild-integrity.js",
-  "src/native/addon.cc",
-  "src/native/certificate.cc",
-  "src/native/certificate.hpp",
-  "CMakeLists.txt",
-  "index.d.ts",
-];
 const requiredRootScripts = [
   "build",
   "check",
@@ -45,6 +25,39 @@ const requiredRootScripts = [
   "wpt:smoke",
   "wpt:smoke:check",
   "workspace:check",
+];
+const requiredRuntimePackageEntries = [
+  "lib",
+  "scripts/install-native.js",
+  "scripts/prebuild-integrity.js",
+  "src/native/addon.cc",
+  "src/native/certificate.cc",
+  "src/native/certificate.hpp",
+  "CMakeLists.txt",
+  "index.d.ts",
+];
+const requiredRuntimePackageFiles = [
+  "lib/index.js",
+  "lib/load-native.js",
+  "scripts/install-native.js",
+  "scripts/prebuild-integrity.js",
+  "src/native/addon.cc",
+  "src/native/certificate.cc",
+  "src/native/certificate.hpp",
+  "CMakeLists.txt",
+  "index.d.ts",
+  "README.md",
+  "LICENSE",
+];
+const requiredRuntimeScripts = [
+  "build",
+  "check",
+  "native:check",
+  "test",
+  "api:check",
+  "types:check",
+  "prebuild:package",
+  "prebuild:check",
 ];
 const requiredWorkspaceScripts = ["build", "check", "test", "types:check"];
 
@@ -82,42 +95,64 @@ function requireScript(packageJson, scriptName, label) {
 
 function validateRootPackage(packageJson) {
   if (packageJson.name !== rootPackageName) {
-    fail(`root package name must remain ${rootPackageName}`);
+    fail(`root package name must be ${rootPackageName}`);
   }
-  if (packageJson.private === true) {
-    fail("root package must remain publishable; do not make @webrtc-node/webrtc private");
+  if (packageJson.private !== true) {
+    fail("root workspace package must be private");
   }
   if (!sameArray(packageJson.workspaces, [workspacePattern])) {
     fail(`package.json workspaces must be exactly ["${workspacePattern}"]`);
   }
-  if (packageJson.main !== "lib/index.js") fail("root package main must remain lib/index.js");
-  if (packageJson.types !== "index.d.ts") fail("root package types must remain index.d.ts");
-  if (packageJson.scripts?.install !== "node scripts/install-native.js") {
-    fail("root package install script must preserve native prebuild/source-build behavior");
+  if (packageJson.dependencies) {
+    fail("root workspace must not own runtime dependencies");
   }
   for (const scriptName of requiredRootScripts) {
     requireScript(packageJson, scriptName, "root package");
-  }
-  for (const entry of requiredRootPackageEntries) {
-    if (!packageJson.files?.includes(entry)) {
-      fail(`root package files list is missing ${entry}`);
-    }
-  }
-  for (const file of requiredRootFiles) {
-    if (!fs.existsSync(path.join(root, file))) {
-      fail(`root package file is missing ${file}`);
-    }
   }
 }
 
 function validateLockfile(packageLock) {
   if (packageLock.name !== rootPackageName) {
-    fail(`package-lock.json package name must remain ${rootPackageName}`);
+    fail(`package-lock.json package name must be ${rootPackageName}`);
   }
   const lockRoot = packageLock.packages?.[""];
   if (!lockRoot) fail("package-lock.json is missing the root package entry");
   if (!sameArray(lockRoot.workspaces, [workspacePattern])) {
     fail(`package-lock.json root workspaces must be exactly ["${workspacePattern}"]`);
+  }
+  const runtimeLock = packageLock.packages?.["packages/webrtc"];
+  if (!runtimeLock) fail("package-lock.json is missing packages/webrtc");
+  if (runtimeLock.name !== runtimePackageName) {
+    fail(`package-lock.json packages/webrtc name must be ${runtimePackageName}`);
+  }
+}
+
+function validateRuntimePackage(packageJson) {
+  if (packageJson.name !== runtimePackageName) {
+    fail(`packages/webrtc package name must remain ${runtimePackageName}`);
+  }
+  if (packageJson.private === true) {
+    fail(`${runtimePackageName} must remain publishable`);
+  }
+  if (packageJson.main !== "lib/index.js") fail(`${runtimePackageName} main must be lib/index.js`);
+  if (packageJson.types !== "index.d.ts") fail(`${runtimePackageName} types must be index.d.ts`);
+  if (packageJson.scripts?.install !== "node scripts/install-native.js") {
+    fail(
+      `${runtimePackageName} install script must preserve native prebuild/source-build behavior`,
+    );
+  }
+  for (const scriptName of requiredRuntimeScripts) {
+    requireScript(packageJson, scriptName, runtimePackageName);
+  }
+  for (const entry of requiredRuntimePackageEntries) {
+    if (!packageJson.files?.includes(entry)) {
+      fail(`${runtimePackageName} files list is missing ${entry}`);
+    }
+  }
+  for (const file of requiredRuntimePackageFiles) {
+    if (!fs.existsSync(path.join(root, "packages", "webrtc", file))) {
+      fail(`${runtimePackageName} file is missing packages/webrtc/${file}`);
+    }
   }
 }
 
@@ -161,12 +196,16 @@ validateRootPackage(packageJson);
 validateLockfile(packageLock);
 
 const packageDirs = workspacePackageDirs();
+if (!packageDirs.includes("webrtc")) fail("packages/webrtc is required");
+
 for (const dirname of packageDirs) {
   const packagePath = path.join("packages", dirname, "package.json");
   if (!fs.existsSync(path.join(root, packagePath))) {
     fail(`packages/${dirname} exists without a package.json`);
   }
-  validateWorkspacePackage(dirname, readJson(packagePath));
+  const workspacePackage = readJson(packagePath);
+  validateWorkspacePackage(dirname, workspacePackage);
+  if (dirname === "webrtc") validateRuntimePackage(workspacePackage);
 }
 
 console.log(

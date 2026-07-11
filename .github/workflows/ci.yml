@@ -68,12 +68,12 @@ jobs:
                 ;;
             esac
             case "$file" in
-              lib/*|src/*|test/*|CMakeLists.txt|vcpkg.json|package.json|package-lock.json|index.d.ts|scripts/check-api-surface.js|scripts/check-native-integration.js)
+              packages/webrtc/*|vcpkg.json|package.json|package-lock.json)
                 native_changed="true"
                 ;;
             esac
             case "$file" in
-              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-prebuilds.js|scripts/install-native.js|scripts/package-prebuild.js|scripts/prebuild-integrity.js)
+              packages/webrtc/*|vcpkg.json|build-containers/*|package.json|package-lock.json)
                 package_changed="true"
                 ;;
             esac
@@ -83,7 +83,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              lib/*|src/*|test/e2e/*|CMakeLists.txt|package.json|package-lock.json)
+              packages/webrtc/*|package.json|package-lock.json)
                 chrome_e2e_changed="true"
                 ;;
             esac
@@ -159,14 +159,14 @@ jobs:
             -v "$PWD:/usr/app" \
             -w /usr/app \
             webrtc-node-ci-debian \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON"
+            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && node -e \"const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close();\""
 
       - name: Pack source artifact
         id: pack
         shell: bash
         run: |
           set -euo pipefail
-          tarball="$(npm pack --json | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input)[0].filename));")"
+          tarball="$(npm pack -w @webrtc-node/webrtc --json | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input)[0].filename));")"
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
 
       - name: Verify packed source build

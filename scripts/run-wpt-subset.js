@@ -3,10 +3,13 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const vm = require("node:vm");
-const webrtc = require("..");
 const { ensureWpt } = require("./ensure-wpt");
 
 const root = path.resolve(__dirname, "..");
+const packageRoot = path.resolve(
+  process.env.WEBRTC_NODE_PACKAGE_ROOT || path.join(root, "packages", "webrtc"),
+);
+const webrtc = require(packageRoot);
 const wptDir = path.resolve(process.env.WPT_DIR || path.join(root, "wpt"));
 const workerSpecFile = process.env.WPT_WORKER_SPEC_FILE;
 const workerResultsFile = process.env.WPT_WORKER_RESULTS;

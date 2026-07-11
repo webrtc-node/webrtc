@@ -1,71 +1,26 @@
 {
-  "name": "@webrtc-node/webrtc",
+  "name": "webrtc-node-workspace",
   "version": "0.2.1",
-  "description": "Data-channel-first WebRTC for Node.js with W3C-style RTCPeerConnection and RTCDataChannel APIs.",
-  "author": "webrtc-node contributors",
-  "homepage": "https://github.com/webrtc-node/webrtc#readme",
-  "bugs": {
-    "url": "https://github.com/webrtc-node/webrtc/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/webrtc-node/webrtc.git"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
+  "description": "Workspace for the @webrtc-node/webrtc runtime package.",
   "workspaces": [
     "packages/*"
   ],
-  "keywords": [
-    "webrtc",
-    "webrtc-node",
-    "rtcpeerconnection",
-    "rtcdatachannel",
-    "datachannel",
-    "node",
-    "node-api",
-    "n-api",
-    "libdatachannel",
-    "web-platform-tests"
-  ],
-  "main": "lib/index.js",
-  "types": "index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./index.d.ts",
-      "require": "./lib/index.js",
-      "import": "./lib/index.js",
-      "default": "./lib/index.js"
-    },
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "lib",
-    "scripts/install-native.js",
-    "scripts/prebuild-integrity.js",
-    "src/native/addon.cc",
-    "src/native/certificate.cc",
-    "src/native/certificate.hpp",
-    "CMakeLists.txt",
-    "index.d.ts"
-  ],
   "scripts": {
-    "build": "cmake-js compile",
+    "build": "npm run build -w @webrtc-node/webrtc",
     "check": "biome check . && npm run workspace:check",
-    "clean": "cmake-js clean",
-    "e2e:chrome": "node test/e2e/run-chrome.js",
+    "clean": "npm run clean -w @webrtc-node/webrtc",
+    "e2e:chrome": "npm run e2e:chrome -w @webrtc-node/webrtc",
     "example:datachannel": "node examples/datachannel.js",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "install": "node scripts/install-native.js",
     "lint": "biome lint .",
-    "native:check": "node scripts/check-native-integration.js",
-    "prebuild:package": "node scripts/package-prebuild.js",
-    "prebuild:check": "node scripts/check-prebuilds.js",
-    "api:check": "node scripts/check-api-surface.js",
-    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
-    "types:check": "tsc -p tsconfig.types.json",
+    "native:check": "npm run native:check -w @webrtc-node/webrtc",
+    "prebuild:package": "npm run prebuild:package -w @webrtc-node/webrtc",
+    "prebuild:check": "npm run prebuild:check -w @webrtc-node/webrtc",
+    "api:check": "npm run api:check -w @webrtc-node/webrtc",
+    "test": "npm test -w @webrtc-node/webrtc",
+    "types:check": "npm run types:check -w @webrtc-node/webrtc",
     "wpt:ensure": "node scripts/ensure-wpt.js",
     "wpt:smoke": "node scripts/run-wpt-smoke.js",
     "wpt:smoke:check": "node scripts/check-wpt-results.js --fail-on-retries --expected-total 4",
@@ -76,12 +31,6 @@
     "wpt:selection:check": "node scripts/check-wpt-selection.js",
     "wpt:report": "node scripts/write-wpt-report.js",
     "workspace:check": "node scripts/check-workspace-packages.js"
-  },
-  "dependencies": {
-    "cmake-js": "^8.0.0",
-    "detect-libc": "^2.1.2",
-    "node-addon-api": "^8.9.0",
-    "tar": "^7.5.19"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",

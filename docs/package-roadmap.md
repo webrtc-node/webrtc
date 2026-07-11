@@ -8,7 +8,9 @@ without making data-channel-only users pay for media complexity.
 
 `@webrtc-node/webrtc` is the stable runtime package. Its current scope is
 W3C-style `RTCPeerConnection` and `RTCDataChannel` APIs backed by
-libdatachannel.
+libdatachannel. In the experimental workspace branch its package root is
+`packages/webrtc`; the package name, exports, install behavior, prebuild asset
+names, and WPT conformance scope stay unchanged.
 
 Keep this package focused until additional APIs are mature enough to justify
 the dependency, testing, and maintenance cost. Do not add media, stats, or
@@ -51,10 +53,9 @@ workspace repository for related runtime packages.
 
 ## Workspace Migration Trigger
 
-Do not convert this repository into a workspace just for structure. Convert it
-when at least one additional runtime package exists and shares enough
-infrastructure with `@webrtc-node/webrtc` that separate repositories would
-create meaningful duplication.
+Do not create additional workspace packages just for structure. Add a package
+only when it has real code, stable metadata, tests, documentation, packed
+content validation, and a clear maintenance owner.
 
 A future workspace layout can look like this:
 
@@ -70,10 +71,8 @@ docs/
 scripts/
 ```
 
-Until then, keep the current single-package repository layout.
-
 Experimental workspace migration branches may add root-level workspace
-metadata and validation guardrails before the first child package exists, but
+metadata and move the existing runtime package under `packages/webrtc`, but
 they must not publish empty package placeholders. See
 [Experimental Workspace Migration](workspace-migration.md) for the current
 guardrails and blockers.

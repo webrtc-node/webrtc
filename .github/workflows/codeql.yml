@@ -61,7 +61,7 @@ jobs:
 
       - name: Rebuild first-party native sources for CodeQL
         run: |
-          touch src/native/addon.cc src/native/certificate.cc
+          touch packages/webrtc/src/native/addon.cc packages/webrtc/src/native/certificate.cc
           npm run build
 
       - uses: github/codeql-action/analyze@v4

@@ -51,7 +51,15 @@ set(LIBDATACHANNEL_PINNED_COMMIT "188ec93f6a0b01c2032ddb4c8c013118f7f30232" CACH
 set(LIBDATACHANNEL_REPOSITORY "https://github.com/paullouisageneau/libdatachannel.git" CACHE STRING
     "Repository used when the pinned libdatachannel checkout is not present locally.")
 
-set(LIBDATACHANNEL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libdatachannel" CACHE PATH
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../libdatachannel/CMakeLists.txt")
+  set(WEBRTC_NODE_DEFAULT_LIBDATACHANNEL_SOURCE_DIR
+      "${CMAKE_CURRENT_SOURCE_DIR}/../../libdatachannel")
+else()
+  set(WEBRTC_NODE_DEFAULT_LIBDATACHANNEL_SOURCE_DIR
+      "${CMAKE_CURRENT_SOURCE_DIR}/libdatachannel")
+endif()
+
+set(LIBDATACHANNEL_SOURCE_DIR "${WEBRTC_NODE_DEFAULT_LIBDATACHANNEL_SOURCE_DIR}" CACHE PATH
     "Path to the pinned libdatachannel checkout.")
 
 set(LIBDATACHANNEL_VERIFY_PINNED_COMMIT ON CACHE BOOL
@@ -94,18 +102,24 @@ else()
   message(STATUS
     "libdatachannel source not found at ${LIBDATACHANNEL_SOURCE_DIR}; "
     "fetching ${LIBDATACHANNEL_REPOSITORY} at ${LIBDATACHANNEL_PINNED_COMMIT}.")
+  # Keep the FetchContent name short so source-package builds stay below
+  # Windows path length limits in ordinary temp directories.
   FetchContent_Declare(
-    libdatachannel_pinned
+    ldc
     GIT_REPOSITORY "${LIBDATACHANNEL_REPOSITORY}"
     GIT_TAG "${LIBDATACHANNEL_PINNED_COMMIT}"
     GIT_SHALLOW FALSE
+    GIT_SUBMODULES
+      deps/plog
+      deps/usrsctp
+      deps/libjuice
     GIT_SUBMODULES_RECURSE TRUE
   )
-  FetchContent_GetProperties(libdatachannel_pinned)
-  if(NOT libdatachannel_pinned_POPULATED)
-    FetchContent_Populate(libdatachannel_pinned)
+  FetchContent_GetProperties(ldc)
+  if(NOT ldc_POPULATED)
+    FetchContent_Populate(ldc)
   endif()
-  set(LIBDATACHANNEL_RESOLVED_SOURCE_DIR "${libdatachannel_pinned_SOURCE_DIR}")
+  set(LIBDATACHANNEL_RESOLVED_SOURCE_DIR "${ldc_SOURCE_DIR}")
 endif()
 
 verify_libdatachannel_pin("${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}")

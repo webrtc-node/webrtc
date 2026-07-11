@@ -1,9 +1,11 @@
 build/
+packages/*/build/
 node_modules/
 bench/
 docs/throughput-baseline.md
 libdatachannel/
 prebuild-artifacts/
+packages/*/prebuild-artifacts/
 vcpkg_installed/
 wpt/
 *.log

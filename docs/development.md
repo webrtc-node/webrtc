@@ -109,10 +109,10 @@ is built because the WPT harness loads the public WebRTC facade. Use
 
 ## Package Artifact
 
-CI has a Linux `Package artifact` job that packs the npm source package,
-extracts it in a clean directory, installs dependencies, builds the native
-addon, and requires the package. This guards against missing files in
-`package.json#files`.
+CI has a Linux `Package artifact` job that packs the
+`@webrtc-node/webrtc` workspace package, extracts it in a clean directory,
+installs dependencies, builds the native addon, and requires the package. This
+guards against missing files in `packages/webrtc/package.json#files`.
 
 Use `WEBRTC_NODE_NATIVE_PATH=/absolute/path/to/webrtc_node.node` to test a
 specific local native binary. Use `npm install --build-from-source` to force the

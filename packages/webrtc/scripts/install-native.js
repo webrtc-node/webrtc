@@ -20,7 +20,13 @@ function envFlag(name) {
 }
 
 function isSourceCheckout() {
-  return fs.existsSync(path.join(root, ".git")) && !root.split(path.sep).includes("node_modules");
+  if (root.split(path.sep).includes("node_modules")) return false;
+  if (fs.existsSync(path.join(root, ".git"))) return true;
+  return (
+    path.basename(root) === "webrtc" &&
+    path.basename(path.dirname(root)) === "packages" &&
+    fs.existsSync(path.join(root, "..", "..", ".git"))
+  );
 }
 
 function hasNativeAddon() {

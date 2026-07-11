@@ -6,15 +6,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const packageRoot = path.resolve(__dirname, "..");
+const root = path.resolve(packageRoot, "..", "..");
 const {
   assignWptSpecGroups,
   mergeWptSummaries,
   shardForTest,
   validateWptSelectionTotal,
   wptSelectionDigest,
-} = require("../scripts/wpt-sharding");
-
-const root = path.resolve(__dirname, "..");
+} = require(path.join(root, "scripts", "wpt-sharding"));
 const shardRunner = path.join(__dirname, "fixtures", "wpt-shard-runner.js");
 
 function runShardedFixture(mode) {

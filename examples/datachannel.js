@@ -1,6 +1,6 @@
 "use strict";
 
-const { RTCPeerConnection } = require("..");
+const { RTCPeerConnection } = require("@webrtc-node/webrtc");
 
 async function main() {
   const pc1 = new RTCPeerConnection();

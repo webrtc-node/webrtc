@@ -53,12 +53,12 @@ jobs:
             -v "$PWD:/usr/app" \
             -w /usr/app \
             "${{ matrix.image }}" \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:package -- --platform=linux --arch=x64 --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\""
+            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:package -- --platform=linux --arch=x64 --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close();\""
 
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*
+          path: packages/webrtc/prebuild-artifacts/*
 
   prebuild-macos:
     name: Prebuild ${{ matrix.target }}
@@ -93,12 +93,12 @@ jobs:
 
       - run: npm run prebuild:package -- --platform=darwin --arch=${{ matrix.arch }}
 
-      - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
+      - run: node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close();"
 
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*
+          path: packages/webrtc/prebuild-artifacts/*
 
   prebuild-windows:
     name: Prebuild ${{ matrix.target }}
@@ -133,12 +133,12 @@ jobs:
 
       - run: npm run prebuild:package -- --platform=win32 --arch=${{ matrix.arch }}
 
-      - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
+      - run: node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close();"
 
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*
+          path: packages/webrtc/prebuild-artifacts/*
 
   publish:
     name: Publish npm package
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           pattern: prebuild-*
-          path: prebuild-artifacts
+          path: packages/webrtc/prebuild-artifacts
           merge-multiple: true
 
       - run: npm ci --ignore-scripts
@@ -182,7 +182,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          expected="v$(node -p "require('./package.json').version")"
+          expected="v$(node -p "require('./packages/webrtc/package.json').version")"
           if [ "$EVENT_NAME" = "release" ] && [ "$RELEASE_TAG" != "$expected" ]; then
             echo "Release tag $RELEASE_TAG does not match package version $expected"
             exit 1
@@ -197,10 +197,10 @@ jobs:
           set -euo pipefail
           tag="$RELEASE_TAG"
           if [ "$EVENT_NAME" != "release" ]; then
-            tag="v$(node -p "require('./package.json').version")"
+            tag="v$(node -p "require('./packages/webrtc/package.json').version")"
           fi
           gh release view "$tag" >/dev/null
-          gh release upload "$tag" prebuild-artifacts/* --clobber
+          gh release upload "$tag" packages/webrtc/prebuild-artifacts/* --clobber
 
       - name: Publish to npm
         if: github.event_name != 'workflow_dispatch' || inputs.publish_npm
@@ -217,4 +217,4 @@ jobs:
               npm_tag="next"
             fi
           fi
-          npm publish --access public --tag "$npm_tag" --provenance
+          npm publish -w @webrtc-node/webrtc --access public --tag "$npm_tag" --provenance
