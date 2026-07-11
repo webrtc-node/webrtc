@@ -160,6 +160,53 @@ void RunPeerTeardown(PeerTeardownWork work) {
 	work.peerConnection.reset();
 }
 
+struct AsyncPeerTeardown {
+	std::thread thread;
+	std::shared_ptr<std::atomic<bool>> completed;
+};
+
+std::mutex &PeerTeardownMutex() {
+	static std::mutex mutex;
+	return mutex;
+}
+
+std::vector<AsyncPeerTeardown> &PeerTeardowns() {
+	static std::vector<AsyncPeerTeardown> teardowns;
+	return teardowns;
+}
+
+void SchedulePeerTeardown(PeerTeardownWork work) {
+	std::lock_guard<std::mutex> lock(PeerTeardownMutex());
+	auto &teardowns = PeerTeardowns();
+	for (auto it = teardowns.begin(); it != teardowns.end();) {
+		if (!it->completed->load(std::memory_order_acquire)) {
+			++it;
+			continue;
+		}
+		if (it->thread.joinable())
+			it->thread.join();
+		it = teardowns.erase(it);
+	}
+
+	auto completed = std::make_shared<std::atomic<bool>>(false);
+	std::thread thread([work = std::move(work), completed]() mutable {
+		RunPeerTeardown(std::move(work));
+		completed->store(true, std::memory_order_release);
+	});
+	teardowns.push_back({std::move(thread), std::move(completed)});
+}
+
+void JoinPeerTeardowns() {
+	std::vector<AsyncPeerTeardown> teardowns;
+	{
+		std::lock_guard<std::mutex> lock(PeerTeardownMutex());
+		teardowns.swap(PeerTeardowns());
+	}
+	for (auto &teardown : teardowns)
+		if (teardown.thread.joinable())
+			teardown.thread.join();
+}
+
 std::string ToString(rtc::PeerConnection::State state) {
 	switch (state) {
 	case rtc::PeerConnection::State::New:
@@ -1416,9 +1463,7 @@ private:
 		if (!work)
 			return;
 
-		std::thread([work = std::move(*work)]() mutable {
-			RunPeerTeardown(std::move(work));
-		}).detach();
+		SchedulePeerTeardown(std::move(*work));
 	}
 
 	void AttachCallbacks() {
@@ -1928,6 +1973,7 @@ void ConfigureLibDataChannelLogging() {
 void CleanupNative() {
 	CloseAllPeerBindings();
 	CloseAllIceUdpMuxBindings();
+	JoinPeerTeardowns();
 	rtc::Cleanup().wait();
 }
 
