@@ -68,12 +68,12 @@ jobs:
                 ;;
             esac
             case "$file" in
-              packages/webrtc/*|vcpkg.json|package.json|package-lock.json)
+              packages/*|vcpkg.json|package.json|package-lock.json)
                 native_changed="true"
                 ;;
             esac
             case "$file" in
-              packages/webrtc/*|vcpkg.json|build-containers/*|package.json|package-lock.json)
+              packages/*|vcpkg.json|build-containers/*|package.json|package-lock.json)
                 package_changed="true"
                 ;;
             esac
@@ -83,7 +83,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              packages/webrtc/*|package.json|package-lock.json)
+              packages/*|package.json|package-lock.json)
                 chrome_e2e_changed="true"
                 ;;
             esac
@@ -128,6 +128,8 @@ jobs:
 
       - run: npm run types:check
 
+      - run: npm run package:check
+
   package-artifact:
     name: Package artifact
     runs-on: ubuntu-latest
@@ -168,6 +170,25 @@ jobs:
           set -euo pipefail
           tarball="$(npm pack -w @webrtc-node/webrtc --json | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input)[0].filename));")"
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Pack companion artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts/packages
+          npm pack -w @webrtc-node/media --pack-destination ci-artifacts/packages
+          npm pack -w @webrtc-node/stats --pack-destination ci-artifacts/packages
+
+      - name: Verify workspace tarballs install together
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${{ steps.pack.outputs.tarball }}" ci-artifacts/packages/
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null
+          npm install --ignore-scripts "$OLDPWD"/ci-artifacts/packages/*.tgz
+          WEBRTC_NODE_NATIVE_PATH="$OLDPWD/packages/webrtc/build/Release/webrtc_node.node" node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const { MediaSession } = require('@webrtc-node/media'); const { snapshot } = require('@webrtc-node/stats'); const pc = new RTCPeerConnection(); new MediaSession(pc); snapshot(pc); pc.close();"
 
       - name: Verify packed source build
         shell: bash

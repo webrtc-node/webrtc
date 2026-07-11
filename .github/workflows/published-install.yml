@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       spec: ${{ steps.resolve.outputs.spec }}
+      media_spec: ${{ steps.resolve.outputs.media_spec }}
+      stats_spec: ${{ steps.resolve.outputs.stats_spec }}
 
     steps:
       - uses: actions/checkout@v7
@@ -46,8 +48,9 @@ jobs:
             spec="$(node -p "const p = require('./packages/webrtc/package.json'); p.name + '@' + p.version")"
           fi
 
+          version=""
           for attempt in 1 2 3 4 5 6; do
-            if npm view "$spec" version; then
+            if version="$(npm view "$spec" version)"; then
               break
             fi
             if [ "$attempt" = "6" ]; then
@@ -56,8 +59,20 @@ jobs:
             sleep $((attempt * 10))
           done
 
+          media_spec="@webrtc-node/media@$version"
+          stats_spec="@webrtc-node/stats@$version"
+          for companion in "$media_spec" "$stats_spec"; do
+            for attempt in 1 2 3 4 5 6; do
+              if npm view "$companion" version; then break; fi
+              if [ "$attempt" = "6" ]; then exit 1; fi
+              sleep $((attempt * 10))
+            done
+          done
+
           echo "spec=$spec" >> "$GITHUB_OUTPUT"
-          echo "Testing $spec" >> "$GITHUB_STEP_SUMMARY"
+          echo "media_spec=$media_spec" >> "$GITHUB_OUTPUT"
+          echo "stats_spec=$stats_spec" >> "$GITHUB_OUTPUT"
+          echo "Testing $spec, $media_spec, and $stats_spec" >> "$GITHUB_STEP_SUMMARY"
 
   linux:
     name: ${{ matrix.target }}
@@ -77,9 +92,13 @@ jobs:
       - name: Install published package
         env:
           PACKAGE_SPEC: ${{ needs.package.outputs.spec }}
+          MEDIA_SPEC: ${{ needs.package.outputs.media_spec }}
+          STATS_SPEC: ${{ needs.package.outputs.stats_spec }}
         run: |
           docker run --rm \
             -e PACKAGE_SPEC \
+            -e MEDIA_SPEC \
+            -e STATS_SPEC \
             -e WEBRTC_NODE_PREBUILD_ONLY=1 \
             "${{ matrix.image }}" \
             sh -lc 'set -eu
@@ -87,7 +106,7 @@ jobs:
               cd "$workdir"
               npm init -y >/dev/null
               for attempt in 1 2 3; do
-                if npm install "$PACKAGE_SPEC"; then
+                if npm install "$PACKAGE_SPEC" "$MEDIA_SPEC" "$STATS_SPEC"; then
                   break
                 fi
                 if [ "$attempt" = "3" ]; then
@@ -96,6 +115,7 @@ jobs:
                 sleep $((attempt * 10))
               done
               node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const pc = new RTCPeerConnection(); pc.close(); console.log(\"cjs ok\");"
+              node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const { MediaSession } = require(\"@webrtc-node/media\"); const { snapshot } = require(\"@webrtc-node/stats\"); const pc = new RTCPeerConnection(); new MediaSession(pc); snapshot(pc); pc.close(); console.log(\"companions ok\");"
               node --input-type=module -e "import { RTCPeerConnection } from \"@webrtc-node/webrtc\"; const pc = new RTCPeerConnection(); pc.close(); console.log(\"esm ok\");"
             '
 
@@ -127,6 +147,8 @@ jobs:
         shell: bash
         env:
           PACKAGE_SPEC: ${{ needs.package.outputs.spec }}
+          MEDIA_SPEC: ${{ needs.package.outputs.media_spec }}
+          STATS_SPEC: ${{ needs.package.outputs.stats_spec }}
           WEBRTC_NODE_PREBUILD_ONLY: "1"
         run: |
           set -euo pipefail
@@ -134,7 +156,7 @@ jobs:
           cd "$workdir"
           npm init -y >/dev/null
           for attempt in 1 2 3; do
-            if npm install "$PACKAGE_SPEC"; then
+            if npm install "$PACKAGE_SPEC" "$MEDIA_SPEC" "$STATS_SPEC"; then
               break
             fi
             if [ "$attempt" = "3" ]; then
@@ -143,4 +165,5 @@ jobs:
             sleep $((attempt * 10))
           done
           node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close(); console.log('cjs ok');"
+          node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const { MediaSession } = require('@webrtc-node/media'); const { snapshot } = require('@webrtc-node/stats'); const pc = new RTCPeerConnection(); new MediaSession(pc); snapshot(pc); pc.close(); console.log('companions ok');"
           node --input-type=module -e "import { RTCPeerConnection } from '@webrtc-node/webrtc'; const pc = new RTCPeerConnection(); pc.close(); console.log('esm ok');"

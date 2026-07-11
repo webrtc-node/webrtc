@@ -146,7 +146,7 @@ jobs:
           path: packages/webrtc/prebuild-artifacts/*
 
   publish:
-    name: Publish npm package
+    name: Publish npm packages
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -180,6 +180,12 @@ jobs:
       - run: npm run prebuild:check
 
       - run: npm run native:check
+
+      - name: Verify package versions and contents
+        run: |
+          set -euo pipefail
+          node -e "const fs = require('node:fs'); const names = ['webrtc', 'media', 'stats']; const packages = names.map(name => require('./packages/' + name + '/package.json')); const versions = new Set(packages.map(pkg => pkg.version)); if (versions.size !== 1) throw new Error('release packages must have one coordinated version'); for (const name of names) if (!fs.existsSync('./packages/' + name + '/README.md') || !fs.existsSync('./packages/' + name + '/LICENSE')) throw new Error(name + ' is missing release documentation');"
+          npm run package:check >/dev/null
 
       - name: Verify release tag
         env:
@@ -224,3 +230,5 @@ jobs:
             fi
           fi
           npm publish -w @webrtc-node/webrtc --access public --tag "$npm_tag" --provenance
+          npm publish -w @webrtc-node/media --access public --tag "$npm_tag" --provenance
+          npm publish -w @webrtc-node/stats --access public --tag "$npm_tag" --provenance
