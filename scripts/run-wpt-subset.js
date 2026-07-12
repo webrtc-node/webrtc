@@ -408,6 +408,13 @@ const defaultSpecs = [
     ],
   },
   { file: "webrtc/RTCRtpTransceiver-stop.html" },
+  { file: "webrtc/RTCRtpTransceiver-direction.html" },
+  { file: "webrtc/RTCRtpTransceiver-stopping.https.html", search: "?interop-2026" },
+  {
+    file: "webrtc/RTCRtpTransceiver-stopping.https.html",
+    search: "?rest",
+    exclude: ["Glare when transceiver is not removed does not end track"],
+  },
 ];
 
 const specs = isWorker

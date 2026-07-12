@@ -342,7 +342,7 @@ export class RTCRtpTransceiver {
   readonly stopping: boolean;
   get direction(): RTCRtpTransceiverDirection | "stopped";
   set direction(value: RTCRtpTransceiverDirection);
-  readonly currentDirection: RTCRtpTransceiverDirection | null;
+  readonly currentDirection: RTCRtpTransceiverDirection | "stopped" | null;
   stop(): void;
 }
 

@@ -132,7 +132,8 @@ test("negotiated direction and stopping follow answer state", async () => {
     await negotiate(offerer, answerer);
     assert.equal(transceiver.stopping, false);
     assert.equal(transceiver.stopped, true);
-    assert.equal(transceiver.currentDirection, null);
+    assert.equal(transceiver.currentDirection, "stopped");
+    assert.equal(transceiver.mid, null);
     assert.deepEqual(offerer.getTransceivers(), []);
   } finally {
     offerer.close();

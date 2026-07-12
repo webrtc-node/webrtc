@@ -43,6 +43,12 @@ function reverseDirection(direction) {
   return direction;
 }
 
+function disableSending(direction) {
+  if (direction === "sendrecv") return "recvonly";
+  if (direction === "sendonly") return "inactive";
+  return direction;
+}
+
 class SimpleEvent {
   constructor(type, init = {}) {
     this.type = String(type);
@@ -2652,7 +2658,7 @@ class RTCRtpTransceiver {
     return this._stopping;
   }
   get direction() {
-    return this._stopped ? "stopped" : this._direction;
+    return this._stopping || this._remoteStopping || this._stopped ? "stopped" : this._direction;
   }
   set direction(value) {
     if (!rtpDirections.includes(value)) throw new TypeError("Invalid RTCRtpTransceiver direction");
@@ -2668,6 +2674,7 @@ class RTCRtpTransceiver {
   stop() {
     if (this._stopping || this._stopped) return;
     this._stopping = true;
+    this._peerConnection._queueReceiverTrackEnded(this);
     this._peerConnection._markNegotiationNeeded();
   }
 }
@@ -2954,6 +2961,43 @@ class RTCPeerConnection extends SimpleEventTarget {
     return transceiver;
   }
 
+  _queueReceiverTrackEnded(transceiver, afterDescriptionTask = false) {
+    if (transceiver._receiverEndQueued || transceiver.receiver.track.readyState === "ended") return;
+    transceiver._receiverEndQueued = true;
+    const end = () => {
+      const receiverTrack = transceiver.receiver.track;
+      if (receiverTrack.readyState === "ended") return;
+      receiverTrack._readyState = "ended";
+      receiverTrack.dispatchEvent(makeEvent("ended"));
+    };
+    if (afterDescriptionTask) setImmediate(() => setImmediate(end));
+    else setTimeout(end, 0);
+  }
+
+  _markRemotelyStoppedTransceivers(description) {
+    for (const transceiver of this._transceivers) {
+      const section = mediaSectionByMid(description, transceiver.mid);
+      if (!section || !/^m=\S+\s+0\s/m.test(section)) continue;
+      transceiver._remoteStopping = true;
+      transceiver._currentDirection = "stopped";
+      this._queueReceiverTrackEnded(transceiver, true);
+    }
+  }
+
+  _rollbackProvisionalRemoteTransceivers() {
+    for (const transceiver of this._transceivers) {
+      if (!transceiver._provisionalRemoteOffer || transceiver._stopped) continue;
+      transceiver._provisionalRemoteOffer = false;
+      transceiver._remoteStopping = false;
+      transceiver._stopped = true;
+      transceiver._currentDirection = "stopped";
+      transceiver._mid = null;
+      const nativeTrack = transceiver._nativeTrack;
+      if (nativeTrack) setImmediate(() => setImmediate(() => nativeTrack.close()));
+      this._queueReceiverTrackEnded(transceiver, true);
+    }
+  }
+
   _assertTrackCompatibleWithTransceiver(transceiver, track) {
     const source = mediaTrackSources.get(track);
     if (!transceiver._codec || !source?.codec) return;
@@ -2992,6 +3036,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     for (let index = 0; index < this._transceivers.length; index += 1) {
       const transceiver = this._transceivers[index];
       if (transceiver.stopped) continue;
+      if (transceiver._remoteStopping) continue;
       if (transceiver._nativeTrack) {
         transceiver._nativeTrack.updateDescription(transceiver.direction, transceiver.stopping);
         mediaTrackSources
@@ -3002,8 +3047,9 @@ class RTCPeerConnection extends SimpleEventTarget {
       if (transceiver.stopping) {
         transceiver._stopping = false;
         transceiver._stopped = true;
-        transceiver._currentDirection = null;
-        transceiver.receiver.track._readyState = "ended";
+        transceiver._currentDirection = "stopped";
+        transceiver._mid = null;
+        this._queueReceiverTrackEnded(transceiver);
         continue;
       }
       const source = mediaTrackSources.get(transceiver.sender.track);
@@ -3042,7 +3088,13 @@ class RTCPeerConnection extends SimpleEventTarget {
   _adoptIncomingNativeTrack(nativeTrack) {
     let transceiver = this._transceivers.find((entry) => entry.mid === nativeTrack.mid);
     if (!transceiver) {
-      transceiver = this._createTransceiver(nativeTrack.kind, null, "recvonly", []);
+      transceiver = this._createTransceiver(
+        nativeTrack.kind,
+        null,
+        disableSending(nativeTrack.direction),
+        [],
+      );
+      transceiver._provisionalRemoteOffer = true;
       transceiver._mid = nativeTrack.mid;
     }
     transceiver._nativeTrack = nativeTrack;
@@ -3508,6 +3560,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         return;
       }
       if (!normalized && type === "offer") {
+        this._materializeTransceivers();
         const offer =
           this._lastCreatedOffer ||
           new RTCSessionDescription(this._ensureNativePeerConnection().createOffer());
@@ -3731,6 +3784,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           }
         }
         this._rollbackRemoteDescription();
+        this._rollbackProvisionalRemoteTransceivers();
         this._remoteIceCandidates = [];
         if (this._pairedPeer?._pairedPeer === this) this._pairedPeer._pairedPeer = null;
         this._pairedPeer = null;
@@ -3819,6 +3873,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         if (normalized.type === "offer") {
           this._rollbackLocalDescription();
           this._setPendingRemoteDescription(normalized);
+          this._markRemotelyStoppedTransceivers(normalized);
         } else if (normalized.type === "answer") {
           this._commitLocalDescription();
           this._commitRemoteDescription(normalized);
@@ -4796,24 +4851,28 @@ class RTCPeerConnection extends SimpleEventTarget {
       if (transceiver._stopping) {
         transceiver._stopping = false;
         transceiver._stopped = true;
-        transceiver._currentDirection = null;
+        transceiver._currentDirection = "stopped";
+        transceiver._mid = null;
         transceiver._nativeTrack?.close();
-        transceiver.receiver.track._readyState = "ended";
+        this._queueReceiverTrackEnded(transceiver);
         continue;
       }
       const answerDirection = mediaDirectionByMid(answer, transceiver.mid);
       const answerSection = mediaSectionByMid(answer, transceiver.mid);
       if (answerSection && /^m=\S+\s+0\s/m.test(answerSection)) {
         transceiver._stopping = false;
+        transceiver._remoteStopping = false;
         transceiver._stopped = true;
-        transceiver._currentDirection = null;
+        transceiver._currentDirection = "stopped";
+        transceiver._mid = null;
         transceiver._nativeTrack?.close();
-        transceiver.receiver.track._readyState = "ended";
+        this._queueReceiverTrackEnded(transceiver);
         continue;
       }
       transceiver._currentDirection = localIsAnswer
         ? answerDirection
         : reverseDirection(answerDirection);
+      transceiver._provisionalRemoteOffer = false;
       if (
         transceiver._currentDirection === "sendrecv" ||
         transceiver._currentDirection === "sendonly"
