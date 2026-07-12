@@ -1393,6 +1393,7 @@ class RTCDtlsTransport extends SimpleEventTarget {
     super();
     this._pc = peerConnection;
     this.iceTransport = new RTCIceTransport(kInternalConstruct, peerConnection);
+    this._lastState = "new";
     this.onstatechange = null;
     this.onerror = null;
   }
@@ -1417,14 +1418,21 @@ class RTCDtlsTransport extends SimpleEventTarget {
       return [];
     }
   }
+
+  _syncState() {
+    const state = this.state;
+    if (state === this._lastState) return;
+    this._lastState = state;
+    this.dispatchEvent(makeEvent("statechange"));
+  }
 }
 
 class RTCSctpTransport extends SimpleEventTarget {
-  constructor(token, peerConnection) {
+  constructor(token, peerConnection, transport) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     super();
     this._pc = peerConnection;
-    this._transport = new RTCDtlsTransport(kInternalConstruct, peerConnection);
+    this._transport = transport;
     this._state = "connecting";
     this._maxMessageSize = null;
     this._maxChannels = null;
@@ -2700,7 +2708,7 @@ class RTCRtpSender {
     return this._track;
   }
   get transport() {
-    return null;
+    return this._transceiver._nativeTrack ? this._peerConnection._dtlsTransport : null;
   }
   replaceTrack(track) {
     if (track !== null && !(track instanceof MediaStreamTrack)) {
@@ -2751,7 +2759,7 @@ class RTCRtpReceiver {
     return this._track;
   }
   get transport() {
-    return null;
+    return this._transceiver._nativeTrack ? this._peerConnection._dtlsTransport : null;
   }
   getStats() {
     return this._peerConnection.getStats(this);
@@ -2886,6 +2894,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._localDescriptionPairingKeys = new Set();
     this._pairedPeer = null;
     this._sctpTransport = null;
+    this._dtlsTransport = null;
     this._canTrickleIceCandidates = null;
     this._selfRemoteDescription = false;
     this._pendingIce = [];
@@ -3242,6 +3251,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         },
       );
       transceiver._nativeTrack = nativeTrack;
+      this._ensureDtlsTransport();
       transceiver._mid = mid;
       this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
       source?._attachNativeTrack?.(nativeTrack);
@@ -3274,6 +3284,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     transceiver._mid = nativeTrack.mid;
     transceiver._nativeTrack = nativeTrack;
+    this._ensureDtlsTransport();
     mediaTrackSources.get(transceiver.sender.track)?._attachNativeTrack?.(nativeTrack);
     const remoteDescription =
       this._pendingRemoteDescription ||
@@ -3495,8 +3506,8 @@ class RTCPeerConnection extends SimpleEventTarget {
         type: "transport",
         bytesSent: stats.bytesSent,
         bytesReceived: stats.bytesReceived,
-        dtlsState: this._sctpTransport?.transport.state ?? "new",
-        iceState: this._sctpTransport?.transport.iceTransport.state ?? "new",
+        dtlsState: this._dtlsTransport?.state ?? "new",
+        iceState: this._dtlsTransport?.iceTransport.state ?? "new",
       });
     }
     return report;
@@ -4363,8 +4374,13 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver._currentDirection = null;
       const receiverTrack = transceiver.receiver.track;
       if (receiverTrack.readyState !== "ended") {
-        receiverTrack._readyState = "ended";
-        receiverTrack.dispatchEvent(makeEvent("ended"));
+        const source = mediaTrackSources.get(receiverTrack);
+        if (source?._endTracks) source._endTracks();
+        else {
+          receiverTrack._readyState = "ended";
+          notifyTrackStateChanged(receiverTrack);
+          receiverTrack.dispatchEvent(makeEvent("ended"));
+        }
       }
     }
     this._dispatchSignalingStateChange();
@@ -4463,7 +4479,14 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _iceTransport() {
-    return this._sctpTransport?.transport?.iceTransport || null;
+    return this._dtlsTransport?.iceTransport || null;
+  }
+
+  _ensureDtlsTransport() {
+    if (!this._dtlsTransport) {
+      this._dtlsTransport = new RTCDtlsTransport(kInternalConstruct, this);
+    }
+    return this._dtlsTransport;
   }
 
   _pairExistingDataChannels() {
@@ -4497,6 +4520,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _updateSctpTransport() {
+    this._dtlsTransport?._syncState();
     const hasData =
       hasDataMediaSection(this._localDescription) || hasDataMediaSection(this._remoteDescription);
     if (!hasData) {
@@ -4505,7 +4529,13 @@ class RTCPeerConnection extends SimpleEventTarget {
       return;
     }
 
-    if (!this._sctpTransport) this._sctpTransport = new RTCSctpTransport(kInternalConstruct, this);
+    if (!this._sctpTransport) {
+      this._sctpTransport = new RTCSctpTransport(
+        kInternalConstruct,
+        this,
+        this._ensureDtlsTransport(),
+      );
+    }
     const closed =
       this._closed ||
       this._connectionState === "closed" ||

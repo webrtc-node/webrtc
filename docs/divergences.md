@@ -136,7 +136,10 @@ data channels, and data-channel SCTP ICE transport gathering-state and
 connected-state consistency. The pinned `RTCIceTransport.html?rest`
 candidate-pair test has a runner shim for its `"completed"`/`"complete"`
 gathering-state typo; the runtime keeps the WebRTC enum value `"complete"`.
-Disconnected timing and media transport graph cases remain outside the current
+RTP senders and receivers expose one stable bundled `RTCDtlsTransport` and
+`RTCIceTransport` per peer after their native media track is materialized. The
+same objects back `RTCSctpTransport.transport` when media and data are bundled.
+Detailed media candidate-pair timing and statistics remain outside the current
 expected-pass set.
 
 ## Data channel closing

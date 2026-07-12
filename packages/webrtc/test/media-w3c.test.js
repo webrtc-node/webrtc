@@ -9,6 +9,8 @@ const {
   MediaStreamTrack,
   MediaStreamTrackEvent,
   RTCPeerConnection,
+  RTCDtlsTransport,
+  RTCIceTransport,
   RTCRtpReceiver,
   RTCRtpSender,
   RTCRtpTransceiver,
@@ -94,6 +96,34 @@ test("addTransceiver exposes standard sender receiver and direction state", () =
     assert.deepEqual(peer.getReceivers(), [transceiver.receiver]);
   } finally {
     peer.close();
+  }
+});
+
+test("RTP endpoints expose the shared bundled DTLS and ICE transport", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const transceiver = offerer.addTransceiver(track(), { direction: "sendonly" });
+    offerer.createDataChannel("bundled");
+    assert.equal(transceiver.sender.transport, null);
+    await negotiate(offerer, answerer);
+
+    const senderTransport = transceiver.sender.transport;
+    const receiverTransport = answerer.getReceivers()[0].transport;
+    assert.ok(senderTransport instanceof RTCDtlsTransport);
+    assert.ok(senderTransport.iceTransport instanceof RTCIceTransport);
+    assert.equal(senderTransport, offerer.sctp.transport);
+    assert.equal(receiverTransport, answerer.sctp.transport);
+    assert.notEqual(senderTransport.state, "new");
+
+    const closed = waitFor(senderTransport, "statechange");
+    offerer.close();
+    await closed;
+    assert.equal(senderTransport.state, "closed");
+    assert.equal(senderTransport.iceTransport.state, "closed");
+  } finally {
+    offerer.close();
+    answerer.close();
   }
 });
 
@@ -289,8 +319,12 @@ test("negotiated direction and stopping follow answer state", async () => {
     const transceiver = offerer.addTransceiver(track("video"), { direction: "sendonly" });
     await negotiate(offerer, answerer);
     assert.equal(transceiver.currentDirection, "sendonly");
+    assert.ok(transceiver.sender.transport instanceof RTCDtlsTransport);
+    assert.equal(offerer.sctp, null);
     const remoteTransceiver = answerer.getTransceivers()[0];
     assert.equal(remoteTransceiver.currentDirection, "recvonly");
+    assert.ok(remoteTransceiver.receiver.transport instanceof RTCDtlsTransport);
+    assert.equal(answerer.sctp, null);
     const receiverClone = remoteTransceiver.receiver.track.clone();
     transceiver.stop();
     assert.equal(transceiver.stopping, true);

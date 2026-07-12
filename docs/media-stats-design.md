@@ -57,6 +57,9 @@ no `HTMLCanvasElement`, `navigator.mediaDevices`, or browser media source.
   coverage before promotion.
 - Native callbacks are reset before teardown. Track events and packet callbacks are dispatched by
   `Napi::ThreadSafeFunction`; no libdatachannel callback invokes JavaScript directly.
+- libdatachannel exposes one bundled DTLS-SRTP transport for media. The facade presents that as a
+  stable `RTCDtlsTransport`/`RTCIceTransport` shared by RTP endpoints and SCTP when both media and
+  data are negotiated.
 - Native RTP counters count version-2 RTP packets and exclude RTCP packet types. Unsupported loss,
   jitter, codec, bandwidth, media-source, playout, and remote-report fields are omitted.
 - Sender stream and track IDs are written as media-level `a=msid` attributes. The facade parses
