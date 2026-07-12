@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 691,
-  "selectedSubtestsSha256": "ad03a5344d3d2bfa03b4995ba9eb7c28dd3a717ce2fd9320f2c41293327d3485",
+  "expectedSelectedSubtests": 697,
+  "selectedSubtestsSha256": "cb90c69cb56feed8755c56ca193637e839c7ddd84e6f9c6d3dd58dd7a2ed46bf",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -82,6 +82,7 @@
     "webrtc/RTCPeerConnection-ondatachannel.html",
     "webrtc/RTCPeerConnection-onnegotiationneeded.html#datachannel-and-setStreams-subset",
     "webrtc/RTCRtpSender-setStreams.https.html",
+    "webrtc/RTCRtpSender-replaceTrack.https.html#non-capture-lifecycle-subset",
     "webrtc/RTCPeerConnection-addTrack.https.html",
     "webrtc/RTCPeerConnection-addTransceiver.https.html#non-capture-subset",
     "webrtc/RTCPeerConnection-getStats.https.html?rest#basic-promise-subset",

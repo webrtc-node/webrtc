@@ -399,6 +399,17 @@ const defaultSpecs = [
     ],
   },
   { file: "webrtc/RTCRtpSender-setStreams.https.html" },
+  {
+    file: "webrtc/RTCRtpSender-replaceTrack.https.html",
+    include: [
+      "Calling replaceTrack on closed connection should reject with InvalidStateError",
+      "Calling replaceTrack with track of different kind should reject with TypeError",
+      "Calling replaceTrack on stopped sender should reject with InvalidStateError",
+      "Calling replaceTrack on sender with null track and not set to session description should resolve with sender.track set to given track",
+      "Calling replaceTrack on sender not set to session description should resolve with sender.track set to given track",
+      "Calling replaceTrack(null) on sender not set to session description should resolve with sender.track set to null",
+    ],
+  },
   { file: "webrtc/RTCPeerConnection-addTrack.https.html" },
   {
     file: "webrtc/RTCPeerConnection-addTransceiver.https.html",
