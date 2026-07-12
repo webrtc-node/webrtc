@@ -3525,6 +3525,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       return report;
     }
     const selectedTransceivers = this._transceivers.filter((transceiver) => {
+      if (transceiver.stopped || transceiver.stopping) return false;
       if (selector === null) return true;
       if (selector instanceof RTCRtpSender) return transceiver.sender === selector;
       if (selector instanceof RTCRtpReceiver) return transceiver.receiver === selector;

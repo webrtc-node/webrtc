@@ -238,6 +238,28 @@ test("standard track event exposes encoded RTP through an optional sink", async 
     const secondPacket = rtpPacket(2);
     assert.equal(source.send(secondPacket), true);
     assert.deepEqual(new Uint8Array((await packetAfterRenegotiation).data), secondPacket);
+
+    const senderStatsBeforeStop = sender.getStats();
+    const receiverStatsBeforeStop = receiver.getStats();
+    offerer.getTransceivers()[0].stop();
+    transceiver.stop();
+    assert.equal(
+      [...(await senderStatsBeforeStop).values()].some((entry) => entry.type === "outbound-rtp"),
+      true,
+    );
+    assert.equal(
+      [...(await receiverStatsBeforeStop).values()].some((entry) => entry.type === "inbound-rtp"),
+      true,
+    );
+    assert.equal(
+      [...(await sender.getStats()).values()].some((entry) => entry.type === "outbound-rtp"),
+      false,
+    );
+    answerer.close();
+    assert.equal(
+      [...(await receiver.getStats()).values()].some((entry) => entry.type === "inbound-rtp"),
+      false,
+    );
   } finally {
     sink?.close();
     source.close();
