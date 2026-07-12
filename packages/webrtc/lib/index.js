@@ -20,6 +20,45 @@ function notifyTrackStateChanged(track) {
   for (const stream of mediaTrackStreams.get(track) || []) stream._updateActiveState();
 }
 
+function registerMediaTrackSource(track, source) {
+  mediaTrackSources.set(track, source);
+  if (!source || typeof source !== "object") return;
+  if (!source._webrtcNodeTracks) source._webrtcNodeTracks = new WeakSet();
+  if (source._webrtcNodeTracks.has(track)) return;
+  source._webrtcNodeTracks.add(track);
+  if (!source._webrtcNodeTrackRefs) source._webrtcNodeTrackRefs = new Set();
+  source._webrtcNodeTrackRefs.add(new WeakRef(track));
+  if (!source._endTracks) {
+    source._endTracks = () => {
+      for (const reference of source._webrtcNodeTrackRefs) {
+        const sourceTrack = reference.deref();
+        if (!sourceTrack) {
+          source._webrtcNodeTrackRefs.delete(reference);
+          continue;
+        }
+        if (sourceTrack._readyState === "ended") continue;
+        sourceTrack._readyState = "ended";
+        notifyTrackStateChanged(sourceTrack);
+        sourceTrack.dispatchEvent(makeEvent("ended"));
+      }
+    };
+  }
+}
+
+function hasOtherLiveSourceTrack(source, track) {
+  if (!source?._webrtcNodeTrackRefs) return false;
+  let found = false;
+  for (const reference of source._webrtcNodeTrackRefs) {
+    const sourceTrack = reference.deref();
+    if (!sourceTrack) {
+      source._webrtcNodeTrackRefs.delete(reference);
+    } else if (sourceTrack !== track && sourceTrack.readyState === "live") {
+      found = true;
+    }
+  }
+  return found;
+}
+
 function descriptionPairingKey(description) {
   if (!description || typeof description.sdp !== "string" || !description.sdp) return null;
   return `${description.type}\n${description.sdp}`;
@@ -2496,7 +2535,7 @@ class MediaStreamTrack extends SimpleEventTarget {
     this.onended = null;
     this.onmute = null;
     this.onunmute = null;
-    mediaTrackSources.set(this, init.source || null);
+    registerMediaTrackSource(this, init.source || null);
   }
 
   get kind() {
@@ -2543,7 +2582,8 @@ class MediaStreamTrack extends SimpleEventTarget {
   stop() {
     if (this._readyState === "ended") return;
     this._readyState = "ended";
-    mediaTrackSources.get(this)?.stop?.(this);
+    const source = mediaTrackSources.get(this);
+    if (!hasOtherLiveSourceTrack(source, this)) source?.stop?.(this);
     notifyTrackStateChanged(this);
   }
 
@@ -3069,6 +3109,11 @@ class RTCPeerConnection extends SimpleEventTarget {
     const end = () => {
       const receiverTrack = transceiver.receiver.track;
       if (receiverTrack.readyState === "ended") return;
+      const source = mediaTrackSources.get(receiverTrack);
+      if (source?._endTracks) {
+        source._endTracks();
+        return;
+      }
       receiverTrack._readyState = "ended";
       notifyTrackStateChanged(receiverTrack);
       receiverTrack.dispatchEvent(makeEvent("ended"));
@@ -3251,15 +3296,11 @@ class RTCPeerConnection extends SimpleEventTarget {
             }
             for (const listener of this.listeners) listener(event.data);
           }
-          if (event.type === "close" && transceiver.receiver.track._readyState !== "ended") {
-            transceiver.receiver.track._readyState = "ended";
-            notifyTrackStateChanged(transceiver.receiver.track);
-            transceiver.receiver.track.dispatchEvent(makeEvent("ended"));
-          }
+          if (event.type === "close") this._endTracks?.();
         },
       };
     }
-    mediaTrackSources.set(transceiver.receiver.track, source);
+    registerMediaTrackSource(transceiver.receiver.track, source);
     this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
     this._queueTrackEvent(transceiver, streams, associationKey);
   }

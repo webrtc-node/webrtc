@@ -289,7 +289,9 @@ test("negotiated direction and stopping follow answer state", async () => {
     const transceiver = offerer.addTransceiver(track("video"), { direction: "sendonly" });
     await negotiate(offerer, answerer);
     assert.equal(transceiver.currentDirection, "sendonly");
-    assert.equal(answerer.getTransceivers()[0].currentDirection, "recvonly");
+    const remoteTransceiver = answerer.getTransceivers()[0];
+    assert.equal(remoteTransceiver.currentDirection, "recvonly");
+    const receiverClone = remoteTransceiver.receiver.track.clone();
     transceiver.stop();
     assert.equal(transceiver.stopping, true);
     assert.equal(transceiver.stopped, false);
@@ -299,6 +301,9 @@ test("negotiated direction and stopping follow answer state", async () => {
     assert.equal(transceiver.currentDirection, "stopped");
     assert.equal(transceiver.mid, null);
     assert.deepEqual(offerer.getTransceivers(), []);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(remoteTransceiver.receiver.track.readyState, "ended");
+    assert.equal(receiverClone.readyState, "ended");
   } finally {
     offerer.close();
     answerer.close();

@@ -128,6 +128,33 @@ test("replaceTrack transfers native encoded source ownership", async () => {
   }
 });
 
+test("encoded source remains usable until its last track clone ends", async () => {
+  const source = new EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+  });
+  const peer = new RTCPeerConnection();
+  try {
+    const clone = source.track.clone();
+    source.track.stop();
+    assert.equal(source.track.readyState, "ended");
+    assert.equal(clone.readyState, "live");
+    assert.notEqual(source.readyState, "closed");
+
+    peer.addTrack(clone);
+    await peer.createOffer();
+    assert.notEqual(source.readyState, "closed");
+    const ended = waitFor(clone, "ended");
+    source.close();
+    await ended;
+    assert.equal(clone.readyState, "ended");
+    assert.equal(source.readyState, "closed");
+  } finally {
+    source.close();
+    peer.close();
+  }
+});
+
 test("standard track event exposes encoded RTP through an optional sink", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();

@@ -29,3 +29,7 @@ G722, and AAC; supported video codecs are H264, H265, VP8, VP9, and AV1.
 
 Incoming packets are dispatched on the Node event loop. The native queue drops packets above its
 documented 1024-packet pending limit to keep callback memory bounded.
+
+Cloned tracks share the encoded source as W3C tracks share a media source. Stopping one track does
+not close the source while another clone remains live. Closing `EncodedMediaSource` explicitly
+closes its native track and ends every live clone.

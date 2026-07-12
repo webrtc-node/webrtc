@@ -94,7 +94,7 @@ class EncodedMediaSource extends EventTarget {
   }
 
   send(packet) {
-    if (this.track.readyState === "ended") throw new Error("MediaStreamTrack is ended");
+    if (this.readyState === "closed") throw new Error("EncodedMediaSource is closed");
     return nonstandard.sendEncodedPacket(this.track, packet);
   }
 
@@ -102,7 +102,7 @@ class EncodedMediaSource extends EventTarget {
     if (this.readyState === "closed") return;
     this.readyState = "closed";
     this._source.nativeTrack?.close();
-    if (this.track.readyState !== "ended") this.track.stop();
+    this._source._endTracks?.();
   }
 
   get maxPacketSize() {
