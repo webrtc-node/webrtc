@@ -1,6 +1,8 @@
 import {
   Event,
   EventTarget,
+  MediaStream,
+  MediaStreamTrackEvent,
   MessageEvent,
   nonstandard,
   type RTCCertificate,
@@ -38,6 +40,17 @@ const dispatched: boolean = target.dispatchEvent(event);
 
 const message = new MessageEvent<string>("message", { data: "hello" });
 const payload: string = message.data;
+
+const mediaTrack = nonstandard.createMediaStreamTrack({ kind: "audio" });
+const mediaStream = new MediaStream([mediaTrack]);
+const copiedMediaStream = new MediaStream(mediaStream);
+const mediaTrackEvent = new MediaStreamTrackEvent("addtrack", { track: mediaTrack });
+const eventTrackId: string = mediaTrackEvent.track.id;
+copiedMediaStream.onaddtrack = (received) => {
+  const trackId: string = received.track.id;
+  void trackId;
+};
+void eventTrackId;
 
 const description = new RTCSessionDescription({ type: "offer", sdp: "v=0\r\n" });
 const candidate = new RTCIceCandidate({

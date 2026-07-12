@@ -14,6 +14,11 @@ const iceUdpMuxListenerFinalizer = new FinalizationRegistry((nativeListenerRef) 
 });
 const kInternalConstruct = Symbol("internalConstruct");
 const mediaTrackSources = new WeakMap();
+const mediaTrackStreams = new WeakMap();
+
+function notifyTrackStateChanged(track) {
+  for (const stream of mediaTrackStreams.get(track) || []) stream._updateActiveState();
+}
 
 function descriptionPairingKey(description) {
   if (!description || typeof description.sdp !== "string" || !description.sdp) return null;
@@ -2539,6 +2544,7 @@ class MediaStreamTrack extends SimpleEventTarget {
     if (this._readyState === "ended") return;
     this._readyState = "ended";
     mediaTrackSources.get(this)?.stop?.(this);
+    notifyTrackStateChanged(this);
   }
 
   getCapabilities() {
@@ -2555,21 +2561,36 @@ class MediaStreamTrack extends SimpleEventTarget {
   }
 }
 
+class MediaStreamTrackEvent extends SimpleEvent {
+  constructor(type, init = {}) {
+    super(type, init);
+    if (!(init.track instanceof MediaStreamTrack)) {
+      throw new TypeError("MediaStreamTrackEvent requires a MediaStreamTrack");
+    }
+    this.track = init.track;
+  }
+}
+
 class MediaStream extends SimpleEventTarget {
   constructor(tracks = []) {
     super();
     this._id = crypto.randomUUID();
     this._tracks = [];
+    this._active = false;
+    this.onactive = null;
+    this.oninactive = null;
     this.onaddtrack = null;
     this.onremovetrack = null;
-    for (const track of tracks) this.addTrack(track);
+    const initialTracks = tracks instanceof MediaStream ? tracks.getTracks() : Array.from(tracks);
+    for (const track of initialTracks) this._addTrack(track, false);
+    this._active = this._tracks.some((track) => track.readyState === "live");
   }
 
   get id() {
     return this._id;
   }
   get active() {
-    return this._tracks.some((track) => track.readyState === "live");
+    return this._active;
   }
   getTracks() {
     return [...this._tracks];
@@ -2585,16 +2606,42 @@ class MediaStream extends SimpleEventTarget {
   }
 
   addTrack(track) {
+    this._addTrack(track, true);
+  }
+
+  _addTrack(track, dispatch) {
     if (!(track instanceof MediaStreamTrack))
       throw new TypeError("track must be a MediaStreamTrack");
-    if (!this._tracks.includes(track)) this._tracks.push(track);
+    if (this._tracks.includes(track)) return;
+    this._tracks.push(track);
+    let streams = mediaTrackStreams.get(track);
+    if (!streams) {
+      streams = new Set();
+      mediaTrackStreams.set(track, streams);
+    }
+    streams.add(this);
+    if (dispatch) {
+      this._updateActiveState();
+      this.dispatchEvent(new MediaStreamTrackEvent("addtrack", { track }));
+    }
   }
 
   removeTrack(track) {
     if (!(track instanceof MediaStreamTrack))
       throw new TypeError("track must be a MediaStreamTrack");
     const index = this._tracks.indexOf(track);
-    if (index !== -1) this._tracks.splice(index, 1);
+    if (index === -1) return;
+    this._tracks.splice(index, 1);
+    mediaTrackStreams.get(track)?.delete(this);
+    this._updateActiveState();
+    this.dispatchEvent(new MediaStreamTrackEvent("removetrack", { track }));
+  }
+
+  _updateActiveState() {
+    const active = this._tracks.some((track) => track.readyState === "live");
+    if (active === this._active) return;
+    this._active = active;
+    this.dispatchEvent(makeEvent(active ? "active" : "inactive"));
   }
 
   clone() {
@@ -3008,6 +3055,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       const receiverTrack = transceiver.receiver.track;
       if (receiverTrack.readyState === "ended") return;
       receiverTrack._readyState = "ended";
+      notifyTrackStateChanged(receiverTrack);
       receiverTrack.dispatchEvent(makeEvent("ended"));
     };
     if (afterDescriptionTask) setImmediate(() => setImmediate(end));
@@ -3196,6 +3244,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         }
         if (event.type === "close" && transceiver.receiver.track._readyState !== "ended") {
           transceiver.receiver.track._readyState = "ended";
+          notifyTrackStateChanged(transceiver.receiver.track);
           transceiver.receiver.track.dispatchEvent(makeEvent("ended"));
         }
       },
@@ -5769,6 +5818,7 @@ function getNativePeerConnection(peerConnection) {
 module.exports = {
   MediaStream,
   MediaStreamTrack,
+  MediaStreamTrackEvent,
   RTCRtpSender,
   RTCRtpReceiver,
   RTCRtpTransceiver,

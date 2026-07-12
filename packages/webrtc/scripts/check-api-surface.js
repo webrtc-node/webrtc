@@ -105,6 +105,7 @@ function createInstances() {
     RTCSctpTransport: sctpTransport,
     MediaStreamTrack: mediaTrack,
     MediaStream: mediaStream,
+    MediaStreamTrackEvent: new api.MediaStreamTrackEvent("addtrack", { track: mediaTrack }),
     RTCRtpSender: transceiver.sender,
     RTCRtpReceiver: transceiver.receiver,
     RTCRtpTransceiver: transceiver,

@@ -303,11 +303,13 @@ export class MediaStreamTrack extends EventTarget {
 }
 
 export class MediaStream extends EventTarget {
-  constructor(tracks?: Iterable<MediaStreamTrack>);
+  constructor(tracks?: MediaStream | Iterable<MediaStreamTrack>);
   readonly id: string;
   readonly active: boolean;
-  onaddtrack: ((event: Event) => void) | null;
-  onremovetrack: ((event: Event) => void) | null;
+  onactive: ((event: Event) => void) | null;
+  oninactive: ((event: Event) => void) | null;
+  onaddtrack: ((event: MediaStreamTrackEvent) => void) | null;
+  onremovetrack: ((event: MediaStreamTrackEvent) => void) | null;
   getTracks(): MediaStreamTrack[];
   getAudioTracks(): MediaStreamTrack[];
   getVideoTracks(): MediaStreamTrack[];
@@ -315,6 +317,11 @@ export class MediaStream extends EventTarget {
   addTrack(track: MediaStreamTrack): void;
   removeTrack(track: MediaStreamTrack): void;
   clone(): MediaStream;
+}
+
+export class MediaStreamTrackEvent extends Event {
+  constructor(type: string, init: { track: MediaStreamTrack });
+  readonly track: MediaStreamTrack;
 }
 
 export class RTCRtpSender {

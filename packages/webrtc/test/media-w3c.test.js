@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   MediaStream,
   MediaStreamTrack,
+  MediaStreamTrackEvent,
   RTCPeerConnection,
   RTCRtpReceiver,
   RTCRtpSender,
@@ -34,6 +35,36 @@ test("MediaStream maintains track identity and clones tracks", () => {
   assert.notEqual(clone.id, stream.id);
   assert.equal(clone.getVideoTracks()[0].kind, "video");
   assert.notEqual(clone.getVideoTracks()[0], video);
+});
+
+test("MediaStream copies track sets and reports track and active state changes", () => {
+  const audio = track();
+  const original = new MediaStream([audio]);
+  const copy = new MediaStream(original);
+  assert.notEqual(copy.id, original.id);
+  assert.deepEqual(copy.getTracks(), [audio]);
+
+  const stream = new MediaStream();
+  const events = [];
+  stream.addEventListener("active", () => events.push("active"));
+  stream.addEventListener("addtrack", (event) => {
+    assert.ok(event instanceof MediaStreamTrackEvent);
+    assert.equal(event.track, audio);
+    events.push("addtrack");
+  });
+  stream.addEventListener("inactive", () => events.push("inactive"));
+  stream.addTrack(audio);
+  assert.equal(stream.active, true);
+  audio.stop();
+  assert.equal(stream.active, false);
+  assert.deepEqual(events, ["active", "addtrack", "inactive"]);
+
+  let removedTrack = null;
+  stream.addEventListener("removetrack", (event) => {
+    removedTrack = event.track;
+  });
+  stream.removeTrack(audio);
+  assert.equal(removedTrack, audio);
 });
 
 test("MediaStreamTrack has source-independent clone and stop state", () => {
