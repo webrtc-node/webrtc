@@ -407,6 +407,9 @@ const defaultSpecs = [
       "The eventInitDict's track member is required.",
     ],
   },
+  { file: "mediacapture-streams/MediaStream-clone.https.html" },
+  { file: "mediacapture-streams/MediaStream-gettrackid.https.html" },
+  { file: "mediacapture-streams/MediaStream-id.https.html" },
   {
     file: "webrtc/RTCRtpSender-replaceTrack.https.html",
     include: [
@@ -802,6 +805,11 @@ async function runFile(spec) {
   };
   sandbox.assert_false = (actual, message = "") => {
     if (actual !== false) throw new Error(`${message} expected false, got ${actual}`.trim());
+  };
+  sandbox.assert_regexp_match = (actual, expected, message = "") => {
+    if (!expected || typeof expected.test !== "function" || !expected.test(String(actual))) {
+      throw new Error(`${message} expected ${actual} to match ${expected}`.trim());
+    }
   };
   sandbox.assert_throws_js = (ctor, fn, message = "") => {
     try {
