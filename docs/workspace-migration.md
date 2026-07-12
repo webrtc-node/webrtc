@@ -71,3 +71,9 @@ The branch remains experimental until the media-enabled prebuild matrix,
 three-package packed installation, full WPT run, release dry run, and
 published-install workflow are all green. No package may be published from
 this branch during validation.
+
+Manual Release dispatches separate artifact validation from side effects. The
+prebuild matrix and three-package content checks run with both opt-ins disabled;
+GitHub release upload requires `upload_assets`, npm publication requires
+`publish_npm`, and manual publication is rejected unless both are enabled. Only
+the publication job enters the protected npm environment.

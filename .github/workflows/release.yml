@@ -24,9 +24,20 @@ permissions:
   contents: read
 
 jobs:
+  guard:
+    name: Validate release inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require assets for npm publication
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_npm && !inputs.upload_assets
+        run: |
+          echo "publish_npm requires upload_assets so native installs can resolve this release"
+          exit 1
+
   prebuild-linux:
     name: Prebuild ${{ matrix.target }}
     runs-on: ubuntu-latest
+    needs: guard
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -68,6 +79,7 @@ jobs:
   prebuild-macos:
     name: Prebuild ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: guard
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -108,6 +120,7 @@ jobs:
   prebuild-windows:
     name: Prebuild ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: guard
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -145,18 +158,14 @@ jobs:
           name: prebuild-${{ matrix.target }}
           path: packages/webrtc/prebuild-artifacts/*
 
-  publish:
-    name: Publish npm packages
+  validate-release:
+    name: Validate release artifacts
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
     needs:
       - prebuild-linux
       - prebuild-macos
       - prebuild-windows
     timeout-minutes: 20
-    environment: npm
 
     steps:
       - uses: actions/checkout@v7
@@ -199,6 +208,23 @@ jobs:
             exit 1
           fi
 
+  upload-assets:
+    name: Upload release assets
+    runs-on: ubuntu-latest
+    needs: validate-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: prebuild-*
+          path: packages/webrtc/prebuild-artifacts
+          merge-multiple: true
+
       - name: Upload prebuild release assets
         if: github.event_name != 'workflow_dispatch' || inputs.upload_assets
         env:
@@ -214,8 +240,30 @@ jobs:
           gh release view "$tag" >/dev/null
           gh release upload "$tag" packages/webrtc/prebuild-artifacts/* --clobber
 
+  publish:
+    name: Publish npm packages
+    if: github.event_name != 'workflow_dispatch' || inputs.publish_npm
+    runs-on: ubuntu-latest
+    needs: upload-assets
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 20
+    environment: npm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci --ignore-scripts
+
       - name: Publish to npm
-        if: github.event_name != 'workflow_dispatch' || inputs.publish_npm
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_NPM_TAG: ${{ inputs.npm_tag }}
