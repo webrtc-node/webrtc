@@ -14,8 +14,11 @@ packages/*
 ```
 
 The workspace contains `packages/webrtc`, `packages/media`, and
-`packages/stats`. Media owns encoded RTP/RTCP transport and stats owns
-transport snapshots and sampling. Neither package is a placeholder.
+`packages/stats`. Standard media negotiation, stream/track objects, RTP
+sender/receiver/transceiver objects, and standardized stats reports live in
+`@webrtc-node/webrtc`. Media owns optional encoded RTP/RTCP packet sources and
+sinks behind standard tracks; stats owns sampling and delta utilities over
+standard `RTCStatsReport` values. Neither package is a placeholder.
 `@webrtc-node/native` and `@webrtc-node/test-utils` remain absent because no
 independent package purpose currently justifies them.
 
