@@ -14,12 +14,22 @@ const {
   RTCRtpReceiver,
   RTCRtpSender,
   RTCRtpTransceiver,
+  RTCTrackEvent,
   nonstandard,
 } = require("..");
 
 function track(kind = "audio") {
   return nonstandard.createMediaStreamTrack({ kind, label: `encoded ${kind}` });
 }
+
+test("media event constructors expose WebIDL arity and required dictionaries", () => {
+  assert.equal(MediaStreamTrackEvent.length, 2);
+  assert.equal(RTCTrackEvent.length, 2);
+  assert.throws(() => new MediaStreamTrackEvent("addtrack"), TypeError);
+  assert.throws(() => new MediaStreamTrackEvent("addtrack", null), TypeError);
+  assert.throws(() => new RTCTrackEvent("track"), TypeError);
+  assert.throws(() => new RTCTrackEvent("track", null), TypeError);
+});
 
 test("MediaStream maintains track identity and clones tracks", () => {
   const audio = track();

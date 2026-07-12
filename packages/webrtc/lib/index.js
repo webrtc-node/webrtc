@@ -2658,9 +2658,9 @@ class MediaStreamTrack extends SimpleEventTarget {
 }
 
 class MediaStreamTrackEvent extends SimpleEvent {
-  constructor(type, init = {}) {
+  constructor(type, init) {
     super(type, init);
-    if (!(init.track instanceof MediaStreamTrack)) {
+    if (!init || !(init.track instanceof MediaStreamTrack)) {
       throw new TypeError("MediaStreamTrackEvent requires a MediaStreamTrack");
     }
     this.track = init.track;
@@ -2907,9 +2907,9 @@ class RTCStatsReport {
 }
 
 class RTCTrackEvent extends SimpleEvent {
-  constructor(type, init = {}) {
+  constructor(type, init) {
     super(type, init);
-    if (!init.receiver || !init.track || !init.transceiver) {
+    if (!init || !init.receiver || !init.track || !init.transceiver) {
       throw new TypeError("receiver, track, and transceiver are required");
     }
     this.receiver = init.receiver;

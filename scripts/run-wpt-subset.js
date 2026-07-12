@@ -399,6 +399,14 @@ const defaultSpecs = [
     ],
   },
   { file: "webrtc/RTCRtpSender-setStreams.https.html" },
+  { file: "webrtc/RTCTrackEvent-constructor.html" },
+  {
+    file: "mediacapture-streams/MediaStreamTrackEvent-constructor.https.html",
+    include: [
+      "The eventInitDict argument is required",
+      "The eventInitDict's track member is required.",
+    ],
+  },
   {
     file: "webrtc/RTCRtpSender-replaceTrack.https.html",
     include: [
