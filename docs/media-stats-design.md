@@ -50,6 +50,9 @@ no `HTMLCanvasElement`, `navigator.mediaDevices`, or browser media source.
 
 ## Backend Constraints
 
+Temporary facade and addon workarounds in this section are mapped to source-backed removal
+criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candidates.md).
+
 - Direction changes and stopping are applied by replacing a track's media description before the
   next offer. JavaScript keeps stable transceiver/sender/receiver identity.
 - A stopped media description can be marked removed, but libdatachannel does not expose the full
