@@ -10,6 +10,7 @@ Project-facing docs:
 - [Development](development.md)
 - [Intentional Divergences](divergences.md)
 - [Media and Statistics Design](media-stats-design.md)
+- [libdatachannel Upstream Candidates](libdatachannel-upstream-candidates.md)
 - [Nonstandard libdatachannel Extensions](nonstandard.md)
 - [Package and Organization Roadmap](package-roadmap.md)
 - [Experimental Workspace Migration](workspace-migration.md)
