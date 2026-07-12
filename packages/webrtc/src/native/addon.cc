@@ -251,7 +251,11 @@ void SchedulePeerTeardown(PeerTeardownWork work) {
 
 	auto completed = std::make_shared<std::atomic<bool>>(false);
 	std::thread thread([work = std::move(work), completed]() mutable {
-		RunPeerTeardown(std::move(work));
+		try {
+			RunPeerTeardown(std::move(work));
+		} catch (...) {
+			// Native teardown is best-effort and must never terminate the Node process.
+		}
 		completed->store(true, std::memory_order_release);
 	});
 	teardowns.push_back({std::move(thread), std::move(completed)});
@@ -493,12 +497,24 @@ private:
 	                           std::shared_ptr<EventDispatcher> *dispatcher) {
 		std::shared_ptr<EventDispatcher> scoped = std::move(*dispatcher);
 		delete dispatcher;
-		scoped->Drain(env, callback);
+		if (env == nullptr)
+			return;
+		try {
+			scoped->Drain(env, callback);
+		} catch (...) {
+			// Exceptions cannot cross a thread-safe-function callback boundary.
+		}
 	}
 
 	static void DispatchDirect(Napi::Env env, Napi::Function callback, NativeEvent *event) {
 		std::unique_ptr<NativeEvent> scoped(event);
-		callback.Call({EventToObject(env, *scoped)});
+		if (env == nullptr)
+			return;
+		try {
+			callback.Call({EventToObject(env, *scoped)});
+		} catch (...) {
+			// Environment teardown may invalidate JavaScript delivery mid-callback.
+		}
 	}
 
 	static Napi::Value MessagePayloadToValue(Napi::Env env, NativeEvent &event) {

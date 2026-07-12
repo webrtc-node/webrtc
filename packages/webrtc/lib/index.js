@@ -104,6 +104,19 @@ function disableSending(direction) {
   return direction;
 }
 
+function intersectDirections(localDirection, remoteDirection) {
+  const send =
+    (localDirection === "sendrecv" || localDirection === "sendonly") &&
+    (remoteDirection === "sendrecv" || remoteDirection === "recvonly");
+  const receive =
+    (localDirection === "sendrecv" || localDirection === "recvonly") &&
+    (remoteDirection === "sendrecv" || remoteDirection === "sendonly");
+  if (send && receive) return "sendrecv";
+  if (send) return "sendonly";
+  if (receive) return "recvonly";
+  return "inactive";
+}
+
 class SimpleEvent {
   constructor(type, init = {}) {
     this.type = String(type);
@@ -980,6 +993,32 @@ function serializeSdp(sessionLines, mediaSections) {
   const lines = [...sessionLines];
   for (const section of mediaSections) lines.push(...section.lines);
   return `${lines.join("\r\n")}\r\n`;
+}
+
+function alignMediaDirections(description, template) {
+  if (!description?.sdp || !template?.sdp) return description;
+  const parsed = parseSdpMediaSections(description.sdp);
+  const templateParsed = parseSdpMediaSections(template.sdp);
+  const templateDirections = new Map(
+    templateParsed.mediaSections.map((section) => [
+      section.mid,
+      section.lines.find((line) => /^a=(?:sendrecv|sendonly|recvonly|inactive)$/.test(line)) ||
+        "a=sendrecv",
+    ]),
+  );
+  for (const section of parsed.mediaSections) {
+    const direction = templateDirections.get(section.mid);
+    if (!direction) continue;
+    const index = section.lines.findIndex((line) =>
+      /^a=(?:sendrecv|sendonly|recvonly|inactive)$/.test(line),
+    );
+    if (index === -1) section.lines.push(direction);
+    else section.lines[index] = direction;
+  }
+  return new RTCSessionDescription({
+    type: description.type,
+    sdp: serializeSdp(parsed.sessionLines, parsed.mediaSections),
+  });
 }
 
 function validateCandidateSyntax(candidate) {
@@ -2779,6 +2818,7 @@ class RTCRtpTransceiver {
     this._stopping = false;
     this._stopped = false;
     this._hasEverSent = false;
+    this._senderTrackId = track?.id || crypto.randomUUID();
     this._sender = new RTCRtpSender(kInternalConstruct, peerConnection, track, streams);
     this._receiver = new RTCRtpReceiver(kInternalConstruct, peerConnection, kind);
     this._sender._transceiver = this;
@@ -2916,6 +2956,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     };
     this._lastCreatedOffer = null;
     this._lastCreatedAnswer = null;
+    this._localMediaDirectionTemplate = null;
     this._localDescriptionSetByApi = false;
     this._localDescriptionRefreshScheduled = false;
     this._nativeCandidateGatheringScheduled = false;
@@ -2996,11 +3037,22 @@ class RTCPeerConnection extends SimpleEventTarget {
       nativeConfiguration.certificatePem = material.certificatePem;
       nativeConfiguration.keyPem = material.keyPem;
     }
+    const weakPeerConnection = new WeakRef(this);
     const nativePeerConnection = new native.NativePeerConnection(nativeConfiguration, (event) => {
+      const peerConnection = weakPeerConnection.deref();
+      if (!peerConnection) {
+        try {
+          event?.channel?.close?.();
+          event?.track?.close?.();
+        } catch {
+          // Native ownership cleanup remains responsible for late event payloads.
+        }
+        return;
+      }
       if (Array.isArray(event)) {
-        this._handleNativeEventBatch(event);
+        peerConnection._handleNativeEventBatch(event);
       } else {
-        this._handleNativeEvent(event);
+        peerConnection._handleNativeEvent(event);
       }
     });
     this._nativeCertificates = nativeCertificates;
@@ -3050,6 +3102,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     if (transceiver) {
       this._assertTrackCompatibleWithTransceiver(transceiver, track);
       transceiver.sender._track = track;
+      if (!transceiver._hasEverSent) transceiver._senderTrackId = track.id;
       transceiver.sender._streams = [...new Set(streams)];
       if (transceiver._nativeTrack) {
         mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeTrack);
@@ -3203,11 +3256,13 @@ class RTCPeerConnection extends SimpleEventTarget {
       const transceiver = this._transceivers[index];
       if (transceiver.stopped) continue;
       if (transceiver._remoteStopping) continue;
+      const nativeDirection = this._answerDirectionFor(transceiver) || transceiver.direction;
+      const nativeSends = nativeDirection === "sendrecv" || nativeDirection === "sendonly";
       if (transceiver._nativeTrack) {
-        transceiver._nativeTrack.updateDescription(transceiver.direction, transceiver.stopping);
+        transceiver._nativeTrack.updateDescription(nativeDirection, transceiver.stopping);
         transceiver._nativeTrack.updateStreams(
           transceiver.sender._streams.map((stream) => stream.id),
-          transceiver.sender.track?.id ?? null,
+          nativeSends ? transceiver._senderTrackId : null,
         );
         mediaTrackSources
           .get(transceiver.sender.track)
@@ -3236,13 +3291,13 @@ class RTCPeerConnection extends SimpleEventTarget {
         {
           kind: transceiver._kind,
           mid,
-          direction: transceiver.direction,
+          direction: nativeDirection,
           codec: codec.codec,
           payloadType: codec.payloadType,
           profile: codec.profile,
           ssrc,
           streamIds: transceiver.sender._streams.map((stream) => stream.id),
-          trackId: transceiver.sender.track?.id ?? null,
+          trackId: nativeSends ? transceiver._senderTrackId : null,
         },
         (events) => {
           for (const event of Array.isArray(events) ? events : [events]) {
@@ -3256,6 +3311,13 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
       source?._attachNativeTrack?.(nativeTrack);
     }
+  }
+
+  _answerDirectionFor(transceiver) {
+    if (this._signalingState !== "have-remote-offer") return null;
+    const remoteDirection = mediaDirectionByMid(this.remoteDescription, transceiver.mid);
+    if (!remoteDirection) return null;
+    return intersectDirections(transceiver.direction, remoteDirection);
   }
 
   _adoptIncomingNativeTrack(nativeTrack) {
@@ -3313,7 +3375,10 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     registerMediaTrackSource(transceiver.receiver.track, source);
     this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
-    this._queueTrackEvent(transceiver, streams, associationKey);
+    const remoteDirection = mediaDirectionByMid(remoteDescription, transceiver.mid);
+    if (remoteDirection === "sendrecv" || remoteDirection === "sendonly") {
+      this._queueTrackEvent(transceiver, streams, associationKey);
+    }
   }
 
   _applyRemoteTrackAssociations(transceiver, description) {
@@ -3808,10 +3873,10 @@ class RTCPeerConnection extends SimpleEventTarget {
       let alreadyAppliedAnswer = false;
       if (normalized?.type === "answer") {
         if (normalized.sdp === "" && this._lastCreatedAnswer) normalized = this._lastCreatedAnswer;
-        const answerCreatedByThisPeer = description && description._webrtcNodeAnswerer === this;
         alreadyAppliedAnswer =
           this._localDescription?.type === "answer" &&
-          (this._localDescription.sdp === normalized.sdp || answerCreatedByThisPeer);
+          (this._localDescription.sdp === normalized.sdp ||
+            description?._webrtcNodeApplied === true);
         if (
           !alreadyAppliedAnswer &&
           this._signalingState !== "have-remote-offer" &&
@@ -3921,13 +3986,19 @@ class RTCPeerConnection extends SimpleEventTarget {
           manuallyUpdatedSignalingState = true;
           usedJsOnlyIceRestart = true;
         } else {
+          if (type === "offer" || type === "answer") this._materializeTransceivers();
           const localDescriptionInit = this._localOfferInit(type);
           this._ensureNativePeerConnection().setLocalDescription(type, localDescriptionInit);
+          if (type === "offer" || type === "answer") this._materializeTransceivers();
           appliedIceRestart = hadIceRestartRequest;
           const nativeDescription = this._ensureNativePeerConnection().localDescription();
-          this._localDescription = nativeDescription
+          const generatedDescription = nativeDescription
             ? new RTCSessionDescription(nativeDescription)
             : null;
+          const directionTemplate =
+            normalized || (type === "offer" ? this._lastCreatedOffer : this._lastCreatedAnswer);
+          this._localMediaDirectionTemplate = directionTemplate;
+          this._localDescription = alignMediaDirections(generatedDescription, directionTemplate);
           this._syncStatesFromNative();
           this._scheduleNativeCandidateGathering();
         }
@@ -4107,6 +4178,10 @@ class RTCPeerConnection extends SimpleEventTarget {
         let remoteDescription = normalized;
         if (description && description._webrtcNodeAnswerer) {
           remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+          Object.defineProperty(description, "_webrtcNodeApplied", {
+            value: true,
+            configurable: true,
+          });
         }
         this._setPendingRemoteDescription(markJsOnlyIceRestart(remoteDescription));
         this._commitLocalDescription();
@@ -4139,6 +4214,10 @@ class RTCPeerConnection extends SimpleEventTarget {
         let remoteDescription = normalized;
         if (description && description._webrtcNodeAnswerer) {
           remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+          Object.defineProperty(description, "_webrtcNodeApplied", {
+            value: true,
+            configurable: true,
+          });
         }
         this._setPendingRemoteDescription(remoteDescription);
         this._commitLocalDescription();
@@ -4189,6 +4268,10 @@ class RTCPeerConnection extends SimpleEventTarget {
       let remoteDescription = normalized;
       if (normalized.type === "answer" && description && description._webrtcNodeAnswerer) {
         remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+        Object.defineProperty(description, "_webrtcNodeApplied", {
+          value: true,
+          configurable: true,
+        });
       }
       const previousSignalingState = this._signalingState;
       let suppressedNativeSignalingState = null;
@@ -5300,6 +5383,7 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _refreshCurrentOrPendingLocalDescription(description) {
     if (!description) return;
+    description = alignMediaDirections(description, this._localMediaDirectionTemplate);
     this._localDescription = description;
     if (this._pendingLocalDescription?.type === description.type) {
       this._pendingLocalDescription = description;

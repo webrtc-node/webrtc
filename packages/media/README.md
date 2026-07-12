@@ -32,4 +32,5 @@ documented 1024-packet pending limit to keep callback memory bounded.
 
 Cloned tracks share the encoded source as W3C tracks share a media source. Stopping one track does
 not close the source while another clone remains live. Closing `EncodedMediaSource` explicitly
-closes its native track and ends every live clone.
+ends every live clone and prevents further sends. The peer connection retains ownership of the
+native media track until peer teardown.

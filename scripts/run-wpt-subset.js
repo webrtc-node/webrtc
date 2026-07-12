@@ -55,6 +55,7 @@ const perTestIsolatedFiles = new Set([
   "webrtc/RTCSctpTransport-events.html",
   "webrtc/RTCSctpTransport-maxChannels.html",
   "webrtc/RTCPeerConnection-ondatachannel.html",
+  "webrtc/RTCRtpSender-setStreams.https.html",
 ]);
 
 const defaultSpecs = [
@@ -397,10 +398,8 @@ const defaultSpecs = [
       "Calling setStreams with duplicates of the same streams as before should not cause negotiationneeded to fire",
     ],
   },
-  {
-    file: "webrtc/RTCRtpSender-setStreams.https.html",
-    include: ["setStreams() fires InvalidStateError on a closed peer connection."],
-  },
+  { file: "webrtc/RTCRtpSender-setStreams.https.html" },
+  { file: "webrtc/RTCPeerConnection-addTrack.https.html" },
   {
     file: "webrtc/RTCPeerConnection-addTransceiver.https.html",
     exclude: [
@@ -709,6 +708,17 @@ async function runFile(spec) {
     },
   };
 
+  async function syntheticMediaStream(constraints = {}) {
+    const tracks = [];
+    if (constraints.audio) {
+      tracks.push(webrtc.nonstandard.createMediaStreamTrack({ kind: "audio", label: "WPT audio" }));
+    }
+    if (constraints.video) {
+      tracks.push(webrtc.nonstandard.createMediaStreamTrack({ kind: "video", label: "WPT video" }));
+    }
+    return new webrtc.MediaStream(tracks);
+  }
+
   const sandbox = {
     ...webrtc,
     RTCPeerConnection: HarnessRTCPeerConnection,
@@ -745,6 +755,14 @@ async function runFile(spec) {
     String,
     Boolean,
     document: documentShim,
+    navigator: {
+      mediaDevices: {
+        getUserMedia: syntheticMediaStream,
+      },
+    },
+    test_driver: {
+      set_permission: async () => {},
+    },
     Math,
     RegExp,
     URL,
@@ -943,6 +961,12 @@ async function runFile(spec) {
   const context = vm.createContext(sandbox);
   for (const script of extractScripts(relativePath)) {
     vm.runInContext(script.code, context, { filename: script.filename });
+    if (script.filename.endsWith("RTCPeerConnection-helper.js")) {
+      sandbox.getNoiseStream = syntheticMediaStream;
+    }
+    if (script.filename.endsWith("testdriver-vendor.js")) {
+      sandbox.test_driver.set_permission = async () => {};
+    }
   }
   if (listTestsOnly) return selectedTests;
   for (const run of pending) {

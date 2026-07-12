@@ -7,7 +7,7 @@ This experimental branch targets the WebRTC peer-connection, data-channel,
 encoded-media, and reliable-statistics surfaces exposed through
 `@webrtc-node/webrtc`.
 
-The current selected suite contains **675 expected-passing WPT subtests**. CI
+The current selected suite contains **691 expected-passing WPT subtests**. CI
 validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
 smoke check.
@@ -31,6 +31,9 @@ Expected-pass coverage currently includes:
 Out-of-scope WPT areas are grouped in the manifest as `notApplicable`,
 `needsShim`, or `expectedFail`. Browser capture/rendering, devices, codec
 processing, and statistics unavailable from the backend remain outside scope.
+The Node WPT harness supplies encoded synthetic audio/video tracks for media API
+semantics tests such as `addTrack` and `setStreams`; this is test infrastructure
+and does not expose `navigator.mediaDevices` or capture APIs from the package.
 
 This project should not be described as fully browser/WebRTC compliant. The
 supported claim is: experimental W3C-style peer-connection, data-channel,
@@ -55,5 +58,5 @@ weighted shards running concurrently inside each OS/Node job. Ordinary WPT
 files stay within one process so file-level setup and ordering are preserved;
 files already marked for per-test isolation distribute those isolated tests
 individually. The shard outputs are merged into the same complete
-`wpt-results.json`; the strict checker still requires all 675 unique subtests
+`wpt-results.json`; the strict checker still requires all 691 unique subtests
 with no failures or retries.

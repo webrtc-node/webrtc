@@ -101,7 +101,6 @@ class EncodedMediaSource extends EventTarget {
   close() {
     if (this.readyState === "closed") return;
     this.readyState = "closed";
-    this._source.nativeTrack?.close();
     this._source._endTracks?.();
   }
 

@@ -146,6 +146,24 @@ test("addTrack reuses eligible sender and removeTrack updates direction", () => 
   }
 });
 
+test("removeTrack negotiates inactive when neither endpoint can send", async () => {
+  const peer = new RTCPeerConnection();
+  const remote = new RTCPeerConnection();
+  try {
+    const localTrack = track();
+    const transceiver = peer.addTransceiver(localTrack);
+    await negotiate(peer, remote);
+    assert.equal(transceiver.currentDirection, "sendonly");
+    peer.removeTrack(transceiver.sender);
+    await negotiate(peer, remote);
+    assert.equal(transceiver.direction, "recvonly");
+    assert.equal(transceiver.currentDirection, "inactive");
+  } finally {
+    peer.close();
+    remote.close();
+  }
+});
+
 test("removeTrack validates sender ownership and closed state", () => {
   const owner = new RTCPeerConnection();
   const other = new RTCPeerConnection();

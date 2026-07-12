@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 675,
-  "selectedSubtestsSha256": "1e114923212d639468d819eef8c88a68e3b51689084ea11af1126a7bb05bdb90",
+  "expectedSelectedSubtests": 691,
+  "selectedSubtestsSha256": "ad03a5344d3d2bfa03b4995ba9eb7c28dd3a717ce2fd9320f2c41293327d3485",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -81,7 +81,8 @@
     "webrtc/RTCPeerConnection-connectionState.https.html#initial-close-datachannel-and-transport-connected-subset",
     "webrtc/RTCPeerConnection-ondatachannel.html",
     "webrtc/RTCPeerConnection-onnegotiationneeded.html#datachannel-and-setStreams-subset",
-    "webrtc/RTCRtpSender-setStreams.https.html#closed-peer-subset",
+    "webrtc/RTCRtpSender-setStreams.https.html",
+    "webrtc/RTCPeerConnection-addTrack.https.html",
     "webrtc/RTCPeerConnection-addTransceiver.https.html#non-capture-subset",
     "webrtc/RTCPeerConnection-getStats.https.html?rest#basic-promise-subset",
     "webrtc/RTCPeerConnection-getStats.https.html?interop-2026#empty-peer-connection-subset",
@@ -95,6 +96,7 @@
   "needsShim": [
     "resources/testharness.js",
     "webrtc/RTCPeerConnection-helper.js",
+    "mediacapture-streams/permission-helper.js#synthetic-track-source-for-node-media-api-tests",
     "webrtc/RTCDataChannel-helper.js",
     "webrtc/RTCConfiguration-bundlePolicy.html#media-candidate-gathering-cases",
     "webrtc/RTCConfiguration-iceTransportPolicy.html#media-candidate-gathering-and-restart-cases",
@@ -133,7 +135,6 @@
   ],
   "notApplicable": [
     "webrtc/RTCDTMFSender*.html",
-    "webrtc/RTCPeerConnection-addTrack*.html",
     "webrtc/RTCPeerConnection-addTransceiver-renegotiation*.html",
     "webrtc/RTCPeerConnection-ontrack*.html",
     "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",

@@ -8,7 +8,7 @@ const manifest = require("../wpt-manifest.json");
 const wptDir = path.resolve(process.env.WPT_DIR || path.join(root, "wpt"));
 const wptRepository = process.env.WPT_REPOSITORY || "https://github.com/web-platform-tests/wpt.git";
 const wptCommit = process.env.WPT_COMMIT || manifest.wptCommit;
-const sparsePaths = ["common", "resources", "webrtc"];
+const sparsePaths = ["common", "mediacapture-streams", "resources", "webrtc"];
 
 function runGit(args, options = {}) {
   const result = spawnSync("git", args, {
@@ -29,6 +29,7 @@ function hasWptFiles() {
   return (
     fs.existsSync(path.join(wptDir, "resources", "testharness.js")) &&
     fs.existsSync(path.join(wptDir, "common", "gc.js")) &&
+    fs.existsSync(path.join(wptDir, "mediacapture-streams", "permission-helper.js")) &&
     fs.existsSync(path.join(wptDir, "webrtc"))
   );
 }
