@@ -407,6 +407,7 @@ const defaultSpecs = [
       "getStats() with no argument should return stats report containing peer-connection stats on an empty PC",
     ],
   },
+  { file: "webrtc/RTCRtpTransceiver-stop.html" },
 ];
 
 const specs = isWorker

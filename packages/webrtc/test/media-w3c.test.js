@@ -83,6 +83,21 @@ test("addTrack reuses eligible sender and removeTrack updates direction", () => 
   }
 });
 
+test("removeTrack validates sender ownership and closed state", () => {
+  const owner = new RTCPeerConnection();
+  const other = new RTCPeerConnection();
+  const sender = owner.addTrack(track());
+  try {
+    assert.throws(() => other.removeTrack(sender), { name: "InvalidAccessError" });
+    assert.throws(() => other.removeTrack({}), TypeError);
+    other.close();
+    assert.throws(() => other.removeTrack(sender), { name: "InvalidStateError" });
+  } finally {
+    owner.close();
+    other.close();
+  }
+});
+
 test("media changes queue negotiationneeded", async () => {
   const peer = new RTCPeerConnection();
   try {

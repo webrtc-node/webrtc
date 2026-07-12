@@ -7,7 +7,7 @@
   <img alt="API" src="https://img.shields.io/badge/API-W3C--style-0a7">
   <img alt="Data Channels" src="https://img.shields.io/badge/scope-data%20channels-4c1">
   <img alt="TypeScript" src="https://img.shields.io/badge/types-TypeScript-3178c6">
-  <img alt="WPT" src="https://img.shields.io/badge/WPT-637%20selected%20subtests-4c1">
+  <img alt="WPT" src="https://img.shields.io/badge/WPT-646%20selected%20subtests-4c1">
   <img alt="Native API" src="https://img.shields.io/badge/native-Node--API-blue">
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange">
 </p>
@@ -20,7 +20,7 @@
 <p align="center">
   Backed by
   <a href="https://github.com/paullouisageneau/libdatachannel">libdatachannel</a>,
-  shipped as a Node-API native addon, and validated with 637 selected Web
+  shipped as a Node-API native addon, and validated with 646 selected Web
   Platform Tests subtests.
 </p>
 

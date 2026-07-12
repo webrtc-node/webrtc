@@ -1198,9 +1198,10 @@ private:
 	Napi::Value UpdateDescription(const Napi::CallbackInfo &info) {
 		try {
 			auto description = binding_->track->description();
-			if (info.Length() > 1 && info[1].ToBoolean().Value())
+			if (info.Length() > 1 && info[1].ToBoolean().Value()) {
+				description.setDirection(rtc::Description::Direction::Inactive);
 				description.markRemoved();
-			else
+			} else
 				description.setDirection(ParseMediaDirection(info[0].ToString().Utf8Value()));
 			binding_->track->setDescription(std::move(description));
 		} catch (const std::exception &e) {

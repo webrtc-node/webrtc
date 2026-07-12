@@ -320,6 +320,7 @@ export class MediaStream extends EventTarget {
 export class RTCRtpSender {
   private constructor();
   readonly track: MediaStreamTrack | null;
+  readonly transport: RTCDtlsTransport | null;
   replaceTrack(track: MediaStreamTrack | null): Promise<void>;
   setStreams(...streams: MediaStream[]): void;
   getStats(): Promise<RTCStatsReport>;
@@ -328,6 +329,7 @@ export class RTCRtpSender {
 export class RTCRtpReceiver {
   private constructor();
   readonly track: MediaStreamTrack;
+  readonly transport: RTCDtlsTransport | null;
   getStats(): Promise<RTCStatsReport>;
 }
 
@@ -338,7 +340,8 @@ export class RTCRtpTransceiver {
   readonly receiver: RTCRtpReceiver;
   readonly stopped: boolean;
   readonly stopping: boolean;
-  direction: RTCRtpTransceiverDirection;
+  get direction(): RTCRtpTransceiverDirection | "stopped";
+  set direction(value: RTCRtpTransceiverDirection);
   readonly currentDirection: RTCRtpTransceiverDirection | null;
   stop(): void;
 }
