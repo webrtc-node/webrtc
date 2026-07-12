@@ -115,7 +115,7 @@ jobs:
                 sleep $((attempt * 10))
               done
               node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const pc = new RTCPeerConnection(); pc.close(); console.log(\"cjs ok\");"
-              node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const { MediaSession } = require(\"@webrtc-node/media\"); const { snapshot } = require(\"@webrtc-node/stats\"); const pc = new RTCPeerConnection(); new MediaSession(pc); snapshot(pc); pc.close(); console.log(\"companions ok\");"
+              node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const { EncodedMediaSource } = require(\"@webrtc-node/media\"); const { RTCStatsSampler } = require(\"@webrtc-node/stats\"); (async () => { const pc = new RTCPeerConnection(); const source = new EncodedMediaSource({ kind: \"video\", codec: { mimeType: \"video/VP8\", payloadType: 96 } }); pc.addTrack(source.track); const { report } = await new RTCStatsSampler(pc).sample(); if (!report.has(\"peer-connection\")) throw new Error(\"missing peer-connection stats\"); source.close(); pc.close(); console.log(\"companions ok\"); })().catch(error => { console.error(error); process.exitCode = 1; });"
               node --input-type=module -e "import { RTCPeerConnection } from \"@webrtc-node/webrtc\"; const pc = new RTCPeerConnection(); pc.close(); console.log(\"esm ok\");"
             '
 
@@ -165,5 +165,5 @@ jobs:
             sleep $((attempt * 10))
           done
           node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close(); console.log('cjs ok');"
-          node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const { MediaSession } = require('@webrtc-node/media'); const { snapshot } = require('@webrtc-node/stats'); const pc = new RTCPeerConnection(); new MediaSession(pc); snapshot(pc); pc.close(); console.log('companions ok');"
+          node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const { EncodedMediaSource } = require('@webrtc-node/media'); const { RTCStatsSampler } = require('@webrtc-node/stats'); (async () => { const pc = new RTCPeerConnection(); const source = new EncodedMediaSource({ kind: 'video', codec: { mimeType: 'video/VP8', payloadType: 96 } }); pc.addTrack(source.track); const { report } = await new RTCStatsSampler(pc).sample(); if (!report.has('peer-connection')) throw new Error('missing peer-connection stats'); source.close(); pc.close(); console.log('companions ok'); })().catch(error => { console.error(error); process.exitCode = 1; });"
           node --input-type=module -e "import { RTCPeerConnection } from '@webrtc-node/webrtc'; const pc = new RTCPeerConnection(); pc.close(); console.log('esm ok');"

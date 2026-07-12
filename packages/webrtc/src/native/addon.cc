@@ -1541,7 +1541,6 @@ private:
 		}
 		for (auto &track : trackSnapshot) {
 			track->Destroy();
-			track->Close();
 		}
 		DeactivateCallbacks();
 		dispatcher->Close();

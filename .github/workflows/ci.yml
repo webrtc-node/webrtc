@@ -176,7 +176,7 @@ jobs:
           cd "$workdir"
           npm init -y >/dev/null
           npm install --ignore-scripts "$OLDPWD"/ci-artifacts/packages/*.tgz
-          WEBRTC_NODE_NATIVE_PATH="$OLDPWD/packages/webrtc/build/Release/webrtc_node.node" node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const { MediaSession } = require('@webrtc-node/media'); const { snapshot } = require('@webrtc-node/stats'); const pc = new RTCPeerConnection(); new MediaSession(pc); snapshot(pc); pc.close();"
+          WEBRTC_NODE_NATIVE_PATH="$OLDPWD/packages/webrtc/build/Release/webrtc_node.node" node "$OLDPWD/scripts/smoke-installed-workspace.js"
 
       - name: Verify packed source build
         shell: bash

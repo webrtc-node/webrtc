@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 const test = require("node:test");
 const {
   MediaStream,
@@ -150,4 +152,29 @@ test("getStats exposes peer connection stats and validates track selectors", asy
   } finally {
     peer.close();
   }
+});
+
+test("closing an answerer with an unapplied media answer is safe", () => {
+  const packageRoot = path.resolve(__dirname, "..");
+  const script = `
+    const { RTCPeerConnection } = require(${JSON.stringify(packageRoot)});
+    (async () => {
+      const offerer = new RTCPeerConnection();
+      offerer.addTransceiver("audio", { direction: "recvonly" });
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      const answerer = new RTCPeerConnection();
+      await answerer.setRemoteDescription(offer);
+      await answerer.createAnswer();
+      answerer.close();
+      offerer.close();
+    })().catch((error) => { console.error(error); process.exitCode = 1; });
+  `;
+  const child = spawnSync(process.execPath, ["-e", script], {
+    encoding: "utf8",
+    timeout: 10000,
+    windowsHide: true,
+  });
+  assert.equal(child.error, undefined, child.error?.message);
+  assert.equal(child.status, 0, child.stderr);
 });

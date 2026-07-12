@@ -3997,7 +3997,20 @@ class RTCPeerConnection extends SimpleEventTarget {
     const nativePeer = this._native;
     if (nativePeer) {
       try {
-        nativePeer.close();
+        if (nativePeer.signalingState === "have-remote-offer" && this._lastCreatedAnswer) {
+          nativePeer.setLocalDescription("answer");
+          this._commitRemoteDescription();
+          this._commitLocalDescription(this._lastCreatedAnswer);
+          setTimeout(() => {
+            try {
+              nativePeer.close();
+            } catch {
+              // The JavaScript peer is already observably closed.
+            }
+          }, 0);
+        } else {
+          nativePeer.close();
+        }
       } catch {
         // JS-visible close state is already final; native teardown is best-effort.
       }
