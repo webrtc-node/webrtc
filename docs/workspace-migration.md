@@ -76,4 +76,6 @@ Manual Release dispatches separate artifact validation from side effects. The
 prebuild matrix and three-package content checks run with both opt-ins disabled;
 GitHub release upload requires `upload_assets`, npm publication requires
 `publish_npm`, and manual publication is rejected unless both are enabled. Only
-the publication job enters the protected npm environment.
+the publication job enters the protected npm environment. Automatic
+Published Install validation follows an actual GitHub release, not a manual
+artifact-only Release dry run.
