@@ -74,6 +74,38 @@ test("encoded source validation rejects unsupported configurations", () => {
   );
 });
 
+test("replaceTrack transfers native encoded source ownership", async () => {
+  const peer = new RTCPeerConnection();
+  const first = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+  });
+  const replacement = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+  });
+  const incompatible = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/H264", payloadType: 102 },
+  });
+  try {
+    const sender = peer.addTrack(first.track);
+    await peer.createOffer();
+    await sender.replaceTrack(replacement.track);
+    assert.equal(sender.track, replacement.track);
+    assert.throws(() => first.send(rtpPacket()), { name: "InvalidStateError" });
+    await assert.rejects(sender.replaceTrack(incompatible.track), {
+      name: "InvalidModificationError",
+    });
+    assert.equal(sender.track, replacement.track);
+  } finally {
+    first.close();
+    replacement.close();
+    incompatible.close();
+    peer.close();
+  }
+});
+
 test("standard track event exposes encoded RTP through an optional sink", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();

@@ -70,6 +70,11 @@ class EncodedMediaSource extends EventTarget {
         this._source.nativeTrack = nativeTrack;
         this.readyState = nativeTrack.isOpen ? "open" : "connecting";
       },
+      _detachNativeTrack: (nativeTrack) => {
+        if (this._source.nativeTrack !== nativeTrack) return;
+        this._source.nativeTrack = null;
+        if (this.readyState !== "closed") this.readyState = "new";
+      },
       _handleNativeEvent: (event) => this._handleNativeEvent(event),
       stop: () => this.close(),
     };

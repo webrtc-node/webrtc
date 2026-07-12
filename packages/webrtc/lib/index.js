@@ -2564,8 +2564,12 @@ class RTCRtpSender {
     if (track && track.kind !== this._transceiver._kind) {
       return Promise.reject(new TypeError("track kind does not match the sender"));
     }
-    this._track = track;
-    return Promise.resolve();
+    try {
+      this._peerConnection._replaceSenderTrack(this, track);
+      return Promise.resolve();
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
   setStreams(...streams) {
     for (const stream of streams)
@@ -2868,8 +2872,12 @@ class RTCPeerConnection extends SimpleEventTarget {
         !candidate._hasEverSent,
     );
     if (transceiver) {
+      this._assertTrackCompatibleWithTransceiver(transceiver, track);
       transceiver.sender._track = track;
       transceiver.sender._streams = [...new Set(streams)];
+      if (transceiver._nativeTrack) {
+        mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeTrack);
+      }
       if (transceiver.direction === "recvonly") transceiver._direction = "sendrecv";
       else if (transceiver.direction === "inactive") transceiver._direction = "sendonly";
     } else {
@@ -2886,6 +2894,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     const transceiver = sender._transceiver;
     if (transceiver.stopped || transceiver.stopping || sender.track === null) return;
+    this._detachSenderSource(sender);
     sender._track = null;
     if (transceiver.direction === "sendrecv") transceiver._direction = "recvonly";
     else if (transceiver.direction === "sendonly") transceiver._direction = "inactive";
@@ -2926,12 +2935,48 @@ class RTCPeerConnection extends SimpleEventTarget {
     return transceiver;
   }
 
+  _assertTrackCompatibleWithTransceiver(transceiver, track) {
+    const source = mediaTrackSources.get(track);
+    if (!transceiver._codec || !source?.codec) return;
+    if (
+      transceiver._codec.codec !== source.codec.codec ||
+      transceiver._codec.payloadType !== source.codec.payloadType ||
+      transceiver._codec.profile !== source.codec.profile
+    ) {
+      throw makeDOMException(
+        "Replacement encoded track codec does not match the negotiated sender",
+        "InvalidModificationError",
+      );
+    }
+  }
+
+  _detachSenderSource(sender) {
+    mediaTrackSources.get(sender.track)?._detachNativeTrack?.(sender._transceiver._nativeTrack);
+  }
+
+  _replaceSenderTrack(sender, track) {
+    const transceiver = sender._transceiver;
+    if (this._closed) throw makeDOMException("RTCPeerConnection is closed", "InvalidStateError");
+    if (transceiver.stopped || transceiver.stopping) {
+      throw makeDOMException("Transceiver is stopping", "InvalidStateError");
+    }
+    if (track) this._assertTrackCompatibleWithTransceiver(transceiver, track);
+    this._detachSenderSource(sender);
+    sender._track = track;
+    if (track && transceiver._nativeTrack) {
+      mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeTrack);
+    }
+  }
+
   _materializeTransceivers() {
     const nativePeer = this._ensureNativePeerConnection();
     for (let index = 0; index < this._transceivers.length; index += 1) {
       const transceiver = this._transceivers[index];
       if (transceiver._nativeTrack) {
         transceiver._nativeTrack.updateDescription(transceiver.direction, transceiver.stopping);
+        mediaTrackSources
+          .get(transceiver.sender.track)
+          ?._attachNativeTrack?.(transceiver._nativeTrack);
         continue;
       }
       if (transceiver.stopped) continue;
@@ -2941,6 +2986,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         (transceiver._kind === "audio"
           ? { codec: "opus", payloadType: 111 }
           : { codec: "VP8", payloadType: 96 });
+      transceiver._codec = codec;
       const mid = source?.mid || `media-${index}`;
       const ssrc = source?.ssrc ?? transceiver._ssrc ?? crypto.randomInt(1, 0x100000000);
       transceiver._ssrc = ssrc;
