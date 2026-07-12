@@ -4,8 +4,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { after, before, test } = require("node:test");
 const { chromium } = require("playwright-core");
-const { RTCPeerConnection } = require("@webrtc-node/webrtc");
-const { EncodedMediaSink } = require("../..");
+const { MediaStream, RTCPeerConnection } = require("@webrtc-node/webrtc");
+const { EncodedMediaSink, EncodedMediaSource } = require("../..");
 
 const timeout = Number(process.env.CHROME_E2E_TIMEOUT_MS || 30000);
 let browser;
@@ -120,6 +120,52 @@ test("Chrome VP8 reaches a Node encoded receive track", async () => {
       });
       window.mediaPeer?.close();
     });
+    await page.close();
+  }
+});
+
+test("Node encoded track negotiates standard track and stream identity in Chrome", async () => {
+  const page = await browser.newPage();
+  const peer = new RTCPeerConnection();
+  const source = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+    ssrc: 43,
+  });
+  try {
+    const stream = new MediaStream([source.track]);
+    peer.addTrack(source.track, stream);
+    const offer = await gather(peer, await peer.createOffer());
+    const result = await page.evaluate(async (description) => {
+      window.mediaPeer = new RTCPeerConnection();
+      const trackEvent = new Promise((resolve) => {
+        window.mediaPeer.addEventListener("track", resolve, { once: true });
+      });
+      await window.mediaPeer.setRemoteDescription(description);
+      const event = await trackEvent;
+      await window.mediaPeer.setLocalDescription(await window.mediaPeer.createAnswer());
+      if (window.mediaPeer.iceGatheringState !== "complete") {
+        await new Promise((resolve) => {
+          window.mediaPeer.addEventListener("icegatheringstatechange", () => {
+            if (window.mediaPeer.iceGatheringState === "complete") resolve();
+          });
+        });
+      }
+      return {
+        answer: window.mediaPeer.localDescription.toJSON(),
+        trackId: event.track.id,
+        streamIds: event.streams.map((stream) => stream.id),
+        receiverTrackMatches: event.receiver.track === event.track,
+      };
+    }, offer);
+    await peer.setRemoteDescription(result.answer);
+    assert.equal(result.trackId, source.track.id);
+    assert.deepEqual(result.streamIds, [stream.id]);
+    assert.equal(result.receiverTrackMatches, true);
+  } finally {
+    source.close();
+    peer.close();
+    await page.evaluate(() => window.mediaPeer?.close());
     await page.close();
   }
 });
