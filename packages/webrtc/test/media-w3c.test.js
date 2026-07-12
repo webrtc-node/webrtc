@@ -111,6 +111,30 @@ test("media changes queue negotiationneeded", async () => {
   }
 });
 
+test("addTrack reuses a same-kind transceiver while a remote offer is pending", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    offerer.addTransceiver("audio");
+    const offer = await offerer.createOffer();
+    const applying = answerer.setRemoteDescription(offer);
+    const sender = answerer.addTrack(track());
+    await applying;
+    assert.equal(answerer.getTransceivers().length, 1);
+    assert.equal(answerer.getTransceivers()[0].sender, sender);
+    assert.notEqual(answerer.getTransceivers()[0].mid, null);
+    assert.equal(answerer.getTransceivers()[0].currentDirection, null);
+    await answerer.setRemoteDescription({ type: "rollback" });
+    assert.equal(answerer.getTransceivers().length, 1);
+    assert.equal(answerer.getTransceivers()[0].sender, sender);
+    assert.equal(answerer.getTransceivers()[0].mid, null);
+    assert.equal(sender.track.readyState, "live");
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 async function negotiate(offerer, answerer) {
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription);

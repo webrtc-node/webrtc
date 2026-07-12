@@ -29,7 +29,10 @@ no `HTMLCanvasElement`, `navigator.mediaDevices`, or browser media source.
   description, permit `setDescription()`, enforce send/receive direction, and route callbacks from
   transport threads. There is no browser transceiver or remove-track object.
 - `include/rtc/description.hpp` and `src/description.cpp`: media entries carry mid, direction,
-  codecs, SSRCs, and a removed state. Answer generation reciprocates direction.
+  codecs, SSRCs, arbitrary media-level attributes, and a removed state. Answer generation
+  reciprocates direction. `addSSRC()` accepts one optional media-stream association, while
+  `addAttribute()` and `removeAttribute()` allow multiple `a=msid` lines without duplicating SSRC
+  ownership.
 - `include/rtc/rtppacketizer.hpp`, `src/rtppacketizer.cpp`,
   `include/rtc/rtpdepacketizer.hpp`, and `src/rtpdepacketizer.cpp`: optional handlers packetize or
   reassemble codec frames. The current public adapter intentionally transports complete RTP/RTCP
@@ -56,6 +59,9 @@ no `HTMLCanvasElement`, `navigator.mediaDevices`, or browser media source.
   `Napi::ThreadSafeFunction`; no libdatachannel callback invokes JavaScript directly.
 - Native RTP counters count version-2 RTP packets and exclude RTCP packet types. Unsupported loss,
   jitter, codec, bandwidth, media-source, playout, and remote-report fields are omitted.
+- Sender stream and track IDs are written as media-level `a=msid` attributes. The facade parses
+  those attributes from remote SDP, preserves remote `MediaStream` identity by ID, and dispatches
+  `track` only after the remote-description operation resolves.
 
 ## Validation Scope
 

@@ -86,6 +86,41 @@ rtc::Description::Direction ParseMediaDirection(const std::string &direction) {
 	throw std::invalid_argument("direction must be sendonly, recvonly, sendrecv, or inactive");
 }
 
+std::vector<std::string> ParseStringArray(const Napi::Value &value, const char *name) {
+	if (!value.IsArray())
+		throw std::invalid_argument(std::string(name) + " must be an array");
+	Napi::Array input = value.As<Napi::Array>();
+	std::vector<std::string> values;
+	values.reserve(input.Length());
+	for (uint32_t i = 0; i < input.Length(); ++i) {
+		if (!input.Get(i).IsString())
+			throw std::invalid_argument(std::string(name) + " entries must be strings");
+		auto entry = input.Get(i).ToString().Utf8Value();
+		if (entry.empty() || entry.find_first_of(" \t\r\n") != std::string::npos)
+			throw std::invalid_argument(std::string(name) + " entries must be non-empty SDP tokens");
+		values.push_back(std::move(entry));
+	}
+	return values;
+}
+
+void SetMediaStreamIds(rtc::Description::Media &media,
+	                   const std::vector<std::string> &streamIds,
+	                   const std::optional<std::string> &trackId) {
+	for (const auto &attribute : media.attributes()) {
+		if (attribute.rfind("msid:", 0) == 0 ||
+		    (attribute.rfind("ssrc:", 0) == 0 && attribute.find(" msid:") != std::string::npos))
+			media.removeAttribute(attribute);
+	}
+	if (!trackId)
+		return;
+	if (streamIds.empty()) {
+		media.addAttribute("msid:- " + *trackId);
+		return;
+	}
+	for (const auto &streamId : streamIds)
+		media.addAttribute("msid:" + streamId + " " + *trackId);
+}
+
 rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (!value.IsObject())
 		throw std::invalid_argument("track options must be an object");
@@ -99,6 +134,11 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (options.Has("profile") && !options.Get("profile").IsNull() &&
 	    !options.Get("profile").IsUndefined())
 		profile = options.Get("profile").ToString().Utf8Value();
+	std::optional<std::string> trackId;
+	if (options.Has("trackId") && !options.Get("trackId").IsNull() &&
+	    !options.Get("trackId").IsUndefined())
+		trackId = options.Get("trackId").ToString().Utf8Value();
+	auto streamIds = ParseStringArray(options.Get("streamIds"), "streamIds");
 
 	if (mid.empty())
 		throw std::invalid_argument("mid must not be empty");
@@ -113,6 +153,8 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 		throw std::invalid_argument("codec must be a non-empty SDP token");
 	if (profile && profile->find_first_of("\r\n") != std::string::npos)
 		throw std::invalid_argument("profile must not contain line breaks");
+	if (trackId && (trackId->empty() || trackId->find_first_of(" \t\r\n") != std::string::npos))
+		throw std::invalid_argument("trackId must be a non-empty SDP token");
 
 	rtc::Description::Direction parsedDirection = ParseMediaDirection(direction);
 	if (kind == "audio") {
@@ -121,6 +163,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
 			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), mid);
+		SetMediaStreamIds(media, streamIds, trackId);
 		return media;
 	}
 	if (kind == "video") {
@@ -129,6 +172,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
 			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), mid);
+		SetMediaStreamIds(media, streamIds, trackId);
 		return media;
 	}
 	throw std::invalid_argument("kind must be audio or video");
@@ -1123,6 +1167,7 @@ public:
 		        InstanceMethod("close", &NativeTrack::Close),
 		        InstanceMethod("stats", &NativeTrack::Stats),
 		        InstanceMethod("updateDescription", &NativeTrack::UpdateDescription),
+		        InstanceMethod("updateStreams", &NativeTrack::UpdateStreams),
 		        InstanceAccessor("bindingId", &NativeTrack::GetBindingId, nullptr),
 		        InstanceAccessor("mid", &NativeTrack::GetMid, nullptr),
 		        InstanceAccessor("kind", &NativeTrack::GetKind, nullptr),
@@ -1203,6 +1248,24 @@ private:
 				description.markRemoved();
 			} else
 				description.setDirection(ParseMediaDirection(info[0].ToString().Utf8Value()));
+			binding_->track->setDescription(std::move(description));
+		} catch (const std::exception &e) {
+			Napi::Error::New(info.Env(), e.what()).ThrowAsJavaScriptException();
+		}
+		return info.Env().Undefined();
+	}
+
+	Napi::Value UpdateStreams(const Napi::CallbackInfo &info) {
+		try {
+			auto streamIds = ParseStringArray(info[0], "streamIds");
+			std::optional<std::string> trackId;
+			if (!info[1].IsNull() && !info[1].IsUndefined())
+				trackId = info[1].ToString().Utf8Value();
+			if (trackId &&
+			    (trackId->empty() || trackId->find_first_of(" \t\r\n") != std::string::npos))
+				throw std::invalid_argument("trackId must be a non-empty SDP token");
+			auto description = binding_->track->description();
+			SetMediaStreamIds(description, streamIds, trackId);
 			binding_->track->setDescription(std::move(description));
 		} catch (const std::exception &e) {
 			Napi::Error::New(info.Env(), e.what()).ThrowAsJavaScriptException();

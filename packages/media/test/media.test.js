@@ -2,7 +2,12 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { MediaStreamTrack, RTCPeerConnection, RTCRtpSender } = require("@webrtc-node/webrtc");
+const {
+  MediaStream,
+  MediaStreamTrack,
+  RTCPeerConnection,
+  RTCRtpSender,
+} = require("@webrtc-node/webrtc");
 const { EncodedMediaSink, EncodedMediaSource } = require("..");
 
 function waitFor(target, type, timeout = 10000) {
@@ -116,14 +121,35 @@ test("standard track event exposes encoded RTP through an optional sink", async 
   });
   let sink;
   try {
-    offerer.addTrack(source.track);
+    const sourceStream = new MediaStream([source.track]);
+    const secondaryStream = new MediaStream([source.track]);
+    offerer.addTrack(source.track, sourceStream, secondaryStream);
+    offerer.onicecandidate = ({ candidate }) =>
+      candidate && answerer.addIceCandidate(candidate).catch(() => {});
+    answerer.onicecandidate = ({ candidate }) =>
+      candidate && offerer.addIceCandidate(candidate).catch(() => {});
+    let trackDispatched = false;
+    answerer.addEventListener("track", () => {
+      trackDispatched = true;
+    });
     const trackEvent = waitFor(answerer, "track");
     const sourceOpen = waitFor(source, "open");
-    await negotiate(offerer, answerer);
-    const { track, receiver, transceiver } = await trackEvent;
+    await offerer.setLocalDescription(await offerer.createOffer());
+    await answerer.setRemoteDescription(offerer.localDescription);
+    assert.equal(trackDispatched, false);
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    await offerer.setRemoteDescription(answerer.localDescription);
+    const { track, receiver, streams, transceiver } = await trackEvent;
     assert.ok(track instanceof MediaStreamTrack);
+    assert.equal(track.id, source.track.id);
     assert.equal(receiver.track, track);
     assert.equal(transceiver.receiver, receiver);
+    assert.equal(transceiver.currentDirection, "recvonly");
+    assert.deepEqual(
+      streams.map((stream) => stream.id),
+      [sourceStream.id, secondaryStream.id],
+    );
+    for (const stream of streams) assert.deepEqual(stream.getTracks(), [track]);
     sink = new EncodedMediaSink(track);
     await sourceOpen;
     const packetEvent = waitFor(sink, "packet");

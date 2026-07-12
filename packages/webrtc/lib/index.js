@@ -37,6 +37,17 @@ function mediaDirectionByMid(description, mid) {
   );
 }
 
+function mediaStreamIdsByMid(description, mid) {
+  const section = mediaSectionByMid(description, mid);
+  if (!section) return { streamIds: [], trackId: null };
+  const associations = [...section.matchAll(/(?:^|\r?\n)a=msid:([^\s]+)(?:\s+([^\s]+))?/g)];
+  const trackId = associations.find((match) => match[2])?.[2] || null;
+  return {
+    streamIds: [...new Set(associations.map((match) => match[1]).filter((id) => id !== "-"))],
+    trackId,
+  };
+}
+
 function reverseDirection(direction) {
   if (direction === "sendonly") return "recvonly";
   if (direction === "recvonly") return "sendonly";
@@ -2827,6 +2838,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._localDataChannelCount = 0;
     this._dataChannelsOpened = 0;
     this._dataChannelsClosed = 0;
+    this._remoteMediaStreams = new Map();
     this._negotiationNeeded = false;
     this._negotiationNeededScheduled = false;
     this._ondatachannel = null;
@@ -3014,6 +3026,15 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _rollbackProvisionalRemoteTransceivers() {
     for (const transceiver of this._transceivers) {
+      if (transceiver._reusedForRemoteOffer) {
+        transceiver._reusedForRemoteOffer = false;
+        const nativeTrack = transceiver._nativeTrack;
+        transceiver._nativeTrack = null;
+        transceiver._mid = null;
+        transceiver._currentDirection = null;
+        if (nativeTrack) setImmediate(() => setImmediate(() => nativeTrack.close()));
+        continue;
+      }
       if (!transceiver._provisionalRemoteOffer || transceiver._stopped) continue;
       transceiver._provisionalRemoteOffer = false;
       transceiver._remoteStopping = false;
@@ -3067,6 +3088,10 @@ class RTCPeerConnection extends SimpleEventTarget {
       if (transceiver._remoteStopping) continue;
       if (transceiver._nativeTrack) {
         transceiver._nativeTrack.updateDescription(transceiver.direction, transceiver.stopping);
+        transceiver._nativeTrack.updateStreams(
+          transceiver.sender._streams.map((stream) => stream.id),
+          transceiver.sender.track?.id ?? null,
+        );
         mediaTrackSources
           .get(transceiver.sender.track)
           ?._attachNativeTrack?.(transceiver._nativeTrack);
@@ -3099,6 +3124,8 @@ class RTCPeerConnection extends SimpleEventTarget {
           payloadType: codec.payloadType,
           profile: codec.profile,
           ssrc,
+          streamIds: transceiver.sender._streams.map((stream) => stream.id),
+          trackId: transceiver.sender.track?.id ?? null,
         },
         (events) => {
           for (const event of Array.isArray(events) ? events : [events]) {
@@ -3115,6 +3142,19 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _adoptIncomingNativeTrack(nativeTrack) {
     let transceiver = this._transceivers.find((entry) => entry.mid === nativeTrack.mid);
+    let reusedForRemoteOffer = false;
+    if (!transceiver) {
+      transceiver = this._transceivers.find(
+        (entry) =>
+          entry.mid === null &&
+          entry._kind === nativeTrack.kind &&
+          !entry.stopped &&
+          !entry.stopping &&
+          !entry._nativeTrack,
+      );
+      reusedForRemoteOffer = Boolean(transceiver);
+    }
+    if (reusedForRemoteOffer) transceiver._reusedForRemoteOffer = true;
     if (!transceiver) {
       transceiver = this._createTransceiver(
         nativeTrack.kind,
@@ -3123,10 +3163,26 @@ class RTCPeerConnection extends SimpleEventTarget {
         [],
       );
       transceiver._provisionalRemoteOffer = true;
-      transceiver._mid = nativeTrack.mid;
     }
+    transceiver._mid = nativeTrack.mid;
     transceiver._nativeTrack = nativeTrack;
-    transceiver._currentDirection = nativeTrack.direction;
+    mediaTrackSources.get(transceiver.sender.track)?._attachNativeTrack?.(nativeTrack);
+    const remoteDescription =
+      this._pendingRemoteDescription ||
+      this._currentRemoteDescription ||
+      this._native?.remoteDescription?.();
+    const association = mediaStreamIdsByMid(remoteDescription, nativeTrack.mid);
+    if (association.trackId) transceiver.receiver.track._id = association.trackId;
+    const streams = association.streamIds.map((id) => {
+      let stream = this._remoteMediaStreams.get(id);
+      if (!stream) {
+        stream = new MediaStream();
+        stream._id = id;
+        this._remoteMediaStreams.set(id, stream);
+      }
+      stream.addTrack(transceiver.receiver.track);
+      return stream;
+    });
     const source = {
       nativeTrack,
       listeners: new Set(),
@@ -3152,7 +3208,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         new RTCTrackEvent("track", {
           receiver: transceiver.receiver,
           track: transceiver.receiver.track,
-          streams: transceiver.sender._streams,
+          streams,
           transceiver,
         }),
       );
@@ -4924,6 +4980,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         ? answerDirection
         : reverseDirection(answerDirection);
       transceiver._provisionalRemoteOffer = false;
+      transceiver._reusedForRemoteOffer = false;
       if (
         transceiver._currentDirection === "sendrecv" ||
         transceiver._currentDirection === "sendonly"
