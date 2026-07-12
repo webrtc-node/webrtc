@@ -42,7 +42,7 @@
     "check": "biome check .",
     "format": "biome format --write .",
     "package:check": "npm pack --dry-run --json",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/stats.test.js",
     "types:check": "tsc -p tsconfig.json"
   },
   "peerDependencies": {

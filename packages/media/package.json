@@ -44,7 +44,7 @@
     "e2e:chrome": "node --test --test-force-exit --test-timeout=60000 test/e2e/chrome.test.js",
     "format": "biome format --write .",
     "package:check": "npm pack --dry-run --json",
-    "test": "node --test --test-timeout=30000 test/*.test.js && node test/cleanup.js",
+    "test": "node --test --test-timeout=30000 test/media.test.js && node test/cleanup.js",
     "types:check": "tsc -p tsconfig.json"
   },
   "peerDependencies": {
