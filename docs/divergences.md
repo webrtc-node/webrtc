@@ -1,8 +1,9 @@
 # Intentional W3C Divergences
 
-This package targets W3C-style `RTCPeerConnection` and `RTCDataChannel`
-behavior for Node.js. It intentionally does not expose browser media APIs. The
-current implementation diverges from W3C WebRTC in the following places.
+This package targets W3C-style WebRTC behavior for Node.js, including encoded
+media and reliable standardized statistics on this experimental branch. It
+does not expose browser capture, rendering, or device APIs. The current
+implementation diverges from W3C WebRTC in the following places.
 
 ## Nonstandard libdatachannel extensions
 
@@ -39,11 +40,14 @@ simulcast, or DTMF implementation.
 
 libdatachannel models one track per SDP media section and has no native browser
 transceiver or remove-track abstraction. JavaScript therefore owns object
-identity and direction state. Dynamic direction changes, stopping, replacement,
-and m-line recycling are still experimental and are not yet claimed conformant.
+identity, direction state, stopping, replacement, rollback, and negotiation
+timing. Selected WPT covers these lifecycle behaviors, but m-line recycling and
+browser media-source integration remain experimental.
 
 Statistics include only backend measurements that can be attributed reliably:
-encoded RTP packet/byte counters and aggregate transport bytes. Jitter, packet
+encoded RTP packet/byte counters, aggregate transport bytes, and facade-owned
+data-channel message/byte and lifecycle counters. Data-channel bytes count the
+application payload accepted by `send()` or received from SCTP. Jitter, packet
 loss, codec, media-source, playout, bandwidth estimation, and remote RTP reports
 are omitted rather than fabricated.
 

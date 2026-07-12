@@ -407,6 +407,11 @@ const defaultSpecs = [
       "getStats() with no argument should return stats report containing peer-connection stats on an empty PC",
     ],
   },
+  { file: "webrtc/getstats.html" },
+  {
+    file: "webrtc/RTCPeerConnection-getStats-timestamp.https.html",
+    include: ["RTCStats.timestamp is expressed as Performance time"],
+  },
   { file: "webrtc/RTCRtpTransceiver-stop.html" },
   { file: "webrtc/RTCRtpTransceiver-direction.html" },
   { file: "webrtc/RTCRtpTransceiver-stopping.https.html", search: "?interop-2026" },
@@ -803,6 +808,11 @@ async function runFile(spec) {
   sandbox.assert_idl_attribute = (object, attribute, message = "") => {
     if (!(attribute in Object(object))) {
       throw new Error(`${message} expected ${attribute} IDL attribute`.trim());
+    }
+  };
+  sandbox.assert_own_property = (object, property, message = "") => {
+    if (!Object.hasOwn(Object(object), property)) {
+      throw new Error(`${message} expected own property ${property}`.trim());
     }
   };
   sandbox.assert_less_than = (actual, expected, message = "") => {

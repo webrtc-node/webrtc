@@ -17,6 +17,8 @@ Normal statistics access is `RTCPeerConnection.getStats()`, `RTCRtpSender.getSta
 computes non-negative numeric deltas for entries that retain the same standardized ID and type.
 
 It does not invent unavailable metrics. Current core reports contain reliable encoded RTP packet
-and byte counters after RTP flow, plus aggregate transport byte counters supplied by
-libdatachannel. Codec processing, jitter, loss, bandwidth estimation, media-source, playout, and
-remote RTP reports are omitted until the backend can supply them reliably.
+and byte counters after RTP flow, aggregate transport byte counters supplied by libdatachannel,
+and standard data-channel payload and lifecycle counters maintained at the WebRTC facade's exact
+send, receive, open, and close transitions. Codec processing, jitter, loss, bandwidth estimation,
+media-source, playout, and remote RTP reports are omitted until the backend can supply them
+reliably.

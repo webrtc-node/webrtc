@@ -3,10 +3,11 @@
 The compatibility target for `@webrtc-node/webrtc` is the selected WPT subset
 in `wpt-manifest.json`. Real-browser wire interoperability is checked
 separately with `npm run e2e:chrome`; WPT remains the API semantics contract.
-This project targets the WebRTC data-channel profile exposed through
-`RTCPeerConnection` and `RTCDataChannel`.
+This experimental branch targets the WebRTC peer-connection, data-channel,
+encoded-media, and reliable-statistics surfaces exposed through
+`@webrtc-node/webrtc`.
 
-The current selected suite contains **620 expected-passing WPT subtests**. CI
+The current selected suite contains **665 expected-passing WPT subtests**. CI
 validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
 smoke check.
@@ -22,14 +23,19 @@ Expected-pass coverage currently includes:
   buffered amount behavior
 - WebRTC-shaped constructors and events such as `RTCSessionDescription`,
   `RTCIceCandidate`, `RTCDataChannelEvent`, and ICE events
+- media stream and track identity, sender/receiver/transceiver construction,
+  direction and stopping semantics, and media negotiation lifecycle
+- `RTCStatsReport` maplike behavior and reliable peer, data-channel,
+  transport, and encoded RTP counters
 
 Out-of-scope WPT areas are grouped in the manifest as `notApplicable`,
-`needsShim`, or `expectedFail`. Media and RTP APIs are outside this package's
-public scope.
+`needsShim`, or `expectedFail`. Browser capture/rendering, devices, codec
+processing, and statistics unavailable from the backend remain outside scope.
 
 This project should not be described as fully browser/WebRTC compliant. The
-supported claim is: W3C-style peer-connection and data-channel behavior for
-Node.js, backed by a selected WPT conformance suite.
+supported claim is: experimental W3C-style peer-connection, data-channel,
+encoded-media, and reliable-statistics behavior for Node.js, backed by a
+selected WPT conformance suite.
 
 ## Running WPT
 
@@ -49,5 +55,5 @@ weighted shards running concurrently inside each OS/Node job. Ordinary WPT
 files stay within one process so file-level setup and ordering are preserved;
 files already marked for per-test isolation distribute those isolated tests
 individually. The shard outputs are merged into the same complete
-`wpt-results.json`; the strict checker still requires all 620 unique subtests
+`wpt-results.json`; the strict checker still requires all 665 unique subtests
 with no failures or retries.

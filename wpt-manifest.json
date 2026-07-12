@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 663,
-  "selectedSubtestsSha256": "7c3f59235203883c7120221603eb89a2875bfd48cd4f45ea0055ff2f561f11f1",
+  "expectedSelectedSubtests": 665,
+  "selectedSubtestsSha256": "7cf24f1aecc41569629529196e2e532be3bfe757e195944c15102712846c0db1",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -84,6 +84,8 @@
     "webrtc/RTCPeerConnection-addTransceiver.https.html#non-capture-subset",
     "webrtc/RTCPeerConnection-getStats.https.html?rest#basic-promise-subset",
     "webrtc/RTCPeerConnection-getStats.https.html?interop-2026#empty-peer-connection-subset",
+    "webrtc/getstats.html",
+    "webrtc/RTCPeerConnection-getStats-timestamp.https.html#base-performance-time-subset",
     "webrtc/RTCRtpTransceiver-stop.html",
     "webrtc/RTCRtpTransceiver-direction.html",
     "webrtc/RTCRtpTransceiver-stopping.https.html?interop-2026",
@@ -133,7 +135,7 @@
     "webrtc/RTCPeerConnection-addTrack*.html",
     "webrtc/RTCPeerConnection-addTransceiver-renegotiation*.html",
     "webrtc/RTCPeerConnection-ontrack*.html",
-    "webrtc/RTCPeerConnection-getStats-timestamp*.html",
+    "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
     "webrtc/RTCPeerConnection-transceivers*.html",
     "webrtc/RTCPeerConnection-perfect-negotiation*.html#media",
     "webrtc/idlharness.https.window.js#media-and-browser-only-members"

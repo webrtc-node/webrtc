@@ -1527,6 +1527,12 @@ class RTCDataChannel extends SimpleEventTarget {
     this._openEventDataChannelDeferralExpired = false;
     this._registeredDataChannelId = null;
     this._assignedId = assignedId;
+    this._messagesSent = 0;
+    this._bytesSent = 0;
+    this._messagesReceived = 0;
+    this._bytesReceived = 0;
+    this._statsOpened = false;
+    this._statsClosed = false;
     this._pairedChannel = null;
     this._createdLocally = false;
     this._negotiatedOverride = null;
@@ -1624,6 +1630,7 @@ class RTCDataChannel extends SimpleEventTarget {
       } else {
         if (this._sendNativeString(payload)) {
           this._increaseBufferedAmount(size);
+          this._recordSentMessage(size);
         } else {
           this._enqueueSend(() => this._sendNativeString(payload), size);
         }
@@ -1650,6 +1657,7 @@ class RTCDataChannel extends SimpleEventTarget {
     } else {
       if (this._sendNativeBinary(view)) {
         this._increaseBufferedAmount(size);
+        this._recordSentMessage(size);
       } else {
         const payload = new Uint8Array(view);
         this._enqueueSend(() => this._sendNativeBinary(payload), size);
@@ -1789,6 +1797,7 @@ class RTCDataChannel extends SimpleEventTarget {
       try {
         await this._waitForNativeSendReady();
         await this._waitForNativeSendAccepted(operation);
+        this._recordSentMessage(size);
       } catch (error) {
         this.dispatchEvent(
           new RTCErrorEvent("error", {
@@ -1808,6 +1817,11 @@ class RTCDataChannel extends SimpleEventTarget {
 
   _nativeReadyForSend() {
     return this._usesSyntheticPairDelivery() || Boolean(this._native?.isOpen);
+  }
+
+  _recordSentMessage(size) {
+    this._messagesSent += 1;
+    this._bytesSent += size;
   }
 
   async _waitForNativeSendReady() {
@@ -1963,6 +1977,10 @@ class RTCDataChannel extends SimpleEventTarget {
         }
         break;
       case "message":
+        this._messagesReceived += 1;
+        this._bytesReceived += event.binary
+          ? event.data?.byteLength || 0
+          : byteLength(event.data || "");
         this._queueMessageEvent(event);
         break;
       case "bufferedamountlow":
@@ -2114,6 +2132,10 @@ class RTCDataChannel extends SimpleEventTarget {
     if (this._readyState === "closed") return;
     const id = this._effectiveId();
     this._readyState = "closed";
+    if (this._statsOpened && !this._statsClosed) {
+      this._statsClosed = true;
+      this._pc._dataChannelsClosed += 1;
+    }
     if (this._pairedChannel?._pairedChannel === this) this._pairedChannel._pairedChannel = null;
     this._pairedChannel = null;
     this._pc._unregisterDataChannelId(this);
@@ -2162,6 +2184,10 @@ class RTCDataChannel extends SimpleEventTarget {
       return;
     }
     this._openEventDispatched = true;
+    if (!this._statsOpened) {
+      this._statsOpened = true;
+      this._pc._dataChannelsOpened += 1;
+    }
     this.dispatchEvent(makeEvent("open"));
   }
 
@@ -2799,6 +2825,8 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._remoteAnnouncedDataChannelIds = new Set();
     this._pendingSyntheticDataChannelAnnouncements = new Map();
     this._localDataChannelCount = 0;
+    this._dataChannelsOpened = 0;
+    this._dataChannelsClosed = 0;
     this._negotiationNeeded = false;
     this._negotiationNeededScheduled = false;
     this._ondatachannel = null;
@@ -3175,7 +3203,30 @@ class RTCPeerConnection extends SimpleEventTarget {
     const report = new RTCStatsReport(kInternalConstruct);
     const timestamp = performance.timeOrigin + performance.now();
     if (selector === null) {
-      report._set({ id: "peer-connection", timestamp, type: "peer-connection" });
+      report._set({
+        id: "peer-connection",
+        timestamp,
+        type: "peer-connection",
+        dataChannelsOpened: this._dataChannelsOpened,
+        dataChannelsClosed: this._dataChannelsClosed,
+      });
+      for (const channel of new Set(this._channels.values())) {
+        const dataChannelIdentifier = channel.id;
+        if (dataChannelIdentifier == null) continue;
+        report._set({
+          id: `data-channel-${channel._native.bindingId}`,
+          timestamp,
+          type: "data-channel",
+          label: channel.label,
+          protocol: channel.protocol,
+          dataChannelIdentifier,
+          state: channel.readyState,
+          messagesSent: channel._messagesSent,
+          bytesSent: channel._bytesSent,
+          messagesReceived: channel._messagesReceived,
+          bytesReceived: channel._bytesReceived,
+        });
+      }
     }
     if (!this._native || this._closed) {
       return report;
