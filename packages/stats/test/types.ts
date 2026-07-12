@@ -3,7 +3,12 @@ import type { RTCDataChannelStats, RTCTransportStats } from "@webrtc-node/webrtc
 import { RTCPeerConnection } from "@webrtc-node/webrtc";
 
 const peer = new RTCPeerConnection();
-const sampler = new RTCStatsSampler(peer, { interval: 100 });
+const sampler = new RTCStatsSampler(peer, {
+  interval: 100,
+  onError(error) {
+    console.error(error);
+  },
+});
 async function inspect() {
   const first = await peer.getStats();
   const second = await peer.getStats();

@@ -2,6 +2,17 @@
 
 const { RTCPeerConnection, RTCRtpReceiver, RTCRtpSender } = require("@webrtc-node/webrtc");
 
+const cumulativeStatFields = new Set([
+  "bytesReceived",
+  "bytesSent",
+  "dataChannelsClosed",
+  "dataChannelsOpened",
+  "messagesReceived",
+  "messagesSent",
+  "packetsReceived",
+  "packetsSent",
+]);
+
 function assertTarget(target) {
   if (
     !(target instanceof RTCPeerConnection) &&
@@ -26,7 +37,13 @@ function diffStatsReports(previous, current) {
     if (!prior || prior.type !== entry.type) continue;
     const delta = { id: entry.id, type: entry.type, timestamp: entry.timestamp };
     for (const [key, value] of Object.entries(entry)) {
-      if (key === "timestamp" || !Number.isFinite(value) || !Number.isFinite(prior[key])) continue;
+      if (
+        !cumulativeStatFields.has(key) ||
+        !Number.isFinite(value) ||
+        !Number.isFinite(prior[key])
+      ) {
+        continue;
+      }
       delta[key] = Math.max(0, value - prior[key]);
     }
     result.set(entry.id, Object.freeze(delta));
@@ -43,6 +60,10 @@ class RTCStatsSampler {
     }
     this.target = target;
     this.interval = interval;
+    if (options.onError !== undefined && typeof options.onError !== "function") {
+      throw new TypeError("onError must be a function");
+    }
+    this.onError = options.onError ?? null;
     this._timer = null;
     this._previous = null;
     this._sampling = false;
@@ -63,6 +84,17 @@ class RTCStatsSampler {
       this._sampling = true;
       try {
         await callback(await this.sample());
+      } catch (error) {
+        this.stop();
+        if (this.onError) {
+          try {
+            await this.onError(error);
+          } catch (handlerError) {
+            process.emitWarning(handlerError, { type: "RTCStatsSamplerError" });
+          }
+        } else {
+          process.emitWarning(error, { type: "RTCStatsSamplerError" });
+        }
       } finally {
         this._sampling = false;
       }

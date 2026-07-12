@@ -53,6 +53,7 @@ test("diffStatsReports computes deltas for matching standardized entries", () =>
         timestamp: 1000,
         packetsSent: 2,
         bytesSent: 20,
+        ssrc: 100,
       },
     ],
   ]);
@@ -65,6 +66,7 @@ test("diffStatsReports computes deltas for matching standardized entries", () =>
         timestamp: 2000,
         packetsSent: 5,
         bytesSent: 50,
+        ssrc: 200,
       },
     ],
   ]);
@@ -93,6 +95,32 @@ test("RTCStatsSampler samples standard reports and validates lifecycle", async (
 
 test("RTCStatsSampler rejects foreign targets", () => {
   assert.throws(() => new RTCStatsSampler({}), TypeError);
+  const peer = new RTCPeerConnection();
+  try {
+    assert.throws(() => new RTCStatsSampler(peer, { onError: true }), TypeError);
+  } finally {
+    peer.close();
+  }
+});
+
+test("RTCStatsSampler stops and reports asynchronous callback failures", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    let samples = 0;
+    const reported = new Promise((resolve) => {
+      const sampler = new RTCStatsSampler(peer, { interval: 10, onError: resolve });
+      sampler.start(() => {
+        samples += 1;
+        throw new Error("consumer failed");
+      });
+    });
+    const error = await reported;
+    assert.match(error.message, /consumer failed/);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(samples, 1);
+  } finally {
+    peer.close();
+  }
 });
 
 test("standard data-channel stats count accepted and received messages", async () => {

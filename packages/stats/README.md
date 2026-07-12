@@ -15,6 +15,9 @@ sampler.start(({ report, delta }) => console.log(report, delta));
 Normal statistics access is `RTCPeerConnection.getStats()`, `RTCRtpSender.getStats()`, or
 `RTCRtpReceiver.getStats()` from `@webrtc-node/webrtc`. This package only schedules sampling and
 computes non-negative numeric deltas for entries that retain the same standardized ID and type.
+Only cumulative counters are subtracted; identifiers such as SSRC, stream ID, and data-channel ID
+are never reported as deltas. A sampler stops after a sampling or callback failure and invokes the
+optional `onError` handler. Without a handler it emits an `RTCStatsSamplerError` process warning.
 
 It does not invent unavailable metrics. Current core reports contain reliable encoded RTP packet
 and byte counters after RTP flow, aggregate transport byte counters supplied by libdatachannel,
