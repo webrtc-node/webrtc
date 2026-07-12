@@ -123,7 +123,7 @@ test("standard track event exposes encoded RTP through an optional sink", async 
   try {
     const sourceStream = new MediaStream([source.track]);
     const secondaryStream = new MediaStream([source.track]);
-    offerer.addTrack(source.track, sourceStream, secondaryStream);
+    const sender = offerer.addTrack(source.track, sourceStream, secondaryStream);
     offerer.onicecandidate = ({ candidate }) =>
       candidate && answerer.addIceCandidate(candidate).catch(() => {});
     answerer.onicecandidate = ({ candidate }) =>
@@ -157,16 +157,28 @@ test("standard track event exposes encoded RTP through an optional sink", async 
     assert.deepEqual(new Uint8Array((await packetEvent).data), rtpPacket());
     const outbound = [...(await offerer.getStats(source.track)).values()];
     const inbound = [...(await answerer.getStats(track)).values()];
+    const senderStats = [...(await sender.getStats()).values()];
+    const receiverStats = [...(await receiver.getStats()).values()];
     assert.deepEqual(
       outbound.map((entry) => entry.type),
       ["outbound-rtp"],
     );
     assert.equal(outbound[0].packetsSent, 1);
     assert.deepEqual(
+      senderStats.map((entry) => entry.type),
+      ["outbound-rtp"],
+    );
+    assert.equal(senderStats[0].packetsSent, 1);
+    assert.deepEqual(
       inbound.map((entry) => entry.type),
       ["inbound-rtp"],
     );
     assert.equal(inbound[0].packetsReceived, 1);
+    assert.deepEqual(
+      receiverStats.map((entry) => entry.type),
+      ["inbound-rtp"],
+    );
+    assert.equal(receiverStats[0].packetsReceived, 1);
   } finally {
     sink?.close();
     source.close();

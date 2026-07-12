@@ -3293,12 +3293,14 @@ class RTCPeerConnection extends SimpleEventTarget {
       );
     }
     if (selector instanceof MediaStreamTrack) {
-      const matches = this._transceivers.filter(
-        (transceiver) =>
-          !transceiver.stopped &&
-          (transceiver.sender.track === selector || transceiver.receiver.track === selector),
-      );
-      if (matches.length !== 1) {
+      const associations = this._transceivers.flatMap((transceiver) => {
+        if (transceiver.stopped) return [];
+        const matches = [];
+        if (transceiver.sender.track === selector) matches.push(transceiver.sender);
+        if (transceiver.receiver.track === selector) matches.push(transceiver.receiver);
+        return matches;
+      });
+      if (associations.length !== 1) {
         throw makeDOMException(
           "Track selector must identify exactly one sender or receiver",
           "InvalidAccessError",
@@ -3346,7 +3348,16 @@ class RTCPeerConnection extends SimpleEventTarget {
       if (!transceiver._nativeTrack) continue;
       const stats = transceiver._nativeTrack.stats();
       const source = mediaTrackSources.get(transceiver.sender.track);
+      const includeOutbound =
+        selector === null ||
+        selector === transceiver.sender ||
+        selector === transceiver.sender.track;
+      const includeInbound =
+        selector === null ||
+        selector === transceiver.receiver ||
+        selector === transceiver.receiver.track;
       if (
+        includeOutbound &&
         transceiver.sender.track &&
         !transceiver.stopped &&
         (transceiver.currentDirection === "sendrecv" || transceiver.currentDirection === "sendonly")
@@ -3362,7 +3373,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           bytesSent: stats.bytesSent,
         });
       }
-      if (stats.packetsReceived > 0 || stats.bytesReceived > 0) {
+      if (includeInbound && (stats.packetsReceived > 0 || stats.bytesReceived > 0)) {
         report._set({
           id: `inbound-rtp-${transceiver.mid}`,
           timestamp,
