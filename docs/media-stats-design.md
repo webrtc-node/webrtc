@@ -62,6 +62,13 @@ no `HTMLCanvasElement`, `navigator.mediaDevices`, or browser media source.
 - Sender stream and track IDs are written as media-level `a=msid` attributes. The facade parses
   those attributes from remote SDP, preserves remote `MediaStream` identity by ID, and dispatches
   `track` only after the remote-description operation resolves.
+- libdatachannel does not invoke `onTrack()` again when renegotiation only changes `a=msid` on an
+  existing track. The facade detects changed remote associations from SDP, updates stream
+  membership, preserves the encoded packet listener source, and queues the W3C-required repeated
+  `track` event without duplicating native callbacks.
+- Negotiation-needed state is revision-based: an applied local offer suppresses changes it
+  represents, rollback restores unrepresented changes, and mutations made after offer creation are
+  queued until signaling returns to stable.
 
 ## Validation Scope
 

@@ -35,8 +35,25 @@ async function negotiate(offerer, answerer) {
   await offerer.setRemoteDescription(answerer.localDescription);
 }
 
-function rtpPacket() {
-  return Uint8Array.from([0x80, 96, 0, 1, 0, 0, 0, 1, 0, 0, 0, 42, 1, 2, 3, 4]);
+function rtpPacket(sequenceNumber = 1) {
+  return Uint8Array.from([
+    0x80,
+    96,
+    sequenceNumber >> 8,
+    sequenceNumber & 0xff,
+    0,
+    0,
+    0,
+    sequenceNumber,
+    0,
+    0,
+    0,
+    42,
+    1,
+    2,
+    3,
+    4,
+  ]);
 }
 
 test("EncodedMediaSource provides a standard MediaStreamTrack", async () => {
@@ -179,6 +196,21 @@ test("standard track event exposes encoded RTP through an optional sink", async 
       ["inbound-rtp"],
     );
     assert.equal(receiverStats[0].packetsReceived, 1);
+
+    const reassociatedStream = new MediaStream([source.track]);
+    sender.setStreams(reassociatedStream);
+    const reassociatedTrackEvent = waitFor(answerer, "track");
+    await negotiate(offerer, answerer);
+    const reassociated = await reassociatedTrackEvent;
+    assert.equal(reassociated.track, track);
+    assert.deepEqual(
+      reassociated.streams.map((stream) => stream.id),
+      [reassociatedStream.id],
+    );
+    const packetAfterRenegotiation = waitFor(sink, "packet");
+    const secondPacket = rtpPacket(2);
+    assert.equal(source.send(secondPacket), true);
+    assert.deepEqual(new Uint8Array((await packetAfterRenegotiation).data), secondPacket);
   } finally {
     sink?.close();
     source.close();

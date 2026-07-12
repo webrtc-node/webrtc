@@ -7,7 +7,7 @@ This experimental branch targets the WebRTC peer-connection, data-channel,
 encoded-media, and reliable-statistics surfaces exposed through
 `@webrtc-node/webrtc`.
 
-The current selected suite contains **665 expected-passing WPT subtests**. CI
+The current selected suite contains **675 expected-passing WPT subtests**. CI
 validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
 smoke check.
@@ -55,5 +55,5 @@ weighted shards running concurrently inside each OS/Node job. Ordinary WPT
 files stay within one process so file-level setup and ordering are preserved;
 files already marked for per-test isolation distribute those isolated tests
 individually. The shard outputs are merged into the same complete
-`wpt-results.json`; the strict checker still requires all 665 unique subtests
+`wpt-results.json`; the strict checker still requires all 675 unique subtests
 with no failures or retries.

@@ -142,6 +142,101 @@ test("media changes queue negotiationneeded", async () => {
   }
 });
 
+test("setStreams renegotiates only when the stream identity set changes", async () => {
+  const peer = new RTCPeerConnection();
+  const remote = new RTCPeerConnection();
+  try {
+    const initialNegotiation = new Promise((resolve) =>
+      peer.addEventListener("negotiationneeded", resolve, { once: true }),
+    );
+    const transceiver = peer.addTransceiver("audio");
+    const first = new MediaStream();
+    const second = new MediaStream();
+    await initialNegotiation;
+    await negotiate(peer, remote);
+
+    const changed = new Promise((resolve) =>
+      peer.addEventListener("negotiationneeded", resolve, { once: true }),
+    );
+    transceiver.sender.setStreams(first, second);
+    await changed;
+    await negotiate(peer, remote);
+
+    let duplicateEvent = false;
+    peer.addEventListener("negotiationneeded", () => {
+      duplicateEvent = true;
+    });
+    transceiver.sender.setStreams(second, first, second);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(duplicateEvent, false);
+
+    peer.close();
+    assert.throws(() => transceiver.sender.setStreams(first), { name: "InvalidStateError" });
+  } finally {
+    peer.close();
+    remote.close();
+  }
+});
+
+test("media changes after a local offer renegotiate when signaling becomes stable", async () => {
+  const peer = new RTCPeerConnection();
+  const remote = new RTCPeerConnection();
+  try {
+    const initialNegotiation = new Promise((resolve) =>
+      peer.addEventListener("negotiationneeded", resolve, { once: true }),
+    );
+    const transceiver = peer.addTransceiver("audio");
+    await initialNegotiation;
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    await remote.setRemoteDescription(offer);
+    transceiver.sender.setStreams(new MediaStream());
+    const renegotiation = new Promise((resolve) =>
+      peer.addEventListener("negotiationneeded", resolve, { once: true }),
+    );
+    const answer = await remote.createAnswer();
+    await remote.setLocalDescription(answer);
+    await peer.setRemoteDescription(answer);
+    await renegotiation;
+  } finally {
+    peer.close();
+    remote.close();
+  }
+});
+
+test("setStreams updates remote stream membership while preserving track identity", async () => {
+  const peer = new RTCPeerConnection();
+  const remote = new RTCPeerConnection();
+  try {
+    const localTrack = track();
+    const first = new MediaStream([localTrack]);
+    const second = new MediaStream([localTrack]);
+    const sender = peer.addTrack(localTrack, first);
+    const initialTrackEvent = waitFor(remote, "track");
+    await negotiate(peer, remote);
+    const initial = await initialTrackEvent;
+    assert.deepEqual(
+      initial.streams.map((stream) => stream.id),
+      [first.id],
+    );
+
+    sender.setStreams(second);
+    const updatedTrackEvent = waitFor(remote, "track");
+    await negotiate(peer, remote);
+    const updated = await updatedTrackEvent;
+    assert.equal(updated.track, initial.track);
+    assert.deepEqual(
+      updated.streams.map((stream) => stream.id),
+      [second.id],
+    );
+    assert.deepEqual(initial.streams[0].getTracks(), []);
+    assert.deepEqual(updated.streams[0].getTracks(), [updated.track]);
+  } finally {
+    peer.close();
+    remote.close();
+  }
+});
+
 test("addTrack reuses a same-kind transceiver while a remote offer is pending", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
@@ -171,6 +266,20 @@ async function negotiate(offerer, answerer) {
   await answerer.setRemoteDescription(offerer.localDescription);
   await answerer.setLocalDescription(await answerer.createAnswer());
   await offerer.setRemoteDescription(answerer.localDescription);
+}
+
+function waitFor(target, type, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${type}`)), timeout);
+    target.addEventListener(
+      type,
+      (event) => {
+        clearTimeout(timer);
+        resolve(event);
+      },
+      { once: true },
+    );
+  });
 }
 
 test("negotiated direction and stopping follow answer state", async () => {

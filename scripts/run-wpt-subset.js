@@ -386,7 +386,20 @@ const defaultSpecs = [
     include: [
       "Creating first data channel should fire negotiationneeded event",
       "calling createDataChannel twice should fire negotiationneeded event once",
+      "Calling setStreams should cause negotiationneeded to fire",
+      "Calling setStreams with a different stream as before should cause negotiationneeded to fire",
+      "Calling setStreams with an additional stream should cause negotiationneeded to fire",
+      "Calling setStreams with a stream removed should cause negotiationneeded to fire",
+      "Calling setStreams with all streams removed should cause negotiationneeded to fire",
+      "Calling setStreams with the same stream as before should not cause negotiationneeded to fire",
+      "Calling setStreams with duplicates of the same stream as before should not cause negotiationneeded to fire",
+      "Calling setStreams with the same streams as before in a different order should not cause negotiationneeded to fire",
+      "Calling setStreams with duplicates of the same streams as before should not cause negotiationneeded to fire",
     ],
+  },
+  {
+    file: "webrtc/RTCRtpSender-setStreams.https.html",
+    include: ["setStreams() fires InvalidStateError on a closed peer connection."],
   },
   {
     file: "webrtc/RTCPeerConnection-addTransceiver.https.html",

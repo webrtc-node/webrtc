@@ -2677,9 +2677,19 @@ class RTCRtpSender {
     }
   }
   setStreams(...streams) {
+    if (this._peerConnection._closed) {
+      throw makeDOMException("RTCPeerConnection is closed", "InvalidStateError");
+    }
     for (const stream of streams)
       if (!(stream instanceof MediaStream)) throw new TypeError("stream must be a MediaStream");
-    this._streams = [...new Set(streams)];
+    const nextStreams = [...new Set(streams)];
+    if (
+      nextStreams.length === this._streams.length &&
+      nextStreams.every((stream) => this._streams.includes(stream))
+    ) {
+      return;
+    }
+    this._streams = nextStreams;
     this._peerConnection._markNegotiationNeeded();
   }
   getStats() {
@@ -2888,6 +2898,11 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._remoteMediaStreams = new Map();
     this._negotiationNeeded = false;
     this._negotiationNeededScheduled = false;
+    this._negotiationRevision = 0;
+    this._negotiatedRevision = 0;
+    this._pendingLocalNegotiationRevision = null;
+    this._lastCreatedOfferRevision = null;
+    this._lastCreatedAnswerRevision = null;
     this._ondatachannel = null;
     this.ontrack = null;
     this._pendingDataChannelEvents = [];
@@ -3219,7 +3234,38 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._pendingRemoteDescription ||
       this._currentRemoteDescription ||
       this._native?.remoteDescription?.();
-    const association = mediaStreamIdsByMid(remoteDescription, nativeTrack.mid);
+    const streams = this._applyRemoteTrackAssociations(transceiver, remoteDescription);
+    const associationKey = this._remoteTrackAssociationKey(transceiver, remoteDescription);
+    let source = mediaTrackSources.get(transceiver.receiver.track);
+    if (source?.listeners) {
+      source.nativeTrack = nativeTrack;
+    } else {
+      source = {
+        nativeTrack,
+        listeners: new Set(),
+        _handleNativeEvent(event) {
+          if (event.type === "message") {
+            if (transceiver.receiver.track._muted) {
+              transceiver.receiver.track._muted = false;
+              transceiver.receiver.track.dispatchEvent(makeEvent("unmute"));
+            }
+            for (const listener of this.listeners) listener(event.data);
+          }
+          if (event.type === "close" && transceiver.receiver.track._readyState !== "ended") {
+            transceiver.receiver.track._readyState = "ended";
+            notifyTrackStateChanged(transceiver.receiver.track);
+            transceiver.receiver.track.dispatchEvent(makeEvent("ended"));
+          }
+        },
+      };
+    }
+    mediaTrackSources.set(transceiver.receiver.track, source);
+    this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
+    this._queueTrackEvent(transceiver, streams, associationKey);
+  }
+
+  _applyRemoteTrackAssociations(transceiver, description) {
+    const association = mediaStreamIdsByMid(description, transceiver.mid);
     if (association.trackId) transceiver.receiver.track._id = association.trackId;
     const streams = association.streamIds.map((id) => {
       let stream = this._remoteMediaStreams.get(id);
@@ -3231,28 +3277,30 @@ class RTCPeerConnection extends SimpleEventTarget {
       stream.addTrack(transceiver.receiver.track);
       return stream;
     });
-    const source = {
-      nativeTrack,
-      listeners: new Set(),
-      _handleNativeEvent(event) {
-        if (event.type === "message") {
-          if (transceiver.receiver.track._muted) {
-            transceiver.receiver.track._muted = false;
-            transceiver.receiver.track.dispatchEvent(makeEvent("unmute"));
-          }
-          for (const listener of this.listeners) listener(event.data);
-        }
-        if (event.type === "close" && transceiver.receiver.track._readyState !== "ended") {
-          transceiver.receiver.track._readyState = "ended";
-          notifyTrackStateChanged(transceiver.receiver.track);
-          transceiver.receiver.track.dispatchEvent(makeEvent("ended"));
-        }
-      },
-    };
-    mediaTrackSources.set(transceiver.receiver.track, source);
-    this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
+    for (const previous of transceiver._remoteStreams || []) {
+      if (!streams.includes(previous)) previous.removeTrack(transceiver.receiver.track);
+    }
+    transceiver._remoteStreams = streams;
+    return streams;
+  }
+
+  _remoteTrackAssociationKey(transceiver, description) {
+    const association = mediaStreamIdsByMid(description, transceiver.mid);
+    return `${transceiver.mid}|${association.trackId || ""}|${association.streamIds.join(",")}`;
+  }
+
+  _queueTrackEvent(transceiver, streams, associationKey) {
+    if (
+      transceiver._lastTrackEventAssociationKey === associationKey ||
+      transceiver._pendingTrackEventAssociationKey === associationKey
+    ) {
+      return;
+    }
+    transceiver._pendingTrackEventAssociationKey = associationKey;
     setTimeout(() => {
       if (this._closed || transceiver.stopped) return;
+      transceiver._pendingTrackEventAssociationKey = null;
+      transceiver._lastTrackEventAssociationKey = associationKey;
       this.dispatchEvent(
         new RTCTrackEvent("track", {
           receiver: transceiver.receiver,
@@ -3262,6 +3310,18 @@ class RTCPeerConnection extends SimpleEventTarget {
         }),
       );
     }, 0);
+  }
+
+  _updateRemoteTrackAssociations(description) {
+    for (const transceiver of this._transceivers) {
+      if (!transceiver._nativeTrack || transceiver.stopped || transceiver.mid === null) continue;
+      const remoteDirection = mediaDirectionByMid(description, transceiver.mid);
+      if (remoteDirection !== "sendrecv" && remoteDirection !== "sendonly") continue;
+      const associationKey = this._remoteTrackAssociationKey(transceiver, description);
+      if (transceiver._lastTrackEventAssociationKey === associationKey) continue;
+      const streams = this._applyRemoteTrackAssociations(transceiver, description);
+      this._queueTrackEvent(transceiver, streams, associationKey);
+    }
   }
 
   getSenders() {
@@ -3522,6 +3582,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         };
       }
       this._lastCreatedOffer = new RTCSessionDescription(offer);
+      this._lastCreatedOfferRevision = this._negotiationRevision;
       if (jsOnlyIceRestart) markJsOnlyIceRestart(this._lastCreatedOffer);
       return offer;
     } catch (error) {
@@ -3562,6 +3623,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
         );
         this._lastCreatedAnswer = answer;
+        this._lastCreatedAnswerRevision = this._negotiationRevision;
         Object.defineProperty(answer, "_webrtcNodeAnswerer", {
           value: this,
           configurable: true,
@@ -3574,12 +3636,14 @@ class RTCPeerConnection extends SimpleEventTarget {
           sdp: this.remoteDescription.sdp,
         };
         this._lastCreatedAnswer = new RTCSessionDescription(answer);
+        this._lastCreatedAnswerRevision = this._negotiationRevision;
         return answer;
       }
       const answer =
         this._prepareNonstandardLocalDescription("answer") ||
         this._ensureNativePeerConnection().createAnswer();
       this._lastCreatedAnswer = new RTCSessionDescription(answer);
+      this._lastCreatedAnswerRevision = this._negotiationRevision;
       Object.defineProperty(answer, "_webrtcNodeAnswerer", {
         value: this,
         configurable: true,
@@ -5007,7 +5071,10 @@ class RTCPeerConnection extends SimpleEventTarget {
       return;
     }
     this._signalingState = this._descriptionSignalingState();
-    if (this._signalingState === "stable") this._updateNegotiatedTransceivers();
+    if (this._signalingState === "stable") {
+      this._updateNegotiatedTransceivers();
+      this._scheduleNegotiationNeededEvent();
+    }
   }
 
   _updateNegotiatedTransceivers() {
@@ -5058,22 +5125,60 @@ class RTCPeerConnection extends SimpleEventTarget {
   _setPendingLocalDescription(description) {
     this._pendingLocalDescription = description;
     this._localDescription = description || this._currentLocalDescription;
+    if (description?.type === "offer") {
+      this._pendingLocalNegotiationRevision = this._revisionForLocalDescription(description);
+      this._recomputeNegotiationNeeded(this._pendingLocalNegotiationRevision);
+    }
   }
 
   _commitLocalDescription(description = this._pendingLocalDescription || this._localDescription) {
     if (description) this._currentLocalDescription = description;
+    if (description?.type === "offer") {
+      this._negotiatedRevision = Math.max(
+        this._negotiatedRevision,
+        this._pendingLocalNegotiationRevision ?? this._revisionForLocalDescription(description),
+      );
+      this._pendingLocalNegotiationRevision = null;
+    } else if (description?.type === "answer") {
+      this._negotiatedRevision = Math.max(
+        this._negotiatedRevision,
+        this._revisionForLocalDescription(description),
+      );
+    }
     this._pendingLocalDescription = null;
     this._localDescription = this._currentLocalDescription;
+    this._recomputeNegotiationNeeded();
   }
 
   _rollbackLocalDescription() {
     this._pendingLocalDescription = null;
     this._localDescription = this._currentLocalDescription;
+    this._pendingLocalNegotiationRevision = null;
+    this._recomputeNegotiationNeeded();
+  }
+
+  _revisionForLocalDescription(description) {
+    if (
+      description?.type === "offer" &&
+      this._lastCreatedOffer &&
+      description.sdp === this._lastCreatedOffer.sdp
+    ) {
+      return this._lastCreatedOfferRevision ?? this._negotiationRevision;
+    }
+    if (
+      description?.type === "answer" &&
+      this._lastCreatedAnswer &&
+      description.sdp === this._lastCreatedAnswer.sdp
+    ) {
+      return this._lastCreatedAnswerRevision ?? this._negotiationRevision;
+    }
+    return this._negotiationRevision;
   }
 
   _setPendingRemoteDescription(description) {
     this._pendingRemoteDescription = description;
     this._remoteDescription = description || this._currentRemoteDescription;
+    if (description?.type === "offer") this._updateRemoteTrackAssociations(description);
   }
 
   _commitRemoteDescription(
@@ -5736,8 +5841,14 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _markNegotiationNeeded() {
-    if (this._closed || this._signalingState !== "stable" || this._negotiationNeeded) return;
+    if (this._closed) return;
+    this._negotiationRevision += 1;
     this._negotiationNeeded = true;
+    this._scheduleNegotiationNeededEvent();
+  }
+
+  _scheduleNegotiationNeededEvent() {
+    if (this._closed || this._signalingState !== "stable" || !this._negotiationNeeded) return;
     if (this._negotiationNeededScheduled) return;
     this._negotiationNeededScheduled = true;
     setTimeout(() => {
@@ -5748,10 +5859,14 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _clearNegotiationNeededIfDataMLineIsPresent() {
-    const sdp = this._localDescription?.sdp || this._remoteDescription?.sdp || "";
-    if (/\r?\nm=application\b/i.test(sdp)) {
-      this._negotiationNeeded = false;
-    }
+    this._recomputeNegotiationNeeded(
+      this._pendingLocalNegotiationRevision ?? this._negotiatedRevision,
+    );
+  }
+
+  _recomputeNegotiationNeeded(representedRevision = this._negotiatedRevision) {
+    this._negotiationNeeded = this._negotiationRevision > representedRevision;
+    this._scheduleNegotiationNeededEvent();
   }
 
   _eventListenerAdded(type) {
