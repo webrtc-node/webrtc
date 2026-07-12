@@ -3383,8 +3383,8 @@ class RTCPeerConnection extends SimpleEventTarget {
         type: "transport",
         bytesSent: stats.bytesSent,
         bytesReceived: stats.bytesReceived,
-        dtlsState: this.connectionState === "connected" ? "connected" : this.connectionState,
-        iceState: this.iceConnectionState,
+        dtlsState: this._sctpTransport?.transport.state ?? "new",
+        iceState: this._sctpTransport?.transport.iceTransport.state ?? "new",
       });
     }
     return report;

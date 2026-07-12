@@ -2,6 +2,7 @@ import type {
   RTCPeerConnection,
   RTCRtpReceiver,
   RTCRtpSender,
+  RTCStatsEntry,
   RTCStatsReport,
 } from "@webrtc-node/webrtc";
 
@@ -13,8 +14,8 @@ export interface RTCStatsSample {
 }
 
 export function diffStatsReports(
-  previous: ReadonlyMap<string, Record<string, unknown>>,
-  current: ReadonlyMap<string, Record<string, unknown>>,
+  previous: ReadonlyMap<string, RTCStatsEntry>,
+  current: ReadonlyMap<string, RTCStatsEntry>,
 ): RTCStatsDelta;
 
 export class RTCStatsSampler {

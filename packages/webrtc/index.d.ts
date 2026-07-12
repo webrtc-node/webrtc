@@ -359,19 +359,76 @@ export interface RTCRtpTransceiverInit {
   sendEncodings?: Iterable<{ rid?: string; active?: boolean }>;
 }
 
-export class RTCStatsReport implements ReadonlyMap<string, Record<string, unknown>> {
+export interface RTCStats {
+  readonly id: string;
+  readonly timestamp: number;
+  readonly type: string;
+}
+
+export interface RTCPeerConnectionStats extends RTCStats {
+  readonly type: "peer-connection";
+  readonly dataChannelsOpened: number;
+  readonly dataChannelsClosed: number;
+}
+
+export interface RTCDataChannelStats extends RTCStats {
+  readonly type: "data-channel";
+  readonly label: string;
+  readonly protocol: string;
+  readonly dataChannelIdentifier: number;
+  readonly state: RTCDataChannelState;
+  readonly messagesSent: number;
+  readonly bytesSent: number;
+  readonly messagesReceived: number;
+  readonly bytesReceived: number;
+}
+
+export interface RTCTransportStats extends RTCStats {
+  readonly type: "transport";
+  readonly bytesSent: number;
+  readonly bytesReceived: number;
+  readonly dtlsState: RTCDtlsTransportState;
+  readonly iceState: RTCIceTransportState;
+}
+
+export interface RTCInboundRtpStreamStats extends RTCStats {
+  readonly type: "inbound-rtp";
+  readonly ssrc: number;
+  readonly kind: "audio" | "video";
+  readonly mid: string;
+  readonly packetsReceived: number;
+  readonly bytesReceived: number;
+}
+
+export interface RTCOutboundRtpStreamStats extends RTCStats {
+  readonly type: "outbound-rtp";
+  readonly ssrc: number;
+  readonly kind: "audio" | "video";
+  readonly mid: string;
+  readonly packetsSent: number;
+  readonly bytesSent: number;
+}
+
+export type RTCStatsEntry =
+  | RTCPeerConnectionStats
+  | RTCDataChannelStats
+  | RTCTransportStats
+  | RTCInboundRtpStreamStats
+  | RTCOutboundRtpStreamStats;
+
+export class RTCStatsReport implements ReadonlyMap<string, RTCStatsEntry> {
   private constructor();
   readonly size: number;
-  get(id: string): Record<string, unknown> | undefined;
+  get(id: string): RTCStatsEntry | undefined;
   has(id: string): boolean;
   keys(): MapIterator<string>;
-  values(): MapIterator<Record<string, unknown>>;
-  entries(): MapIterator<[string, Record<string, unknown>]>;
+  values(): MapIterator<RTCStatsEntry>;
+  entries(): MapIterator<[string, RTCStatsEntry]>;
   forEach(
-    callback: (value: Record<string, unknown>, key: string, report: RTCStatsReport) => void,
+    callback: (value: RTCStatsEntry, key: string, report: RTCStatsReport) => void,
     thisArg?: unknown,
   ): void;
-  [Symbol.iterator](): MapIterator<[string, Record<string, unknown>]>;
+  [Symbol.iterator](): MapIterator<[string, RTCStatsEntry]>;
 }
 
 export class RTCTrackEvent extends Event {

@@ -35,6 +35,8 @@ test("RTCPeerConnection.getStats returns a read-only RTCStatsReport", async () =
     assert.equal(typeof report.set, "undefined");
     const transport = report.get("transport-0");
     assert.equal(transport.type, "transport");
+    assert.equal(transport.dtlsState, "new");
+    assert.equal(transport.iceState, "new");
     assert.equal(Object.isFrozen(transport), true);
   } finally {
     peer.close();
