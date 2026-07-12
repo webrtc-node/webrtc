@@ -99,7 +99,6 @@ class RTCStatsSampler {
         this._sampling = false;
       }
     }, this.interval);
-    this._timer.unref?.();
     return this;
   }
 
