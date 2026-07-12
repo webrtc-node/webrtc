@@ -1,13 +1,13 @@
-import { MediaSession } from "@webrtc-node/media";
+import { EncodedMediaSink, EncodedMediaSource } from "@webrtc-node/media";
 import { RTCPeerConnection } from "@webrtc-node/webrtc";
 
-const session = new MediaSession(new RTCPeerConnection());
-const track = session.addTrack({
+const peer = new RTCPeerConnection();
+const source = new EncodedMediaSource({
   kind: "video",
-  mid: "video",
   codec: { mimeType: "video/VP8", payloadType: 96 },
-  ssrc: 42,
 });
-track.send(new Uint8Array(12));
-track.addEventListener("message", (event) => event.type);
-session.close();
+peer.addTrack(source.track);
+peer.addEventListener("track", (event) => {
+  const sink = new EncodedMediaSink((event as unknown as { track: typeof source.track }).track);
+  sink.addEventListener("packet", () => {});
+});

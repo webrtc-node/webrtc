@@ -1,38 +1,31 @@
 # @webrtc-node/media
 
-Encoded RTP and RTCP tracks for `@webrtc-node/webrtc` peer connections.
+Optional encoded RTP packet I/O for standard `MediaStreamTrack` values from
+`@webrtc-node/webrtc`.
 
 ```js
-const { MediaSession } = require("@webrtc-node/media");
+const { EncodedMediaSource } = require("@webrtc-node/media");
 const { RTCPeerConnection } = require("@webrtc-node/webrtc");
 
 const peer = new RTCPeerConnection();
-const media = new MediaSession(peer);
-const video = media.addTrack({
+const source = new EncodedMediaSource({
   kind: "video",
-  mid: "video",
-  direction: "sendonly",
   codec: { mimeType: "video/VP8", payloadType: 96 },
   ssrc: 42,
 });
-
-video.send(rtpPacket);
+peer.addTrack(source.track);
+source.send(rtpPacket);
 ```
 
-The package is for applications that already encode, packetize, and time RTP media. It negotiates
-audio and video m-lines, transports complete RTP/RTCP packets through DTLS-SRTP, and emits received
-packets as `message` events.
+Normal negotiation uses `RTCPeerConnection.addTrack()`, RTP sender/receiver/transceiver objects,
+and `track` events from `@webrtc-node/webrtc`. `EncodedMediaSource` is only an application-supplied
+packet source. `EncodedMediaSink` can subscribe to complete RTP/RTCP packets from a received
+`MediaStreamTrack`.
 
-It does not capture devices, encode/decode media, generate RTP headers, implement browser
-`MediaStreamTrack`, or expose transceivers and RTP sender/receiver objects. Packet validity,
-sequence numbers, timestamps, SSRC consistency, pacing, and codec compatibility are application
-responsibilities.
+The package does not capture devices, encode or decode media, render media, generate RTP headers,
+or pace packets. Packet validity, sequence numbers, timestamps, SSRC consistency, pacing, and codec
+compatibility remain application responsibilities. Supported audio codecs are Opus, PCMA, PCMU,
+G722, and AAC; supported video codecs are H264, H265, VP8, VP9, and AV1.
 
-Incoming packets are dispatched to JavaScript in event-loop batches. When more than 1024 track
-packets are pending because JavaScript is not consuming events, newer packets are dropped to keep
-native callback memory bounded.
-
-Create matching tracks on both peers before applying session descriptions. A sender's `sendonly`
-track should use the same mid, codec, and payload type as the receiver's `recvonly` track. Supported
-audio codecs are Opus, PCMA, PCMU, G722, and AAC; supported video codecs are H264, H265, VP8, VP9,
-and AV1.
+Incoming packets are dispatched on the Node event loop. The native queue drops packets above its
+documented 1024-packet pending limit to keep callback memory bounded.

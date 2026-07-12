@@ -279,6 +279,107 @@ export class RTCSctpTransport extends EventTarget {
   onstatechange: ((event: Event) => void) | null;
 }
 
+export type MediaStreamTrackState = "live" | "ended";
+export type RTCRtpTransceiverDirection = "sendrecv" | "sendonly" | "recvonly" | "inactive";
+
+export class MediaStreamTrack extends EventTarget {
+  private constructor();
+  readonly kind: "audio" | "video";
+  readonly id: string;
+  readonly label: string;
+  enabled: boolean;
+  readonly muted: boolean;
+  readonly readyState: MediaStreamTrackState;
+  contentHint: string;
+  onended: ((event: Event) => void) | null;
+  onmute: ((event: Event) => void) | null;
+  onunmute: ((event: Event) => void) | null;
+  clone(): MediaStreamTrack;
+  stop(): void;
+  getCapabilities(): Record<string, never>;
+  getConstraints(): Record<string, never>;
+  getSettings(): Record<string, never>;
+  applyConstraints(constraints?: Record<string, unknown>): Promise<void>;
+}
+
+export class MediaStream extends EventTarget {
+  constructor(tracks?: Iterable<MediaStreamTrack>);
+  readonly id: string;
+  readonly active: boolean;
+  onaddtrack: ((event: Event) => void) | null;
+  onremovetrack: ((event: Event) => void) | null;
+  getTracks(): MediaStreamTrack[];
+  getAudioTracks(): MediaStreamTrack[];
+  getVideoTracks(): MediaStreamTrack[];
+  getTrackById(id: string): MediaStreamTrack | null;
+  addTrack(track: MediaStreamTrack): void;
+  removeTrack(track: MediaStreamTrack): void;
+  clone(): MediaStream;
+}
+
+export class RTCRtpSender {
+  private constructor();
+  readonly track: MediaStreamTrack | null;
+  replaceTrack(track: MediaStreamTrack | null): Promise<void>;
+  setStreams(...streams: MediaStream[]): void;
+  getStats(): Promise<RTCStatsReport>;
+}
+
+export class RTCRtpReceiver {
+  private constructor();
+  readonly track: MediaStreamTrack;
+  getStats(): Promise<RTCStatsReport>;
+}
+
+export class RTCRtpTransceiver {
+  private constructor();
+  readonly mid: string | null;
+  readonly sender: RTCRtpSender;
+  readonly receiver: RTCRtpReceiver;
+  readonly stopped: boolean;
+  readonly stopping: boolean;
+  direction: RTCRtpTransceiverDirection;
+  readonly currentDirection: RTCRtpTransceiverDirection | null;
+  stop(): void;
+}
+
+export interface RTCRtpTransceiverInit {
+  direction?: RTCRtpTransceiverDirection;
+  streams?: Iterable<MediaStream>;
+  sendEncodings?: Iterable<{ rid?: string; active?: boolean }>;
+}
+
+export class RTCStatsReport implements ReadonlyMap<string, Record<string, unknown>> {
+  private constructor();
+  readonly size: number;
+  get(id: string): Record<string, unknown> | undefined;
+  has(id: string): boolean;
+  keys(): MapIterator<string>;
+  values(): MapIterator<Record<string, unknown>>;
+  entries(): MapIterator<[string, Record<string, unknown>]>;
+  forEach(
+    callback: (value: Record<string, unknown>, key: string, report: RTCStatsReport) => void,
+    thisArg?: unknown,
+  ): void;
+  [Symbol.iterator](): MapIterator<[string, Record<string, unknown>]>;
+}
+
+export class RTCTrackEvent extends Event {
+  constructor(
+    type: string,
+    init: EventInit & {
+      receiver: RTCRtpReceiver;
+      track: MediaStreamTrack;
+      streams: MediaStream[];
+      transceiver: RTCRtpTransceiver;
+    },
+  );
+  readonly receiver: RTCRtpReceiver;
+  readonly track: MediaStreamTrack;
+  readonly streams: readonly MediaStream[];
+  readonly transceiver: RTCRtpTransceiver;
+}
+
 export class RTCPeerConnection extends EventTarget {
   static generateCertificate(algorithm: RTCCertificateKeygenAlgorithm): Promise<RTCCertificate>;
   constructor(configuration?: RTCConfiguration);
@@ -321,7 +422,20 @@ export class RTCPeerConnection extends EventTarget {
   onconnectionstatechange: ((event: Event) => void) | null;
   onsignalingstatechange: ((event: Event) => void) | null;
   onnegotiationneeded: ((event: Event) => void) | null;
+  ontrack: ((event: Event) => void) | null;
   createDataChannel(label: string, init?: RTCDataChannelInit): RTCDataChannel;
+  addTrack(track: MediaStreamTrack, ...streams: MediaStream[]): RTCRtpSender;
+  removeTrack(sender: RTCRtpSender): void;
+  addTransceiver(
+    trackOrKind: MediaStreamTrack | "audio" | "video",
+    init?: RTCRtpTransceiverInit,
+  ): RTCRtpTransceiver;
+  getSenders(): RTCRtpSender[];
+  getReceivers(): RTCRtpReceiver[];
+  getTransceivers(): RTCRtpTransceiver[];
+  getStats(
+    selector?: MediaStreamTrack | RTCRtpSender | RTCRtpReceiver | null,
+  ): Promise<RTCStatsReport>;
   createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit>;
   createAnswer(): Promise<RTCSessionDescriptionInit>;
   setLocalDescription(description?: RTCSessionDescriptionInit): Promise<void>;
@@ -334,6 +448,11 @@ export class RTCPeerConnection extends EventTarget {
 }
 
 export namespace nonstandard {
+  interface MediaStreamTrackInit {
+    kind: "audio" | "video";
+    label?: string;
+    source?: { stop?(track: MediaStreamTrack): void };
+  }
   interface IceUdpMuxRequest {
     ufrag: string;
     localUfrag: string;
@@ -383,7 +502,25 @@ export namespace nonstandard {
         ssrc?: number;
       },
       callback: (event: unknown) => void,
-    ): unknown;
+    ): {
+      readonly bindingId: number;
+      readonly mid: string;
+      readonly kind: "audio" | "video";
+      readonly direction: RTCRtpTransceiverDirection;
+      readonly ssrc: number | null;
+      readonly isOpen: boolean;
+      readonly isClosed: boolean;
+      readonly maxMessageSize: number;
+      send(packet: Uint8Array): boolean;
+      stats(): {
+        packetsSent: number;
+        bytesSent: number;
+        packetsReceived: number;
+        bytesReceived: number;
+      };
+      updateDescription(direction: RTCRtpTransceiverDirection, stopped: boolean): void;
+      close(): void;
+    };
     transportStats(): {
       bytesSent: number;
       bytesReceived: number;
@@ -393,6 +530,8 @@ export namespace nonstandard {
     };
     clearTransportStats(): void;
   }
+
+  type EncodedPacket = ArrayBuffer | ArrayBufferView;
 
   const IceUdpMuxListener: {
     new (port: number, address?: string): IceUdpMuxListener;
@@ -410,5 +549,11 @@ export namespace nonstandard {
   const getNativePeerConnection: (
     peerConnection: RTCPeerConnection,
   ) => NativePeerConnectionExtension;
+  const createMediaStreamTrack: (init: MediaStreamTrackInit) => MediaStreamTrack;
+  const sendEncodedPacket: (track: MediaStreamTrack, packet: EncodedPacket) => boolean;
+  const onEncodedPacket: (
+    track: MediaStreamTrack,
+    callback: (packet: ArrayBuffer) => void,
+  ) => () => void;
   const native: unknown;
 }

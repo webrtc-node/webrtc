@@ -83,6 +83,9 @@ function createInstances() {
   const sctpTransport = Object.assign(Object.create(api.RTCSctpTransport.prototype), {
     onstatechange: null,
   });
+  const mediaTrack = api.nonstandard.createMediaStreamTrack({ kind: "audio" });
+  const mediaStream = new api.MediaStream([mediaTrack]);
+  const transceiver = peerConnection.addTransceiver(mediaTrack);
   const instances = {
     Event: new api.Event("surface-check"),
     MessageEvent: new api.MessageEvent("message", { data: "surface-check" }),
@@ -100,6 +103,18 @@ function createInstances() {
     RTCDtlsTransport: dtlsTransport,
     RTCIceTransport: iceTransport,
     RTCSctpTransport: sctpTransport,
+    MediaStreamTrack: mediaTrack,
+    MediaStream: mediaStream,
+    RTCRtpSender: transceiver.sender,
+    RTCRtpReceiver: transceiver.receiver,
+    RTCRtpTransceiver: transceiver,
+    RTCStatsReport: Object.create(api.RTCStatsReport.prototype),
+    RTCTrackEvent: new api.RTCTrackEvent("track", {
+      receiver: transceiver.receiver,
+      track: transceiver.receiver.track,
+      streams: [mediaStream],
+      transceiver,
+    }),
     RTCPeerConnection: peerConnection,
   };
   return { instances, cleanup: () => peerConnection.close() };

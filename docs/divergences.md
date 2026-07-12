@@ -31,16 +31,21 @@ SDP-munging strategy or native support.
 
 ## Media APIs
 
-This package intentionally excludes media tracks, transceivers, RTP
-senders/receivers, stats, DTMF, capture devices, and `ontrack`. libdatachannel
-has RTP/SRTP track primitives, but they do not map directly to the exposed
-`RTCPeerConnection` plus `RTCDataChannel` scope.
+The experimental workspace exposes `MediaStream`, `MediaStreamTrack`, RTP
+sender/receiver/transceiver objects, media peer-connection methods, `track`
+events, and `RTCStatsReport`. Media data is application-supplied encoded RTP;
+there is no device capture, rendering, codec processing, RTP packet generation,
+simulcast, or DTMF implementation.
 
-Impact: media-oriented WPT files are marked not applicable in
-`wpt-manifest.json`.
+libdatachannel models one track per SDP media section and has no native browser
+transceiver or remove-track abstraction. JavaScript therefore owns object
+identity and direction state. Dynamic direction changes, stopping, replacement,
+and m-line recycling are still experimental and are not yet claimed conformant.
 
-The selected `historical.html` subset excludes only the legacy
-`RTCRtpTransceiver` member check because `RTCRtpTransceiver` is not exposed.
+Statistics include only backend measurements that can be attributed reliably:
+encoded RTP packet/byte counters and aggregate transport bytes. Jitter, packet
+loss, codec, media-source, playout, bandwidth estimation, and remote RTP reports
+are omitted rather than fabricated.
 
 ## RTCConfiguration
 

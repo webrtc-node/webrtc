@@ -30,6 +30,9 @@ listeners before libdatachannel global cleanup.
 - WebRTC state mapping
 - `DOMException`-style errors
 - data-channel message, open, close, and buffered amount semantics
+- media stream, track, sender, receiver, and transceiver identity and lifecycle
+- negotiation-needed and `track` event task timing
+- read-only `RTCStatsReport` filtering and standardized dictionary shaping
 
 Keep browser-compatible behavior in JavaScript unless native behavior is
 required for correctness.
@@ -46,11 +49,11 @@ as needed.
 
 ## Scope Boundary
 
-The public scope is `RTCPeerConnection` plus `RTCDataChannel` for the WebRTC
-data-channel profile. Media tracks, transceivers, RTP sender/receiver APIs,
-stats, DTMF, and capture devices are not implemented.
+The public scope includes peer connections, data channels, encoded media tracks,
+RTP sender/receiver/transceiver objects, and standards-shaped statistics.
+Capture devices, rendering, codec processing, RTP header generation, and DTMF
+are not implemented.
 
-`@webrtc-node/media` and `@webrtc-node/stats` are companion APIs rather than
-members of this W3C-facing surface. They use the typed nonstandard native
-capability to provide encoded RTP/RTCP transport and SCTP transport telemetry,
-respectively. Their narrower contracts are documented in their package READMEs.
+`@webrtc-node/media` supplies optional encoded packet sources and sinks behind
+standard `MediaStreamTrack` values. `@webrtc-node/stats` samples standard
+`RTCStatsReport` values. Neither replaces the W3C-facing core object model.

@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 620,
-  "selectedSubtestsSha256": "967896888c9496738e4911ec1eff073a1d0fff701352729c3de2e51665e8bb97",
+  "expectedSelectedSubtests": 637,
+  "selectedSubtestsSha256": "460f6967cece7e0354c14f60611dbbb75cb17127c18315c374295566f92b7eda",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -80,7 +80,10 @@
     "webrtc/RTCPeerConnection-iceConnectionState.https.html#initial-close-and-datachannel-connected-and-completed-subset",
     "webrtc/RTCPeerConnection-connectionState.https.html#initial-close-datachannel-and-transport-connected-subset",
     "webrtc/RTCPeerConnection-ondatachannel.html",
-    "webrtc/RTCPeerConnection-onnegotiationneeded.html#first-datachannel-and-deduped-datachannel-subset"
+    "webrtc/RTCPeerConnection-onnegotiationneeded.html#first-datachannel-and-deduped-datachannel-subset",
+    "webrtc/RTCPeerConnection-addTransceiver.https.html#non-capture-subset",
+    "webrtc/RTCPeerConnection-getStats.https.html?rest#basic-promise-subset",
+    "webrtc/RTCPeerConnection-getStats.https.html?interop-2026#empty-peer-connection-subset"
   ],
   "needsShim": [
     "resources/testharness.js",
@@ -107,7 +110,9 @@
     "webrtc/RTCPeerConnection-iceGatheringState.html#remaining-media-restart-fresh-credential-and-candidate-ordering-cases",
     "webrtc/RTCPeerConnection-iceConnectionState.https.html#remaining-transport-object-and-media-cases",
     "webrtc/RTCPeerConnection-connectionState.https.html#remaining-transport-object-and-media-cases",
-    "webrtc/RTCPeerConnection-onsignalingstatechanged.https.html"
+    "webrtc/RTCPeerConnection-onsignalingstatechanged.https.html",
+    "webrtc/RTCPeerConnection-addTransceiver.https.html#track-source-capture-cases",
+    "webrtc/RTCPeerConnection-getStats.https.html#remaining-media-capture-and-detailed-stats-cases"
   ],
   "expectedFail": [
     "webrtc/RTCPeerConnection-setLocalDescription*.html#arbitrary-local-sdp-munging",
@@ -121,9 +126,9 @@
     "webrtc/RTCRtp*.html",
     "webrtc/RTCDTMFSender*.html",
     "webrtc/RTCPeerConnection-addTrack*.html",
-    "webrtc/RTCPeerConnection-addTransceiver*.html",
+    "webrtc/RTCPeerConnection-addTransceiver-renegotiation*.html",
     "webrtc/RTCPeerConnection-ontrack*.html",
-    "webrtc/RTCPeerConnection-getStats*.html",
+    "webrtc/RTCPeerConnection-getStats-timestamp*.html",
     "webrtc/RTCPeerConnection-transceivers*.html",
     "webrtc/RTCPeerConnection-perfect-negotiation*.html#media",
     "webrtc/idlharness.https.window.js#media-and-browser-only-members"

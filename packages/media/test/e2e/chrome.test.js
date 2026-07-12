@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const { after, before, test } = require("node:test");
 const { chromium } = require("playwright-core");
 const { RTCPeerConnection } = require("@webrtc-node/webrtc");
-const { MediaSession } = require("../..");
+const { EncodedMediaSink } = require("../..");
 
 const timeout = Number(process.env.CHROME_E2E_TIMEOUT_MS || 30000);
 let browser;
@@ -63,7 +63,7 @@ after(async () => browser?.close());
 test("Chrome VP8 reaches a Node encoded receive track", async () => {
   const page = await browser.newPage();
   const peer = new RTCPeerConnection();
-  const media = new MediaSession(peer);
+  let sink;
   try {
     const offer = await page.evaluate(async () => {
       const canvas = document.createElement("canvas");
@@ -91,32 +91,27 @@ test("Chrome VP8 reaches a Node encoded receive track", async () => {
     });
 
     const video = /m=video[^\r\n]*[\s\S]*?(?=\r?\nm=|$)/i.exec(offer.sdp)?.[0];
-    const mid = /(?:^|\r?\n)a=mid:([^\r\n]+)/i.exec(video || "")?.[1];
     const payloadType = Number(/(?:^|\r?\n)a=rtpmap:(\d+) VP8\/90000/i.exec(video || "")?.[1]);
-    assert.ok(mid);
     assert.ok(Number.isInteger(payloadType));
 
-    const receiver = media.addTrack({
-      kind: "video",
-      mid,
-      direction: "recvonly",
-      codec: { mimeType: "video/VP8", payloadType },
-    });
-    const packet = waitFor(receiver, "message");
+    const trackEvent = waitFor(peer, "track");
     await peer.setRemoteDescription(offer);
+    sink = new EncodedMediaSink((await trackEvent).track);
+    const packet = waitFor(sink, "packet");
     const answer = await gather(peer, await peer.createAnswer());
     await page.evaluate(
       (description) => window.mediaPeer.setRemoteDescription(description),
       answer,
     );
 
-    const event = await packet;
-    const bytes = new Uint8Array(event.data);
+    const bytes = new Uint8Array((await packet).data);
     assert.ok(bytes.byteLength >= 12);
     assert.equal(bytes[0] >> 6, 2);
-    assert.equal(bytes[1] & 0x7f, payloadType);
+    const receivedPayloadType = bytes[1] & 0x7f;
+    assert.match(video, new RegExp(`(?:^|\\s)${receivedPayloadType}(?:\\s|$)`));
+    assert.match(video, new RegExp(`a=rtpmap:${receivedPayloadType} `, "i"));
   } finally {
-    media.close();
+    sink?.close();
     peer.close();
     await page.evaluate(() => {
       clearInterval(window.frameTimer);

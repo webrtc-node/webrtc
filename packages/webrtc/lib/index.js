@@ -13,10 +13,29 @@ const iceUdpMuxListenerFinalizer = new FinalizationRegistry((nativeListenerRef) 
   nativeListenerRef.deref()?.close();
 });
 const kInternalConstruct = Symbol("internalConstruct");
+const mediaTrackSources = new WeakMap();
 
 function descriptionPairingKey(description) {
   if (!description || typeof description.sdp !== "string" || !description.sdp) return null;
   return `${description.type}\n${description.sdp}`;
+}
+
+function mediaDirectionByMid(description, mid) {
+  if (!description?.sdp || mid == null) return null;
+  const sections = description.sdp.split(/(?=^m=)/m).slice(1);
+  const section = sections.find((entry) =>
+    new RegExp(`(?:^|\\r?\\n)a=mid:${mid}(?:\\r?\\n|$)`).test(entry),
+  );
+  if (!section || /^m=\S+\s+0\s/m.test(section)) return null;
+  return (
+    /(?:^|\r?\n)a=(sendrecv|sendonly|recvonly|inactive)(?:\r?\n|$)/.exec(section)?.[1] || "sendrecv"
+  );
+}
+
+function reverseDirection(direction) {
+  if (direction === "sendonly") return "recvonly";
+  if (direction === "recvonly") return "sendonly";
+  return direction;
 }
 
 class SimpleEvent {
@@ -2403,6 +2422,283 @@ function toUint8Array(data) {
   );
 }
 
+class MediaStreamTrack extends SimpleEventTarget {
+  constructor(token, init) {
+    super();
+    if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
+    this._kind = init.kind;
+    this._id = init.id || crypto.randomUUID();
+    this._label = init.label || "";
+    this._enabled = true;
+    this._muted = Boolean(init.muted);
+    this._readyState = "live";
+    this._contentHint = "";
+    this.onended = null;
+    this.onmute = null;
+    this.onunmute = null;
+    mediaTrackSources.set(this, init.source || null);
+  }
+
+  get kind() {
+    return this._kind;
+  }
+  get id() {
+    return this._id;
+  }
+  get label() {
+    return this._label;
+  }
+  get enabled() {
+    return this._enabled;
+  }
+  set enabled(value) {
+    this._enabled = Boolean(value);
+  }
+  get muted() {
+    return this._muted;
+  }
+  get readyState() {
+    return this._readyState;
+  }
+  get contentHint() {
+    return this._contentHint;
+  }
+  set contentHint(value) {
+    this._contentHint = String(value);
+  }
+
+  clone() {
+    const clone = new MediaStreamTrack(kInternalConstruct, {
+      kind: this._kind,
+      label: this._label,
+      source: mediaTrackSources.get(this),
+      muted: this._muted,
+    });
+    clone._enabled = this._enabled;
+    clone._contentHint = this._contentHint;
+    if (this._readyState === "ended") clone._readyState = "ended";
+    return clone;
+  }
+
+  stop() {
+    if (this._readyState === "ended") return;
+    this._readyState = "ended";
+    mediaTrackSources.get(this)?.stop?.(this);
+  }
+
+  getCapabilities() {
+    return {};
+  }
+  getConstraints() {
+    return {};
+  }
+  getSettings() {
+    return {};
+  }
+  applyConstraints() {
+    return Promise.resolve();
+  }
+}
+
+class MediaStream extends SimpleEventTarget {
+  constructor(tracks = []) {
+    super();
+    this._id = crypto.randomUUID();
+    this._tracks = [];
+    this.onaddtrack = null;
+    this.onremovetrack = null;
+    for (const track of tracks) this.addTrack(track);
+  }
+
+  get id() {
+    return this._id;
+  }
+  get active() {
+    return this._tracks.some((track) => track.readyState === "live");
+  }
+  getTracks() {
+    return [...this._tracks];
+  }
+  getAudioTracks() {
+    return this._tracks.filter((track) => track.kind === "audio");
+  }
+  getVideoTracks() {
+    return this._tracks.filter((track) => track.kind === "video");
+  }
+  getTrackById(id) {
+    return this._tracks.find((track) => track.id === String(id)) || null;
+  }
+
+  addTrack(track) {
+    if (!(track instanceof MediaStreamTrack))
+      throw new TypeError("track must be a MediaStreamTrack");
+    if (!this._tracks.includes(track)) this._tracks.push(track);
+  }
+
+  removeTrack(track) {
+    if (!(track instanceof MediaStreamTrack))
+      throw new TypeError("track must be a MediaStreamTrack");
+    const index = this._tracks.indexOf(track);
+    if (index !== -1) this._tracks.splice(index, 1);
+  }
+
+  clone() {
+    return new MediaStream(this._tracks.map((track) => track.clone()));
+  }
+}
+
+class RTCRtpSender {
+  constructor(token, peerConnection, track, streams) {
+    if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
+    this._peerConnection = peerConnection;
+    this._track = track;
+    this._streams = [...streams];
+  }
+  get track() {
+    return this._track;
+  }
+  replaceTrack(track) {
+    if (track !== null && !(track instanceof MediaStreamTrack)) {
+      return Promise.reject(new TypeError("track must be a MediaStreamTrack or null"));
+    }
+    if (track && track.kind !== this._transceiver._kind) {
+      return Promise.reject(new TypeError("track kind does not match the sender"));
+    }
+    this._track = track;
+    return Promise.resolve();
+  }
+  setStreams(...streams) {
+    for (const stream of streams)
+      if (!(stream instanceof MediaStream)) throw new TypeError("stream must be a MediaStream");
+    this._streams = [...new Set(streams)];
+    this._peerConnection._markNegotiationNeeded();
+  }
+  getStats() {
+    return this._peerConnection.getStats(this);
+  }
+}
+
+class RTCRtpReceiver {
+  constructor(token, peerConnection, kind) {
+    if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
+    this._peerConnection = peerConnection;
+    this._track = new MediaStreamTrack(kInternalConstruct, {
+      kind,
+      label: `remote ${kind}`,
+      muted: true,
+    });
+  }
+  get track() {
+    return this._track;
+  }
+  getStats() {
+    return this._peerConnection.getStats(this);
+  }
+}
+
+const rtpDirections = ["sendrecv", "sendonly", "recvonly", "inactive"];
+
+class RTCRtpTransceiver {
+  constructor(token, peerConnection, kind, track, direction, streams) {
+    if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
+    this._peerConnection = peerConnection;
+    this._kind = kind;
+    this._mid = null;
+    this._direction = direction;
+    this._currentDirection = null;
+    this._stopping = false;
+    this._stopped = false;
+    this._hasEverSent = false;
+    this._sender = new RTCRtpSender(kInternalConstruct, peerConnection, track, streams);
+    this._receiver = new RTCRtpReceiver(kInternalConstruct, peerConnection, kind);
+    this._sender._transceiver = this;
+    this._receiver._transceiver = this;
+  }
+  get mid() {
+    return this._mid;
+  }
+  get sender() {
+    return this._sender;
+  }
+  get receiver() {
+    return this._receiver;
+  }
+  get stopped() {
+    return this._stopped;
+  }
+  get stopping() {
+    return this._stopping;
+  }
+  get direction() {
+    return this._direction;
+  }
+  set direction(value) {
+    if (!rtpDirections.includes(value)) throw new TypeError("Invalid RTCRtpTransceiver direction");
+    if (this._stopping || this._stopped)
+      throw makeDOMException("Transceiver is stopping", "InvalidStateError");
+    if (value === this._direction) return;
+    this._direction = value;
+    this._peerConnection._markNegotiationNeeded();
+  }
+  get currentDirection() {
+    return this._currentDirection;
+  }
+  stop() {
+    if (this._stopping || this._stopped) return;
+    this._stopping = true;
+    this._peerConnection._markNegotiationNeeded();
+  }
+}
+
+class RTCStatsReport {
+  constructor(token) {
+    if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
+    this._data = new Map();
+  }
+  get size() {
+    return this._data.size;
+  }
+  get(id) {
+    return this._data.get(id);
+  }
+  has(id) {
+    return this._data.has(id);
+  }
+  keys() {
+    return this._data.keys();
+  }
+  values() {
+    return this._data.values();
+  }
+  entries() {
+    return this._data.entries();
+  }
+  forEach(callback, thisArg = undefined) {
+    this._data.forEach((value, key) => {
+      callback.call(thisArg, value, key, this);
+    });
+  }
+  [Symbol.iterator]() {
+    return this.entries();
+  }
+  _set(stat) {
+    this._data.set(stat.id, Object.freeze(stat));
+  }
+}
+
+class RTCTrackEvent extends SimpleEvent {
+  constructor(type, init = {}) {
+    super(type, init);
+    if (!init.receiver || !init.track || !init.transceiver) {
+      throw new TypeError("receiver, track, and transceiver are required");
+    }
+    this.receiver = init.receiver;
+    this.track = init.track;
+    this.streams = Object.freeze(Array.from(init.streams || []));
+    this.transceiver = init.transceiver;
+  }
+}
+
 class RTCPeerConnection extends SimpleEventTarget {
   static generateCertificate(algorithm) {
     return generateCertificate(algorithm);
@@ -2413,6 +2709,8 @@ class RTCPeerConnection extends SimpleEventTarget {
     const normalizedConfiguration = normalizePeerConnectionConfiguration(configuration);
     this._configuration = normalizedConfiguration;
     this._channels = new Map();
+    this._transceivers = [];
+    this._nativeMediaTracks = new Map();
     this._usedDataChannelIds = new Map();
     this._dataChannelIdRefreshNeeded = false;
     this._closed = false;
@@ -2475,6 +2773,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._negotiationNeeded = false;
     this._negotiationNeededScheduled = false;
     this._ondatachannel = null;
+    this.ontrack = null;
     this._pendingDataChannelEvents = [];
     this._pendingNativeDataChannelEvents = new Map();
     this._dataChannelFlushScheduled = false;
@@ -2549,6 +2848,266 @@ class RTCPeerConnection extends SimpleEventTarget {
       throw makeDOMException("certificates cannot be changed", "InvalidModificationError");
     }
     this._configuration = normalizedConfiguration;
+  }
+
+  addTrack(track, ...streams) {
+    this._assertNotClosed();
+    if (!(track instanceof MediaStreamTrack))
+      throw new TypeError("track must be a MediaStreamTrack");
+    for (const stream of streams)
+      if (!(stream instanceof MediaStream)) throw new TypeError("stream must be a MediaStream");
+    if (this.getSenders().some((sender) => sender.track === track)) {
+      throw makeDOMException("Track is already being sent", "InvalidAccessError");
+    }
+    let transceiver = this._transceivers.find(
+      (candidate) =>
+        !candidate.stopped &&
+        !candidate.stopping &&
+        candidate._kind === track.kind &&
+        candidate.sender.track === null &&
+        !candidate._hasEverSent,
+    );
+    if (transceiver) {
+      transceiver.sender._track = track;
+      transceiver.sender._streams = [...new Set(streams)];
+      if (transceiver.direction === "recvonly") transceiver._direction = "sendrecv";
+      else if (transceiver.direction === "inactive") transceiver._direction = "sendonly";
+    } else {
+      transceiver = this._createTransceiver(track.kind, track, "sendrecv", streams);
+    }
+    this._markNegotiationNeeded();
+    return transceiver.sender;
+  }
+
+  removeTrack(sender) {
+    this._assertNotClosed();
+    if (!(sender instanceof RTCRtpSender) || sender._peerConnection !== this) {
+      throw new TypeError("sender is not owned by this RTCPeerConnection");
+    }
+    const transceiver = sender._transceiver;
+    if (transceiver.stopped || transceiver.stopping || sender.track === null) return;
+    sender._track = null;
+    if (transceiver.direction === "sendrecv") transceiver._direction = "recvonly";
+    else if (transceiver.direction === "sendonly") transceiver._direction = "inactive";
+    this._markNegotiationNeeded();
+  }
+
+  addTransceiver(trackOrKind, init = {}) {
+    this._assertNotClosed();
+    const track = trackOrKind instanceof MediaStreamTrack ? trackOrKind : null;
+    const kind = track ? track.kind : String(trackOrKind);
+    if (kind !== "audio" && kind !== "video") throw new TypeError("kind must be audio or video");
+    const direction = init.direction === undefined ? "sendrecv" : init.direction;
+    if (!rtpDirections.includes(direction))
+      throw new TypeError("Invalid RTCRtpTransceiver direction");
+    const streams = init.streams === undefined ? [] : Array.from(init.streams);
+    for (const stream of streams)
+      if (!(stream instanceof MediaStream)) throw new TypeError("stream must be a MediaStream");
+    const sendEncodings = init.sendEncodings === undefined ? [] : Array.from(init.sendEncodings);
+    const rids = new Set();
+    for (const encoding of sendEncodings) {
+      const rid = encoding?.rid;
+      if (rid === undefined) continue;
+      const normalizedRid = String(rid);
+      if (rids.has(normalizedRid))
+        throw new TypeError("sendEncodings contains duplicate rid values");
+      rids.add(normalizedRid);
+    }
+    const transceiver = this._createTransceiver(kind, track, direction, streams);
+    this._markNegotiationNeeded();
+    return transceiver;
+  }
+
+  _createTransceiver(kind, track, direction, streams) {
+    const transceiver = new RTCRtpTransceiver(kInternalConstruct, this, kind, track, direction, [
+      ...new Set(streams),
+    ]);
+    this._transceivers.push(transceiver);
+    return transceiver;
+  }
+
+  _materializeTransceivers() {
+    const nativePeer = this._ensureNativePeerConnection();
+    for (let index = 0; index < this._transceivers.length; index += 1) {
+      const transceiver = this._transceivers[index];
+      if (transceiver._nativeTrack) {
+        transceiver._nativeTrack.updateDescription(transceiver.direction, transceiver.stopping);
+        continue;
+      }
+      if (transceiver.stopped) continue;
+      const source = mediaTrackSources.get(transceiver.sender.track);
+      const codec =
+        source?.codec ||
+        (transceiver._kind === "audio"
+          ? { codec: "opus", payloadType: 111 }
+          : { codec: "VP8", payloadType: 96 });
+      const mid = source?.mid || `media-${index}`;
+      const ssrc = source?.ssrc ?? transceiver._ssrc ?? crypto.randomInt(1, 0x100000000);
+      transceiver._ssrc = ssrc;
+      const nativeTrack = nativePeer.createTrack(
+        {
+          kind: transceiver._kind,
+          mid,
+          direction: transceiver.direction,
+          codec: codec.codec,
+          payloadType: codec.payloadType,
+          profile: codec.profile,
+          ssrc,
+        },
+        (events) => {
+          for (const event of Array.isArray(events) ? events : [events]) {
+            source?._handleNativeEvent?.(event, nativeTrack);
+          }
+        },
+      );
+      transceiver._nativeTrack = nativeTrack;
+      transceiver._mid = mid;
+      this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
+      source?._attachNativeTrack?.(nativeTrack);
+    }
+  }
+
+  _adoptIncomingNativeTrack(nativeTrack) {
+    let transceiver = this._transceivers.find((entry) => entry.mid === nativeTrack.mid);
+    if (!transceiver) {
+      transceiver = this._createTransceiver(nativeTrack.kind, null, "recvonly", []);
+      transceiver._mid = nativeTrack.mid;
+    }
+    transceiver._nativeTrack = nativeTrack;
+    transceiver._currentDirection = nativeTrack.direction;
+    const source = {
+      nativeTrack,
+      listeners: new Set(),
+      _handleNativeEvent(event) {
+        if (event.type === "message") {
+          if (transceiver.receiver.track._muted) {
+            transceiver.receiver.track._muted = false;
+            transceiver.receiver.track.dispatchEvent(makeEvent("unmute"));
+          }
+          for (const listener of this.listeners) listener(event.data);
+        }
+        if (event.type === "close" && transceiver.receiver.track._readyState !== "ended") {
+          transceiver.receiver.track._readyState = "ended";
+          transceiver.receiver.track.dispatchEvent(makeEvent("ended"));
+        }
+      },
+    };
+    mediaTrackSources.set(transceiver.receiver.track, source);
+    this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
+    setTimeout(() => {
+      if (this._closed || transceiver.stopped) return;
+      this.dispatchEvent(
+        new RTCTrackEvent("track", {
+          receiver: transceiver.receiver,
+          track: transceiver.receiver.track,
+          streams: transceiver.sender._streams,
+          transceiver,
+        }),
+      );
+    }, 0);
+  }
+
+  getSenders() {
+    return this._transceivers.filter((entry) => !entry.stopped).map((entry) => entry.sender);
+  }
+  getReceivers() {
+    return this._transceivers.filter((entry) => !entry.stopped).map((entry) => entry.receiver);
+  }
+  getTransceivers() {
+    return this._transceivers.filter((entry) => !entry.stopped);
+  }
+
+  async getStats(selector = null) {
+    if (
+      selector !== null &&
+      !(selector instanceof MediaStreamTrack) &&
+      !(selector instanceof RTCRtpSender) &&
+      !(selector instanceof RTCRtpReceiver)
+    ) {
+      throw new TypeError("selector must be a MediaStreamTrack, RTCRtpSender, or RTCRtpReceiver");
+    }
+    if (
+      (selector instanceof RTCRtpSender || selector instanceof RTCRtpReceiver) &&
+      selector._peerConnection !== this
+    ) {
+      throw makeDOMException(
+        "Selector is not owned by this RTCPeerConnection",
+        "InvalidAccessError",
+      );
+    }
+    if (selector instanceof MediaStreamTrack) {
+      const matches = this._transceivers.filter(
+        (transceiver) =>
+          !transceiver.stopped &&
+          (transceiver.sender.track === selector || transceiver.receiver.track === selector),
+      );
+      if (matches.length !== 1) {
+        throw makeDOMException(
+          "Track selector must identify exactly one sender or receiver",
+          "InvalidAccessError",
+        );
+      }
+    }
+    const report = new RTCStatsReport(kInternalConstruct);
+    const timestamp = performance.timeOrigin + performance.now();
+    if (selector === null) {
+      report._set({ id: "peer-connection", timestamp, type: "peer-connection" });
+    }
+    if (!this._native || this._closed) {
+      return report;
+    }
+    const selectedTransceivers = this._transceivers.filter((transceiver) => {
+      if (selector === null) return true;
+      if (selector instanceof RTCRtpSender) return transceiver.sender === selector;
+      if (selector instanceof RTCRtpReceiver) return transceiver.receiver === selector;
+      return transceiver.sender.track === selector || transceiver.receiver.track === selector;
+    });
+    for (const transceiver of selectedTransceivers) {
+      if (!transceiver._nativeTrack) continue;
+      const stats = transceiver._nativeTrack.stats();
+      const source = mediaTrackSources.get(transceiver.sender.track);
+      if (
+        transceiver.sender.track &&
+        !transceiver.stopped &&
+        (transceiver.currentDirection === "sendrecv" || transceiver.currentDirection === "sendonly")
+      ) {
+        report._set({
+          id: `outbound-rtp-${transceiver.mid}`,
+          timestamp,
+          type: "outbound-rtp",
+          ssrc: source?.ssrc ?? transceiver._ssrc,
+          kind: transceiver._kind,
+          mid: transceiver.mid,
+          packetsSent: stats.packetsSent,
+          bytesSent: stats.bytesSent,
+        });
+      }
+      if (stats.packetsReceived > 0 || stats.bytesReceived > 0) {
+        report._set({
+          id: `inbound-rtp-${transceiver.mid}`,
+          timestamp,
+          type: "inbound-rtp",
+          ssrc: transceiver._nativeTrack.ssrc ?? 0,
+          kind: transceiver._kind,
+          mid: transceiver.mid,
+          packetsReceived: stats.packetsReceived,
+          bytesReceived: stats.bytesReceived,
+        });
+      }
+    }
+    if (selector === null) {
+      const stats = this._native.transportStats();
+      report._set({
+        id: "transport-0",
+        timestamp,
+        type: "transport",
+        bytesSent: stats.bytesSent,
+        bytesReceived: stats.bytesReceived,
+        dtlsState: this.connectionState === "connected" ? "connected" : this.connectionState,
+        iceState: this.iceConnectionState,
+      });
+    }
+    return report;
   }
 
   get localDescription() {
@@ -2656,6 +3215,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._operationsPending += 1;
     try {
       await nextTask();
+      this._materializeTransceivers();
       if (iceRestartRequested && !this._nonstandardLocalIceCredentials) {
         this._iceRestartPending = true;
         this._armDataChannelNativeCloseSuppression();
@@ -2705,6 +3265,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._operationsPending += 1;
     try {
       await nextTask();
+      this._materializeTransceivers();
       if (this._jsOnlyIceRestartRemoteOffer) {
         const answer = markJsOnlyIceRestart(
           new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
@@ -3382,6 +3943,16 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._updateSctpTransport();
     for (const channel of this._channels.values()) {
       if (channel.readyState !== "closed") channel._handleClose();
+    }
+    for (const transceiver of this._transceivers) {
+      transceiver._stopping = false;
+      transceiver._stopped = true;
+      transceiver._currentDirection = null;
+      const receiverTrack = transceiver.receiver.track;
+      if (receiverTrack.readyState !== "ended") {
+        receiverTrack._readyState = "ended";
+        receiverTrack.dispatchEvent(makeEvent("ended"));
+      }
     }
     this._dispatchSignalingStateChange();
     this.dispatchEvent(makeEvent("iceconnectionstatechange"));
@@ -4128,6 +4699,33 @@ class RTCPeerConnection extends SimpleEventTarget {
       return;
     }
     this._signalingState = this._descriptionSignalingState();
+    if (this._signalingState === "stable") this._updateNegotiatedTransceivers();
+  }
+
+  _updateNegotiatedTransceivers() {
+    const localIsAnswer = this._currentLocalDescription?.type === "answer";
+    const answer = localIsAnswer ? this._currentLocalDescription : this._currentRemoteDescription;
+    for (const transceiver of this._transceivers) {
+      if (transceiver._stopped) continue;
+      if (transceiver._stopping) {
+        transceiver._stopping = false;
+        transceiver._stopped = true;
+        transceiver._currentDirection = null;
+        transceiver._nativeTrack?.close();
+        transceiver.receiver.track._readyState = "ended";
+        continue;
+      }
+      const answerDirection = mediaDirectionByMid(answer, transceiver.mid);
+      transceiver._currentDirection = localIsAnswer
+        ? answerDirection
+        : reverseDirection(answerDirection);
+      if (
+        transceiver._currentDirection === "sendrecv" ||
+        transceiver._currentDirection === "sendonly"
+      ) {
+        transceiver._hasEverSent = true;
+      }
+    }
   }
 
   _dispatchSignalingStateChange() {
@@ -4561,6 +5159,13 @@ class RTCPeerConnection extends SimpleEventTarget {
       return;
     }
 
+    if (event.target === "track") {
+      const transceiver = this._nativeMediaTracks.get(event.trackId);
+      const source = transceiver && mediaTrackSources.get(transceiver.receiver.track);
+      source?._handleNativeEvent?.(event);
+      return;
+    }
+
     switch (event.type) {
       case "datachannel": {
         const incomingId = event.channel?.id ?? null;
@@ -4595,6 +5200,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._scheduleDataChannelFlush();
         break;
       }
+      case "track":
+        this._adoptIncomingNativeTrack(event.track);
+        break;
       case "localdescription": {
         const description = new RTCSessionDescription(event.description);
         if (this._nonstandardPreparedLocalDescriptionType === description.type) {
@@ -4895,6 +5503,13 @@ function getNativePeerConnection(peerConnection) {
 }
 
 module.exports = {
+  MediaStream,
+  MediaStreamTrack,
+  RTCRtpSender,
+  RTCRtpReceiver,
+  RTCRtpTransceiver,
+  RTCStatsReport,
+  RTCTrackEvent,
   RTCPeerConnection,
   RTCDataChannel,
   RTCSessionDescription,
@@ -4919,6 +5534,33 @@ module.exports = {
     getRemoteFingerprint,
     importCertificate,
     getNativePeerConnection,
+    createMediaStreamTrack(init = {}) {
+      const kind = String(init.kind);
+      if (kind !== "audio" && kind !== "video") throw new TypeError("kind must be audio or video");
+      return new MediaStreamTrack(kInternalConstruct, {
+        kind,
+        label: init.label === undefined ? "" : String(init.label),
+        source: init.source || null,
+      });
+    },
+    sendEncodedPacket(track, data) {
+      if (!(track instanceof MediaStreamTrack))
+        throw new TypeError("track must be a MediaStreamTrack");
+      const nativeTrack = mediaTrackSources.get(track)?.nativeTrack;
+      if (!nativeTrack)
+        throw makeDOMException("Track is not attached to an RTP sender", "InvalidStateError");
+      return nativeTrack.send(toUint8Array(data));
+    },
+    onEncodedPacket(track, callback) {
+      if (!(track instanceof MediaStreamTrack))
+        throw new TypeError("track must be a MediaStreamTrack");
+      if (typeof callback !== "function") throw new TypeError("callback must be a function");
+      const source = mediaTrackSources.get(track);
+      if (!source?.listeners)
+        throw makeDOMException("Track is not an encoded RTP receiver", "InvalidStateError");
+      source.listeners.add(callback);
+      return () => source.listeners.delete(callback);
+    },
     native,
   },
 };

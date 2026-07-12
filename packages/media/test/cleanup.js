@@ -8,14 +8,15 @@ const packageRoot = path.resolve(__dirname, "..");
 function verifyCleanup(extraSource) {
   const script = `
   const { RTCPeerConnection } = require("@webrtc-node/webrtc");
-  const { MediaSession } = require(${JSON.stringify(packageRoot)});
+  const { EncodedMediaSource } = require(${JSON.stringify(packageRoot)});
   const peer = new RTCPeerConnection();
-  new MediaSession(peer).addTrack({
+  const source = new EncodedMediaSource({
     kind: "video",
-    mid: "video",
     codec: { mimeType: "video/VP8", payloadType: 96 },
     ssrc: 42,
   });
+  peer.addTrack(source.track);
+  peer.createOffer();
   ${extraSource}
 `;
   const child = spawnSync(process.execPath, ["-e", script], {

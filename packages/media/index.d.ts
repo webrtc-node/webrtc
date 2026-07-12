@@ -1,41 +1,29 @@
-import type { RTCPeerConnection } from "@webrtc-node/webrtc";
+import type { MediaStreamTrack } from "@webrtc-node/webrtc";
 
-export type MediaKind = "audio" | "video";
-export type MediaDirection = "sendonly" | "recvonly" | "sendrecv" | "inactive";
-export interface CodecInit {
-  mimeType: string;
-  payloadType: number;
-  profile?: string;
-}
-export interface EncodedTrackInit {
-  kind: MediaKind;
-  mid: string;
-  direction?: MediaDirection;
-  codec: CodecInit;
+export interface EncodedMediaSourceInit {
+  kind: "audio" | "video";
+  codec: { mimeType: string; payloadType: number; profile?: string };
+  label?: string;
   ssrc?: number;
 }
-export class MediaErrorEvent extends Event {
-  readonly message: string;
-}
-export class EncodedTrack extends EventTarget {
-  readonly kind: MediaKind;
-  readonly mid: string;
-  readonly direction: MediaDirection;
-  readonly codec: Readonly<CodecInit>;
+
+export class EncodedMediaSource extends EventTarget {
+  constructor(init: EncodedMediaSourceInit);
+  readonly track: MediaStreamTrack;
+  readonly codec: Readonly<EncodedMediaSourceInit["codec"]>;
   readonly ssrc: number | null;
-  readonly maxPacketSize: number;
-  readonly readyState: "connecting" | "open" | "closed";
+  readonly maxPacketSize: number | null;
+  readonly readyState: "new" | "connecting" | "open" | "closed";
   onopen: ((event: Event) => void) | null;
   onclose: ((event: Event) => void) | null;
-  onerror: ((event: MediaErrorEvent) => void) | null;
-  onmessage: ((event: MessageEvent<ArrayBuffer>) => void) | null;
-  send(data: ArrayBuffer | ArrayBufferView): boolean;
+  onerror: ((event: ErrorEvent) => void) | null;
+  send(packet: ArrayBuffer | ArrayBufferView): boolean;
   close(): void;
 }
-export class MediaSession {
-  constructor(peerConnection: RTCPeerConnection);
-  readonly peerConnection: RTCPeerConnection;
-  addTrack(init: EncodedTrackInit): EncodedTrack;
-  getTracks(): EncodedTrack[];
+
+export class EncodedMediaSink extends EventTarget {
+  constructor(track: MediaStreamTrack);
+  readonly track: MediaStreamTrack;
+  onpacket: ((event: MessageEvent<ArrayBuffer>) => void) | null;
   close(): void;
 }

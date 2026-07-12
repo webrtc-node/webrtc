@@ -6,20 +6,20 @@ without putting low-level media APIs into the browser-compatible core facade.
 
 ## Current Packages
 
-`@webrtc-node/webrtc` is the W3C-facing runtime package. Its current scope is
-W3C-style `RTCPeerConnection` and `RTCDataChannel` APIs backed by
+`@webrtc-node/webrtc` is the W3C-facing runtime package. Its experimental scope
+includes peer connections, data channels, encoded media tracks, RTP
+sender/receiver/transceiver objects, and standards-shaped statistics backed by
 libdatachannel. In the experimental workspace branch its package root is
 `packages/webrtc`; the package name, exports, install behavior, prebuild asset
 names, and WPT conformance scope stay unchanged.
 
 The experimental workspace also contains two implemented companion packages:
 
-- `@webrtc-node/media` provides explicit encoded RTP/RTCP tracks over
-  libdatachannel DTLS-SRTP. It does not implement browser capture, codecs, or
-  the `MediaStreamTrack`/transceiver object model.
-- `@webrtc-node/stats` provides immutable SCTP transport snapshots, selected
-  ICE endpoint context, deltas, and interval sampling. It does not claim to be
-  the browser `RTCStatsReport` object graph.
+- `@webrtc-node/media` provides optional encoded RTP packet sources and sinks
+  behind standard core `MediaStreamTrack` values. It does not implement browser
+  capture, rendering, codecs, RTP packet construction, or pacing.
+- `@webrtc-node/stats` provides scheduling and delta utilities over standard
+  core `RTCStatsReport` values. It does not define a separate stats model.
 
 These packages share a coordinated version because both consume a typed
 native companion capability supplied by `@webrtc-node/webrtc`.
@@ -29,15 +29,16 @@ native companion capability supplied by `@webrtc-node/webrtc`.
 Packages start only when they have a real implementation and a clear user story.
 
 - `@webrtc-node/webrtc`: stable WebRTC runtime package and default install.
-- `@webrtc-node/media`: encoded RTP/RTCP transport and media SDP negotiation.
-- `@webrtc-node/stats`: transport counter snapshots, deltas, and sampling.
+- `@webrtc-node/media`: optional encoded RTP source/sink adapters.
+- `@webrtc-node/stats`: standard stats report sampling and deltas.
 - `@webrtc-node/native`: shared native/build layer, only if duplication becomes
   a real maintenance problem.
 - `@webrtc-node/test-utils`: internal or development-only WPT, interop, and
   peer-pair helpers, only if tests outgrow the main package.
 
-Media and stats remain companion packages because their APIs are deliberately
-not browser facade APIs.
+Media and stats remain companion packages because encoded packet I/O and report
+sampling are optional utilities. Standard negotiation and statistics APIs live
+in `@webrtc-node/webrtc`.
 
 ## Repository Layout
 
@@ -97,7 +98,6 @@ published-install smoke tests.
 
 ## Promotion Rule
 
-Experimental APIs can incubate in companion packages. Promote APIs into
-`@webrtc-node/webrtc` only when they are compatible with the W3C-facing model,
-covered by local and interoperability tests, and stable enough that users can
-depend on them without tracking internal libdatachannel behavior.
+Standard APIs belong in `@webrtc-node/webrtc`. Companion packages may expose
+optional backend adapters, but normal media negotiation and stats inspection
+must not require a custom object model.

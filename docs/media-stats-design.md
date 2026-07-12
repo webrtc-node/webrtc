@@ -1,0 +1,64 @@
+# Media and Statistics Design
+
+This document records the experimental mapping from the W3C media and statistics APIs to the
+pinned libdatachannel backend. The consumer-facing object model belongs to
+`@webrtc-node/webrtc`; companion packages only provide optional encoded packet I/O and report
+sampling.
+
+## Specification Mapping
+
+- `MediaStream` and `MediaStreamTrack` identity, cloning, track sets, enabled state, stopping, and
+  events are JavaScript facade behavior.
+- `RTCRtpSender`, `RTCRtpReceiver`, and `RTCRtpTransceiver` identity, sender reuse, requested and
+  current direction, stopping, and negotiation-needed state are JavaScript facade behavior.
+- SDP media sections and DTLS-SRTP packet transport are native libdatachannel behavior.
+- `RTCStatsReport` is a read-only JavaScript maplike object. Only measurements produced reliably by
+  the backend are included.
+- Capture, rendering, device selection, codec processing, RTP packet construction, and pacing are
+  outside scope. `@webrtc-node/media` accepts already encoded and packetized RTP/RTCP.
+
+Applicable WPT is added incrementally. Capture-dependent WPT remains shim-blocked because Node has
+no `HTMLCanvasElement`, `navigator.mediaDevices`, or browser media source.
+
+## Libdatachannel Sources Read
+
+- `include/rtc/peerconnection.hpp`, `src/peerconnection.cpp`, and
+  `src/impl/peerconnection.cpp`: `addTrack()` owns one track per media description, `onTrack()`
+  delivers remote media, and ICE creates DTLS followed by DTLS-SRTP and SCTP transports.
+- `include/rtc/track.hpp`, `src/track.cpp`, and `src/impl/track.cpp`: tracks expose their media
+  description, permit `setDescription()`, enforce send/receive direction, and route callbacks from
+  transport threads. There is no browser transceiver or remove-track object.
+- `include/rtc/description.hpp` and `src/description.cpp`: media entries carry mid, direction,
+  codecs, SSRCs, and a removed state. Answer generation reciprocates direction.
+- `include/rtc/rtppacketizer.hpp`, `src/rtppacketizer.cpp`,
+  `include/rtc/rtpdepacketizer.hpp`, and `src/rtpdepacketizer.cpp`: optional handlers packetize or
+  reassemble codec frames. The current public adapter intentionally transports complete RTP/RTCP
+  and does not imply codec processing.
+- `src/impl/dtlssrtptransport.cpp`, `src/impl/dtlstransport.cpp`,
+  `src/impl/icetransport.cpp`, and `src/impl/sctptransport.cpp`: media uses DTLS-SRTP while data
+  channels use SCTP. Aggregate bytes and RTT exposed by `PeerConnection` come from SCTP, not a
+  complete per-ICE or per-RTP stats implementation.
+- `include/rtc/channel.hpp`, `src/channel.cpp`, and `src/impl/channel.cpp`: callbacks may arrive from
+  backend threads and ownership uses shared/weak handles. JavaScript delivery must continue through
+  a Node-API thread-safe dispatcher.
+- `examples/media-sender/main.cpp`, `examples/media-receiver/main.cpp`, and `test/track.cpp`: local
+  media descriptions are created before offers, remote tracks arrive from `onTrack()`, and raw RTP
+  can be sent and received without a browser capture pipeline.
+
+## Backend Constraints
+
+- Direction changes and stopping are applied by replacing a track's media description before the
+  next offer. JavaScript keeps stable transceiver/sender/receiver identity.
+- A stopped media description can be marked removed, but libdatachannel does not expose the full
+  JSEP transceiver recycling algorithm. Reuse and rollback behavior require focused conformance
+  coverage before promotion.
+- Native callbacks are reset before teardown. Track events and packet callbacks are dispatched by
+  `Napi::ThreadSafeFunction`; no libdatachannel callback invokes JavaScript directly.
+- Native RTP counters count version-2 RTP packets and exclude RTCP packet types. Unsupported loss,
+  jitter, codec, bandwidth, media-source, playout, and remote-report fields are omitted.
+
+## Validation Scope
+
+Required coverage includes facade lifecycle tests, Node-to-Node RTP, browser-to-Node RTP, focused
+media/stats WPT, native close and forced-process teardown, TypeScript/API checks, package dry runs,
+and remote full conformance. The full WPT suite is not run locally.

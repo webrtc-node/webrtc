@@ -1,10 +1,16 @@
-import { clear, delta, StatsSampler, snapshot } from "@webrtc-node/stats";
+import { diffStatsReports, RTCStatsSampler } from "@webrtc-node/stats";
 import { RTCPeerConnection } from "@webrtc-node/webrtc";
 
 const peer = new RTCPeerConnection();
-const first = snapshot(peer);
-const second = snapshot(peer);
-const change = delta(first, second);
-change.sendBitrate.toFixed();
-clear(peer);
-new StatsSampler(peer, { interval: 100 }).start(({ current }) => current.bytesSent).stop();
+const sampler = new RTCStatsSampler(peer, { interval: 100 });
+async function inspect() {
+  const first = await peer.getStats();
+  const second = await peer.getStats();
+  diffStatsReports(first, second).get("transport-0");
+  sampler
+    .start(({ report }) => {
+      report.size;
+    })
+    .stop();
+}
+void inspect();

@@ -1,7 +1,7 @@
 {
   "name": "@webrtc-node/media",
   "version": "0.2.1",
-  "description": "Encoded RTP and RTCP tracks for @webrtc-node/webrtc peer connections.",
+  "description": "Optional encoded RTP sources and sinks for standard WebRTC MediaStreamTrack values.",
   "author": "webrtc-node contributors",
   "homepage": "https://github.com/webrtc-node/webrtc/tree/main/packages/media#readme",
   "bugs": {

@@ -2,140 +2,116 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { RTCPeerConnection } = require("@webrtc-node/webrtc");
-const { EncodedTrack, MediaSession } = require("..");
+const { MediaStreamTrack, RTCPeerConnection, RTCRtpSender } = require("@webrtc-node/webrtc");
+const { EncodedMediaSink, EncodedMediaSource } = require("..");
 
 function waitFor(target, type, timeout = 10000) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      target.removeEventListener(type, onEvent);
-      reject(new Error(`Timed out waiting for ${type}`));
-    }, timeout);
-    function onEvent(event) {
-      clearTimeout(timer);
-      target.removeEventListener(type, onEvent);
-      resolve(event);
-    }
-    target.addEventListener(type, onEvent);
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${type}`)), timeout);
+    target.addEventListener(
+      type,
+      (event) => {
+        clearTimeout(timer);
+        resolve(event);
+      },
+      { once: true },
+    );
   });
 }
 
 async function negotiate(offerer, answerer) {
-  const offererCandidates = [];
-  const answererCandidates = [];
-  offerer.onicecandidate = (event) => {
-    if (!event.candidate) return;
-    if (answerer.remoteDescription) answerer.addIceCandidate(event.candidate).catch(() => {});
-    else offererCandidates.push(event.candidate);
-  };
-  answerer.onicecandidate = (event) => {
-    if (!event.candidate) return;
-    if (offerer.remoteDescription) offerer.addIceCandidate(event.candidate).catch(() => {});
-    else answererCandidates.push(event.candidate);
-  };
+  offerer.onicecandidate = ({ candidate }) =>
+    candidate && answerer.addIceCandidate(candidate).catch(() => {});
+  answerer.onicecandidate = ({ candidate }) =>
+    candidate && offerer.addIceCandidate(candidate).catch(() => {});
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription);
-  for (const candidate of offererCandidates.splice(0)) await answerer.addIceCandidate(candidate);
   await answerer.setLocalDescription(await answerer.createAnswer());
   await offerer.setRemoteDescription(answerer.localDescription);
-  for (const candidate of answererCandidates.splice(0)) await offerer.addIceCandidate(candidate);
 }
 
 function rtpPacket() {
   return Uint8Array.from([0x80, 96, 0, 1, 0, 0, 0, 1, 0, 0, 0, 42, 1, 2, 3, 4]);
 }
 
-test("MediaSession creates an encoded video track that participates in SDP", async () => {
+test("EncodedMediaSource provides a standard MediaStreamTrack", async () => {
   const peer = new RTCPeerConnection();
-  const session = new MediaSession(peer);
+  const source = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+    ssrc: 42,
+  });
   try {
-    const track = session.addTrack({
-      kind: "video",
-      mid: "camera",
-      direction: "sendonly",
-      codec: { mimeType: "video/VP8", payloadType: 96 },
-      ssrc: 42,
-    });
-    assert.ok(track instanceof EncodedTrack);
-    assert.equal(track.mid, "camera");
-    assert.equal(track.readyState, "connecting");
-    assert.deepEqual(session.getTracks(), [track]);
+    assert.ok(source.track instanceof MediaStreamTrack);
+    const sender = peer.addTrack(source.track);
+    assert.ok(sender instanceof RTCRtpSender);
     const offer = await peer.createOffer();
     assert.match(offer.sdp, /m=video 9 UDP\/TLS\/RTP\/SAVPF 96/);
-    assert.match(offer.sdp, /a=mid:camera/);
     assert.match(offer.sdp, /a=rtpmap:96 VP8\/90000/i);
   } finally {
-    session.close();
+    source.close();
     peer.close();
   }
 });
 
-test("MediaSession validates codecs, payload types, mids, and duplicates", () => {
-  const peer = new RTCPeerConnection();
-  const session = new MediaSession(peer);
-  try {
-    assert.throws(() => session.addTrack({ kind: "text" }), /kind/);
-    assert.throws(
-      () =>
-        session.addTrack({
-          kind: "audio",
-          mid: "audio",
-          codec: { mimeType: "video/VP8", payloadType: 96 },
-        }),
-      /codec/,
-    );
-    session.addTrack({
-      kind: "audio",
-      mid: "audio",
-      codec: { mimeType: "audio/opus", payloadType: 111 },
-    });
-    assert.throws(
-      () =>
-        session.addTrack({
-          kind: "audio",
-          mid: "audio",
-          codec: { mimeType: "audio/opus", payloadType: 111 },
-        }),
-      /exists/,
-    );
-  } finally {
-    session.close();
-    peer.close();
-  }
+test("encoded source validation rejects unsupported configurations", () => {
+  assert.throws(() => new EncodedMediaSource({ kind: "text" }), /kind/);
+  assert.throws(
+    () =>
+      new EncodedMediaSource({
+        kind: "audio",
+        codec: { mimeType: "video/VP8", payloadType: 96 },
+      }),
+    /codec/,
+  );
+  assert.throws(
+    () =>
+      new EncodedMediaSource({
+        kind: "audio",
+        codec: { mimeType: "audio/opus", payloadType: 128 },
+      }),
+    /payloadType/,
+  );
 });
 
-test("encoded tracks exchange RTP through DTLS-SRTP", async () => {
+test("standard track event exposes encoded RTP through an optional sink", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
-  const outgoing = new MediaSession(offerer);
-  const incoming = new MediaSession(answerer);
+  const source = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+    ssrc: 42,
+  });
+  let sink;
   try {
-    const sender = outgoing.addTrack({
-      kind: "video",
-      mid: "video",
-      direction: "sendonly",
-      codec: { mimeType: "video/VP8", payloadType: 96 },
-      ssrc: 42,
-    });
-    const receiver = incoming.addTrack({
-      kind: "video",
-      mid: "video",
-      direction: "recvonly",
-      codec: { mimeType: "video/VP8", payloadType: 96 },
-    });
-    const senderOpen = waitFor(sender, "open");
-    const receiverOpen = waitFor(receiver, "open");
+    offerer.addTrack(source.track);
+    const trackEvent = waitFor(answerer, "track");
+    const sourceOpen = waitFor(source, "open");
     await negotiate(offerer, answerer);
-    await Promise.all([senderOpen, receiverOpen]);
-
-    const received = waitFor(receiver, "message");
-    const packet = rtpPacket();
-    assert.equal(sender.send(packet), true);
-    const event = await received;
-    assert.deepEqual(new Uint8Array(event.data), packet);
+    const { track, receiver, transceiver } = await trackEvent;
+    assert.ok(track instanceof MediaStreamTrack);
+    assert.equal(receiver.track, track);
+    assert.equal(transceiver.receiver, receiver);
+    sink = new EncodedMediaSink(track);
+    await sourceOpen;
+    const packetEvent = waitFor(sink, "packet");
+    assert.equal(source.send(rtpPacket()), true);
+    assert.deepEqual(new Uint8Array((await packetEvent).data), rtpPacket());
+    const outbound = [...(await offerer.getStats(source.track)).values()];
+    const inbound = [...(await answerer.getStats(track)).values()];
+    assert.deepEqual(
+      outbound.map((entry) => entry.type),
+      ["outbound-rtp"],
+    );
+    assert.equal(outbound[0].packetsSent, 1);
+    assert.deepEqual(
+      inbound.map((entry) => entry.type),
+      ["inbound-rtp"],
+    );
+    assert.equal(inbound[0].packetsReceived, 1);
   } finally {
-    outgoing.close();
-    incoming.close();
+    sink?.close();
+    source.close();
     offerer.close();
     answerer.close();
   }

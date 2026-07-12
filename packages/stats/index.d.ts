@@ -1,60 +1,27 @@
-import type { RTCPeerConnection } from "@webrtc-node/webrtc";
+import type {
+  RTCPeerConnection,
+  RTCRtpReceiver,
+  RTCRtpSender,
+  RTCStatsReport,
+} from "@webrtc-node/webrtc";
 
-export interface CandidateSnapshot {
-  readonly candidate: string;
-  readonly sdpMid: string | null;
-  readonly foundation: string | null;
-  readonly component: "rtp" | "rtcp" | null;
-  readonly priority: number | null;
-  readonly address: string | null;
-  readonly protocol: string | null;
-  readonly port: number | null;
-  readonly type: string | null;
-  readonly tcpType: string | null;
-  readonly relatedAddress: string | null;
-  readonly relatedPort: number | null;
+export type RTCStatsTarget = RTCPeerConnection | RTCRtpSender | RTCRtpReceiver;
+export type RTCStatsDelta = ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+export interface RTCStatsSample {
+  readonly report: RTCStatsReport;
+  readonly delta: RTCStatsDelta | null;
 }
 
-export interface TransportStatsSnapshot {
-  readonly timestamp: number;
-  readonly type: "transport";
-  readonly connectionState: RTCPeerConnection["connectionState"];
-  readonly iceConnectionState: RTCPeerConnection["iceConnectionState"];
-  readonly bytesSent: number;
-  readonly bytesReceived: number;
-  readonly roundTripTime: number | null;
-  readonly localAddress: string | null;
-  readonly remoteAddress: string | null;
-  readonly localCandidate: CandidateSnapshot | null;
-  readonly remoteCandidate: CandidateSnapshot | null;
-}
+export function diffStatsReports(
+  previous: ReadonlyMap<string, Record<string, unknown>>,
+  current: ReadonlyMap<string, Record<string, unknown>>,
+): RTCStatsDelta;
 
-export interface TransportStatsDelta {
-  readonly timestamp: number;
-  readonly elapsedMs: number;
-  readonly bytesSent: number;
-  readonly bytesReceived: number;
-  readonly sendBitrate: number;
-  readonly receiveBitrate: number;
-}
-
-export interface StatsSample {
-  readonly current: TransportStatsSnapshot;
-  readonly delta: TransportStatsDelta | null;
-}
-
-export function snapshot(peerConnection: RTCPeerConnection): TransportStatsSnapshot;
-export function delta(
-  previous: TransportStatsSnapshot,
-  current: TransportStatsSnapshot,
-): TransportStatsDelta;
-export function clear(peerConnection: RTCPeerConnection): void;
-
-export class StatsSampler {
-  constructor(peerConnection: RTCPeerConnection, options?: { interval?: number });
-  readonly peerConnection: RTCPeerConnection;
+export class RTCStatsSampler {
+  constructor(target: RTCStatsTarget, options?: { interval?: number });
+  readonly target: RTCStatsTarget;
   readonly interval: number;
-  sample(): StatsSample;
-  start(callback: (sample: StatsSample) => void): this;
+  sample(): Promise<RTCStatsSample>;
+  start(callback: (sample: RTCStatsSample) => void | Promise<void>): this;
   stop(): void;
 }

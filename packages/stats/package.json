@@ -1,7 +1,7 @@
 {
   "name": "@webrtc-node/stats",
   "version": "0.2.1",
-  "description": "Transport statistics snapshots and sampling for @webrtc-node/webrtc peer connections.",
+  "description": "Sampling and delta utilities for standard WebRTC RTCStatsReport values.",
   "author": "webrtc-node contributors",
   "homepage": "https://github.com/webrtc-node/webrtc/tree/main/packages/stats#readme",
   "bugs": {

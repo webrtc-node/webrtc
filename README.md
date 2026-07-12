@@ -7,20 +7,20 @@
   <img alt="API" src="https://img.shields.io/badge/API-W3C--style-0a7">
   <img alt="Data Channels" src="https://img.shields.io/badge/scope-data%20channels-4c1">
   <img alt="TypeScript" src="https://img.shields.io/badge/types-TypeScript-3178c6">
-  <img alt="WPT" src="https://img.shields.io/badge/WPT-620%20selected%20subtests-4c1">
+  <img alt="WPT" src="https://img.shields.io/badge/WPT-637%20selected%20subtests-4c1">
   <img alt="Native API" src="https://img.shields.io/badge/native-Node--API-blue">
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange">
 </p>
 
 <p align="center">
-  Data-channel-first WebRTC for Node.js with browser-shaped
-  <code>RTCPeerConnection</code> and <code>RTCDataChannel</code> APIs.
+  Experimental W3C-style WebRTC for Node.js with peer connections, data
+  channels, encoded media tracks, and statistics.
 </p>
 
 <p align="center">
   Backed by
   <a href="https://github.com/paullouisageneau/libdatachannel">libdatachannel</a>,
-  shipped as a Node-API native addon, and validated with 620 selected Web
+  shipped as a Node-API native addon, and validated with 637 selected Web
   Platform Tests subtests.
 </p>
 
@@ -78,9 +78,9 @@ testing your workload.
 
 ## Optional Packages
 
-Optional workspace companions provide [encoded RTP/RTCP media](packages/media/README.md) and
-[transport statistics](packages/stats/README.md). They remain experimental and are not part of the
-browser-compatible facade exported by `@webrtc-node/webrtc`.
+Standard media negotiation and statistics APIs are exported by `@webrtc-node/webrtc`. Optional
+workspace companions provide [encoded RTP packet sources and sinks](packages/media/README.md) and
+[RTCStatsReport sampling](packages/stats/README.md). The media/stats surface remains experimental.
 
 ## Contributing
 

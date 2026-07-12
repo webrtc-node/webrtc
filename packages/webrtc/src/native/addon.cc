@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -35,13 +36,29 @@ struct PeerBinding;
 struct TrackBinding;
 
 std::atomic<uint32_t> nextChannelId{1};
+std::atomic<uint32_t> nextTrackId{1};
 constexpr auto PEER_CLOSE_TIMEOUT = std::chrono::seconds(5);
 constexpr size_t MAX_PENDING_TRACK_PACKETS = 1024;
+
+bool IsRtpPacket(const rtc::byte *data, size_t size) {
+	if (size < 2 || (static_cast<uint8_t>(data[0]) >> 6) != 2)
+		return false;
+	const auto payloadType = static_cast<uint8_t>(data[1]);
+	return payloadType < 192 || payloadType > 223;
+}
 
 uint32_t AllocateChannelId() {
 	uint32_t id;
 	do {
 		id = nextChannelId.fetch_add(1, std::memory_order_relaxed);
+	} while (id == 0);
+	return id;
+}
+
+uint32_t AllocateTrackId() {
+	uint32_t id;
+	do {
+		id = nextTrackId.fetch_add(1, std::memory_order_relaxed);
 	} while (id == 0);
 	return id;
 }
@@ -314,7 +331,9 @@ struct NativeEvent {
 	std::string target;
 	std::string type;
 	uint32_t channelId = 0;
+	uint32_t trackId = 0;
 	std::shared_ptr<ChannelBinding> channel;
+	std::shared_ptr<TrackBinding> track;
 	std::string state;
 	std::string descriptionType;
 	std::string sdp;
@@ -984,9 +1003,10 @@ Napi::FunctionReference NativeDataChannel::constructor;
 
 struct TrackBinding : public std::enable_shared_from_this<TrackBinding> {
 	static std::shared_ptr<TrackBinding> Create(std::shared_ptr<rtc::Track> track,
-	                                           std::shared_ptr<EventDispatcher> dispatcher) {
+	                                           std::shared_ptr<EventDispatcher> dispatcher,
+	                                           bool ownsDispatcher = true) {
 		auto binding = std::shared_ptr<TrackBinding>(
-		    new TrackBinding(std::move(track), std::move(dispatcher)));
+		    new TrackBinding(std::move(track), std::move(dispatcher), ownsDispatcher));
 		binding->AttachCallbacks();
 		return binding;
 	}
@@ -1002,7 +1022,8 @@ struct TrackBinding : public std::enable_shared_from_this<TrackBinding> {
 		}
 		if (track)
 			track->resetCallbacks();
-		dispatcher->Close();
+		if (ownsDispatcher)
+			dispatcher->Close();
 	}
 
 	void Close() {
@@ -1016,16 +1037,24 @@ struct TrackBinding : public std::enable_shared_from_this<TrackBinding> {
 
 	std::shared_ptr<rtc::Track> track;
 	std::shared_ptr<EventDispatcher> dispatcher;
+	const uint32_t id;
+	std::atomic<uint64_t> packetsSent{0};
+	std::atomic<uint64_t> bytesSent{0};
+	std::atomic<uint64_t> packetsReceived{0};
+	std::atomic<uint64_t> bytesReceived{0};
 
 private:
 	TrackBinding(std::shared_ptr<rtc::Track> track_,
-	             std::shared_ptr<EventDispatcher> dispatcher_)
-	    : track(std::move(track_)), dispatcher(std::move(dispatcher_)) {}
+	             std::shared_ptr<EventDispatcher> dispatcher_, bool ownsDispatcher_)
+	    : track(std::move(track_)), dispatcher(std::move(dispatcher_)), id(AllocateTrackId()),
+	      ownsDispatcher(ownsDispatcher_) {}
 
 	void Emit(NativeEvent event) {
 		std::lock_guard<std::mutex> lock(callbacksMutex);
-		if (callbacksActive)
+		if (callbacksActive) {
+			event.trackId = id;
 			dispatcher->Emit(std::move(event));
+		}
 	}
 
 	void AttachCallbacks() {
@@ -1068,12 +1097,17 @@ private:
 					event.bytes.assign(reinterpret_cast<const rtc::byte *>(text.data()),
 					                   reinterpret_cast<const rtc::byte *>(text.data() + text.size()));
 				}
+				if (IsRtpPacket(event.bytes.data(), event.bytes.size())) {
+					self->packetsReceived.fetch_add(1, std::memory_order_relaxed);
+					self->bytesReceived.fetch_add(event.bytes.size(), std::memory_order_relaxed);
+				}
 				self->Emit(std::move(event));
 			}
 		});
 	}
 
 	bool callbacksActive = true;
+	bool ownsDispatcher = true;
 	std::mutex callbacksMutex;
 };
 
@@ -1087,7 +1121,13 @@ public:
 		    {
 		        InstanceMethod("send", &NativeTrack::Send),
 		        InstanceMethod("close", &NativeTrack::Close),
+		        InstanceMethod("stats", &NativeTrack::Stats),
+		        InstanceMethod("updateDescription", &NativeTrack::UpdateDescription),
+		        InstanceAccessor("bindingId", &NativeTrack::GetBindingId, nullptr),
 		        InstanceAccessor("mid", &NativeTrack::GetMid, nullptr),
+		        InstanceAccessor("kind", &NativeTrack::GetKind, nullptr),
+		        InstanceAccessor("direction", &NativeTrack::GetDirection, nullptr),
+		        InstanceAccessor("ssrc", &NativeTrack::GetSsrc, nullptr),
 		        InstanceAccessor("isOpen", &NativeTrack::GetIsOpen, nullptr),
 		        InstanceAccessor("isClosed", &NativeTrack::GetIsClosed, nullptr),
 		        InstanceAccessor("maxMessageSize", &NativeTrack::GetMaxMessageSize, nullptr),
@@ -1118,6 +1158,10 @@ public:
 private:
 	std::shared_ptr<TrackBinding> binding_;
 
+	Napi::Value GetBindingId(const Napi::CallbackInfo &info) {
+		return Napi::Number::New(info.Env(), binding_->id);
+	}
+
 	Napi::Value Send(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
@@ -1125,7 +1169,12 @@ private:
 				throw std::invalid_argument("send expects a Uint8Array containing RTP or RTCP");
 			auto view = info[0].As<Napi::Uint8Array>();
 			const auto *bytes = reinterpret_cast<const rtc::byte *>(view.Data());
-			return Napi::Boolean::New(env, binding_->track->send(bytes, view.ByteLength()));
+			const bool sent = binding_->track->send(bytes, view.ByteLength());
+			if (sent && IsRtpPacket(bytes, view.ByteLength())) {
+				binding_->packetsSent.fetch_add(1, std::memory_order_relaxed);
+				binding_->bytesSent.fetch_add(view.ByteLength(), std::memory_order_relaxed);
+			}
+			return Napi::Boolean::New(env, sent);
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 			return env.Undefined();
@@ -1137,8 +1186,45 @@ private:
 		return info.Env().Undefined();
 	}
 
+	Napi::Value Stats(const Napi::CallbackInfo &info) {
+		Napi::Object result = Napi::Object::New(info.Env());
+		result.Set("packetsSent", Napi::Number::New(info.Env(), binding_->packetsSent.load()));
+		result.Set("bytesSent", Napi::Number::New(info.Env(), binding_->bytesSent.load()));
+		result.Set("packetsReceived", Napi::Number::New(info.Env(), binding_->packetsReceived.load()));
+		result.Set("bytesReceived", Napi::Number::New(info.Env(), binding_->bytesReceived.load()));
+		return result;
+	}
+
+	Napi::Value UpdateDescription(const Napi::CallbackInfo &info) {
+		try {
+			auto description = binding_->track->description();
+			if (info.Length() > 1 && info[1].ToBoolean().Value())
+				description.markRemoved();
+			else
+				description.setDirection(ParseMediaDirection(info[0].ToString().Utf8Value()));
+			binding_->track->setDescription(std::move(description));
+		} catch (const std::exception &e) {
+			Napi::Error::New(info.Env(), e.what()).ThrowAsJavaScriptException();
+		}
+		return info.Env().Undefined();
+	}
+
 	Napi::Value GetMid(const Napi::CallbackInfo &info) {
 		return Napi::String::New(info.Env(), binding_->track->mid());
+	}
+	Napi::Value GetKind(const Napi::CallbackInfo &info) {
+		return Napi::String::New(info.Env(), binding_->track->description().type());
+	}
+	Napi::Value GetDirection(const Napi::CallbackInfo &info) {
+		std::ostringstream output;
+		output << binding_->track->direction();
+		return Napi::String::New(info.Env(), output.str());
+	}
+	Napi::Value GetSsrc(const Napi::CallbackInfo &info) {
+		const auto values = binding_->track->description().getSSRCs();
+		if (values.empty())
+			return info.Env().Null();
+		return Napi::Number::New(info.Env(), values.front());
 	}
 	Napi::Value GetIsOpen(const Napi::CallbackInfo &info) {
 		return Napi::Boolean::New(info.Env(), binding_->track->isOpen());
@@ -1159,6 +1245,8 @@ Napi::Object EventDispatcher::EventToObject(Napi::Env env, NativeEvent &event) {
 	object.Set("type", event.type);
 	if (event.channelId)
 		object.Set("channelId", event.channelId);
+	if (event.trackId)
+		object.Set("trackId", event.trackId);
 	if (!event.state.empty())
 		object.Set("state", event.state);
 	if (!event.descriptionType.empty()) {
@@ -1185,6 +1273,8 @@ Napi::Object EventDispatcher::EventToObject(Napi::Env env, NativeEvent &event) {
 		object.Set("channelId", event.channel->id);
 		object.Set("channelReadyState", "open");
 	}
+	if (event.track)
+		object.Set("track", NativeTrack::NewInstance(env, event.track));
 
 	return object;
 }
@@ -1542,6 +1632,22 @@ private:
 				event.type = "datachannel";
 				event.channelId = channel->id;
 				event.channel = std::move(channel);
+				self->Emit(std::move(event));
+			}
+		});
+
+		peerConnection->onTrack([weak](std::shared_ptr<rtc::Track> nativeTrack) {
+			if (auto self = weak.lock()) {
+			auto track = TrackBinding::Create(nativeTrack, self->dispatcher, false);
+				if (!self->AddTrackBinding(track)) {
+					track->Destroy();
+					track->Close();
+					return;
+				}
+				NativeEvent event;
+				event.target = "peerconnection";
+				event.type = "track";
+				event.track = std::move(track);
 				self->Emit(std::move(event));
 			}
 		});

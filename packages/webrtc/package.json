@@ -1,7 +1,7 @@
 {
   "name": "@webrtc-node/webrtc",
   "version": "0.2.1",
-  "description": "Data-channel-first WebRTC for Node.js with W3C-style RTCPeerConnection and RTCDataChannel APIs.",
+  "description": "W3C-style WebRTC peer connections, data channels, encoded media, and statistics for Node.js.",
   "author": "webrtc-node contributors",
   "homepage": "https://github.com/webrtc-node/webrtc#readme",
   "bugs": {
@@ -63,7 +63,7 @@
     "prebuild:package": "node scripts/package-prebuild.js",
     "prebuild:check": "node scripts/check-prebuilds.js",
     "api:check": "node scripts/check-api-surface.js",
-    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
+    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/media-w3c.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
     "types:check": "tsc -p tsconfig.types.json",
     "wpt:ensure": "node ../../scripts/ensure-wpt.js",
     "wpt:smoke": "node ../../scripts/run-wpt-smoke.js",

@@ -388,6 +388,25 @@ const defaultSpecs = [
       "calling createDataChannel twice should fire negotiationneeded event once",
     ],
   },
+  {
+    file: "webrtc/RTCPeerConnection-addTransceiver.https.html",
+    exclude: [
+      "addTransceiver(track) should have result with sender.track be given track",
+      "addTransceiver(track) multiple times should create multiple transceivers",
+    ],
+  },
+  {
+    file: "webrtc/RTCPeerConnection-getStats.https.html",
+    search: "?rest",
+    include: ["getStats() with no argument should succeed", "getStats(null) should succeed"],
+  },
+  {
+    file: "webrtc/RTCPeerConnection-getStats.https.html",
+    search: "?interop-2026",
+    include: [
+      "getStats() with no argument should return stats report containing peer-connection stats on an empty PC",
+    ],
+  },
 ];
 
 const specs = isWorker
