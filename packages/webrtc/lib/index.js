@@ -1878,6 +1878,7 @@ class RTCDataChannel extends SimpleEventTarget {
     } else if (nativeChannel.isClosed) {
       this._readyState = "closed";
     }
+    if (this._readyState === "open") this._recordStatsOpened();
     this._pc._registerDataChannelId(this);
   }
 
@@ -2058,6 +2059,7 @@ class RTCDataChannel extends SimpleEventTarget {
     if (!fromQueue && (this._announcementPending || this._nativeEventDrainActive)) {
       if (event.type === "open") {
         this._readyState = "open";
+        this._recordStatsOpened();
         this._openEventPending = true;
       } else {
         this._queuedNativeEvents.push(event);
@@ -2069,11 +2071,13 @@ class RTCDataChannel extends SimpleEventTarget {
       case "open":
         if (this._openEventPending) {
           this._readyState = "open";
+          this._recordStatsOpened();
           this._pc._registerDataChannelId(this);
           break;
         }
         if (this._readyState === "connecting" || this._readyState === "open") {
           this._readyState = "open";
+          this._recordStatsOpened();
           this._pc._registerDataChannelId(this);
           this._dispatchOpenEvent();
         }
@@ -2286,11 +2290,15 @@ class RTCDataChannel extends SimpleEventTarget {
       return;
     }
     this._openEventDispatched = true;
+    this._recordStatsOpened();
+    this.dispatchEvent(makeEvent("open"));
+  }
+
+  _recordStatsOpened() {
     if (!this._statsOpened) {
       this._statsOpened = true;
       this._pc._dataChannelsOpened += 1;
     }
-    this.dispatchEvent(makeEvent("open"));
   }
 
   _pendingIceEventPeer() {
@@ -2311,6 +2319,7 @@ class RTCDataChannel extends SimpleEventTarget {
     if (this._readyState !== "connecting" || this._native.isClosed || !this._native.isOpen)
       return false;
     this._readyState = "open";
+    this._recordStatsOpened();
     this._pc._registerDataChannelId(this);
     if (this._announcementPending) {
       this._openEventPending = true;
@@ -5036,11 +5045,13 @@ class RTCPeerConnection extends SimpleEventTarget {
         continue;
       }
       channel._readyState = "open";
+      channel._recordStatsOpened();
       channel._openEventPending = true;
       channel._announcementPending = true;
       const sourceChannel = channel._pairedChannel;
       if (sourceChannel?.readyState === "connecting") {
         sourceChannel._readyState = "open";
+        sourceChannel._recordStatsOpened();
         sourceChannel._pc._registerDataChannelId(sourceChannel);
         sourceChannel._dispatchOpenEvent();
       }
