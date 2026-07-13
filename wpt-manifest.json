@@ -128,10 +128,8 @@
     "webrtc/RTCPeerConnection-iceConnectionState.https.html#remaining-transport-object-and-media-cases",
     "webrtc/RTCPeerConnection-connectionState.https.html#remaining-transport-object-and-media-cases",
     "webrtc/RTCPeerConnection-onsignalingstatechanged.https.html",
-    "webrtc/RTCPeerConnection-addTransceiver.https.html#track-source-capture-cases",
-    "webrtc/RTCPeerConnection-getStats.https.html#remaining-media-capture-and-detailed-stats-cases",
-    "webrtc/RTCRtp*.html#remaining-rtp-parameters-capabilities-and-capture-cases",
-    "webrtc/RTCRtpTransceiver-stopping.https.html?rest#mediaDevices-glare-cases"
+    "webrtc/RTCPeerConnection-getStats.https.html#remaining-detailed-backend-stats-cases",
+    "webrtc/RTCRtp*.html#remaining-rtp-parameters-and-capabilities-cases"
   ],
   "expectedFail": [
     "webrtc/RTCPeerConnection-setLocalDescription*.html#arbitrary-local-sdp-munging",
@@ -143,6 +141,14 @@
   ],
   "notApplicable": [
     "webrtc/RTCDTMFSender*.html",
+    "mediacapture-streams/MediaDevices-*.html",
+    "mediacapture-streams/GUM-*.html",
+    "mediacapture-streams/MediaStream-MediaElement-*.html",
+    "mediacapture-streams/MediaStreamTrack-MediaElement-*.html",
+    "webrtc/RTCPeerConnection-addTransceiver.https.html#track-source-capture-cases",
+    "webrtc/RTCPeerConnection-getStats.https.html#capture-source-cases",
+    "webrtc/RTCRtp*.html#capture-source-and-processing-cases",
+    "webrtc/RTCRtpTransceiver-stopping.https.html?rest#mediaDevices-glare-cases",
     "webrtc/RTCPeerConnection-addTransceiver-renegotiation*.html",
     "webrtc/RTCPeerConnection-ontrack*.html",
     "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",

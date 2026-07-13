@@ -17,8 +17,9 @@ sampling.
 - Capture, rendering, device selection, codec processing, RTP packet construction, and pacing are
   outside scope. `@webrtc-node/media` accepts already encoded and packetized RTP/RTCP.
 
-Applicable WPT is added incrementally. Capture-dependent WPT remains shim-blocked because Node has
-no `HTMLCanvasElement`, `navigator.mediaDevices`, or browser media source.
+Applicable WPT is added incrementally. Tests whose subject is browser capture, rendering, media
+elements, devices, or capture UI are non-applicable to this Node transport runtime. The harness
+uses synthetic encoded tracks only to exercise W3C object and lifecycle semantics.
 
 ## Libdatachannel Sources Read
 
