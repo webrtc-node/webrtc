@@ -70,6 +70,46 @@ const perTestIsolatedFiles = new Set([
   "webrtc/RTCRtpSender-setStreams.https.html",
 ]);
 
+const supportedMandatoryStatsTests = [
+  "getStats succeeds",
+  "Validating stats",
+  "RTCRtpStreamStats's ssrc",
+  "RTCRtpStreamStats's kind",
+  "RTCRtpStreamStats's transportId",
+  "RTCRtpStreamStats's codecId",
+  "RTCReceivedRtpStreamStats's packetsReceived",
+  "RTCInboundRtpStreamStats's trackIdentifier",
+  "RTCInboundRtpStreamStats's bytesReceived",
+  "RTCSentRtpStreamStats's packetsSent",
+  "RTCSentRtpStreamStats's bytesSent",
+  "RTCPeerConnectionStats's dataChannelsOpened",
+  "RTCPeerConnectionStats's dataChannelsClosed",
+  "RTCDataChannelStats's label",
+  "RTCDataChannelStats's protocol",
+  "RTCDataChannelStats's dataChannelIdentifier",
+  "RTCDataChannelStats's state",
+  "RTCDataChannelStats's messagesSent",
+  "RTCDataChannelStats's bytesSent",
+  "RTCDataChannelStats's messagesReceived",
+  "RTCDataChannelStats's bytesReceived",
+  "RTCCodecStats's payloadType",
+  "RTCCodecStats's mimeType",
+  "RTCCodecStats's clockRate",
+  "RTCCodecStats's channels",
+  "RTCTransportStats's bytesSent",
+  "RTCTransportStats's bytesReceived",
+  "RTCTransportStats's selectedCandidatePairId",
+  "RTCIceCandidatePairStats's transportId",
+  "RTCIceCandidatePairStats's localCandidateId",
+  "RTCIceCandidatePairStats's remoteCandidateId",
+  "RTCIceCandidatePairStats's state",
+  "RTCIceCandidatePairStats's nominated",
+  "RTCIceCandidateStats's address",
+  "RTCIceCandidateStats's port",
+  "RTCIceCandidateStats's protocol",
+  "RTCIceCandidateStats's candidateType",
+];
+
 const defaultSpecs = [
   { file: "webrtc/RTCPeerConnection-constructor.html" },
   { file: "webrtc/RTCError.html", search: "?interop-2026" },
@@ -527,6 +567,11 @@ const defaultSpecs = [
   {
     file: "webrtc/RTCPeerConnection-getStats-timestamp.https.html",
     include: ["RTCStats.timestamp is expressed as Performance time"],
+  },
+  {
+    file: "webrtc/RTCPeerConnection-mandatory-getStats.https.html",
+    includeExact: supportedMandatoryStatsTests,
+    discoveredTests: supportedMandatoryStatsTests,
   },
   { file: "webrtc/RTCRtpSender-getStats.https.html" },
   {
@@ -1335,6 +1380,28 @@ function runListWorker(spec, index) {
 }
 
 function discoverSpecTests(spec, index, extraEnv = {}) {
+  if (Array.isArray(spec.discoveredTests)) {
+    const declared = spec.discoveredTests;
+    if (
+      !declared.every((name) => typeof name === "string" && name.length > 0) ||
+      new Set(declared).size !== declared.length ||
+      !Array.isArray(spec.includeExact) ||
+      declared.length !== spec.includeExact.length ||
+      declared.some((name, testIndex) => name !== spec.includeExact[testIndex])
+    ) {
+      const resultPath = `${spec.file}${spec.search || ""}`;
+      return {
+        tests: [],
+        failure: {
+          file: resultPath,
+          name: "worker test discovery",
+          status: "FAIL",
+          message: "discoveredTests must be unique and exactly match includeExact",
+        },
+      };
+    }
+    return { tests: [...spec.discoveredTests], failure: null };
+  }
   const outcome = runWorker(spec, `list-${index}`, {
     ...extraEnv,
     WPT_LIST_TESTS: "1",

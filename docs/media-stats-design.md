@@ -93,7 +93,8 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
 
 Required coverage includes facade lifecycle tests, Node-to-Node RTP, browser-to-Node RTP, focused
 media/stats WPT, native close and forced-process teardown, TypeScript/API checks, package dry runs,
-and remote full conformance. The full WPT suite is not run locally. The mandatory stats WPT
-currently registers most field checks dynamically: a focused run passes 37 of 73 checks, while
-selection list mode discovers only its initial test. Those checks cannot enter the sharded expected-pass
-contract until the runner can discover their stable identities without executing the full test.
+and remote full conformance. The full WPT suite is not run locally. The selected mandatory stats
+WPT coverage declares the stable identities of 37 backend-supported checks because that upstream
+file registers its field tests dynamically after media negotiation. Execution still runs the
+upstream parent test and each selected field assertion; only list-mode discovery uses the declared
+identities so selection integrity and sharding do not require executing the test.
