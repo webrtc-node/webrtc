@@ -3884,11 +3884,15 @@ class RTCPeerConnection extends SimpleEventTarget {
       }
       let alreadyAppliedAnswer = false;
       if (normalized?.type === "answer") {
+        if (description?._webrtcNodeApplicationPromise) {
+          await description._webrtcNodeApplicationPromise;
+        }
         if (normalized.sdp === "" && this._lastCreatedAnswer) normalized = this._lastCreatedAnswer;
         alreadyAppliedAnswer =
           this._localDescription?.type === "answer" &&
           (this._localDescription.sdp === normalized.sdp ||
-            description?._webrtcNodeApplied === true);
+            description?._webrtcNodeApplied === true ||
+            Boolean(description?._webrtcNodeApplicationPromise));
         if (
           !alreadyAppliedAnswer &&
           this._signalingState !== "have-remote-offer" &&
@@ -4189,7 +4193,12 @@ class RTCPeerConnection extends SimpleEventTarget {
         const previousState = this._signalingState;
         let remoteDescription = normalized;
         if (description && description._webrtcNodeAnswerer) {
-          remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+          const application = description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+          Object.defineProperty(description, "_webrtcNodeApplicationPromise", {
+            value: application,
+            configurable: true,
+          });
+          remoteDescription = await application;
           Object.defineProperty(description, "_webrtcNodeApplied", {
             value: true,
             configurable: true,
@@ -4225,7 +4234,12 @@ class RTCPeerConnection extends SimpleEventTarget {
         const previousState = this._signalingState;
         let remoteDescription = normalized;
         if (description && description._webrtcNodeAnswerer) {
-          remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+          const application = description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+          Object.defineProperty(description, "_webrtcNodeApplicationPromise", {
+            value: application,
+            configurable: true,
+          });
+          remoteDescription = await application;
           Object.defineProperty(description, "_webrtcNodeApplied", {
             value: true,
             configurable: true,
@@ -4279,7 +4293,12 @@ class RTCPeerConnection extends SimpleEventTarget {
       }
       let remoteDescription = normalized;
       if (normalized.type === "answer" && description && description._webrtcNodeAnswerer) {
-        remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+        const application = description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
+        Object.defineProperty(description, "_webrtcNodeApplicationPromise", {
+          value: application,
+          configurable: true,
+        });
+        remoteDescription = await application;
         Object.defineProperty(description, "_webrtcNodeApplied", {
           value: true,
           configurable: true,

@@ -1557,6 +1557,11 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 			RunPeerTeardown(std::move(*work));
 	}
 
+	std::shared_ptr<rtc::PeerConnection> AcquirePeerConnection() const {
+		std::lock_guard<std::mutex> lock(peerConnectionMutex);
+		return peerConnection;
+	}
+
 	std::shared_ptr<rtc::PeerConnection> peerConnection;
 	std::shared_ptr<EventDispatcher> dispatcher;
 
@@ -1579,8 +1584,8 @@ private:
 				return;
 			callbacksActive = false;
 		}
-		if (peerConnection)
-			peerConnection->resetCallbacks();
+		if (auto peer = AcquirePeerConnection())
+			peer->resetCallbacks();
 	}
 
 	void RemoveChannel(uint32_t id, const ChannelBinding *expected) {
@@ -1623,7 +1628,10 @@ private:
 		}
 		DeactivateCallbacks();
 		dispatcher->Close();
-		work.peerConnection = std::move(peerConnection);
+		{
+			std::lock_guard<std::mutex> lock(peerConnectionMutex);
+			work.peerConnection = std::move(peerConnection);
+		}
 		return work;
 	}
 
@@ -1733,6 +1741,7 @@ private:
 	}
 
 	std::atomic<bool> shutdown{false};
+	mutable std::mutex peerConnectionMutex;
 	bool callbacksActive = true;
 	std::mutex callbacksMutex;
 	std::mutex channelsMutex;
@@ -1831,14 +1840,20 @@ public:
 private:
 	std::shared_ptr<PeerBinding> binding_;
 
+	std::shared_ptr<rtc::PeerConnection> Peer() const {
+		auto peer = binding_ ? binding_->AcquirePeerConnection() : nullptr;
+		if (!peer)
+			throw std::runtime_error("Peer connection is closed");
+		return peer;
+	}
+
 	Napi::Value CreateDataChannel(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
 			std::string label = info[0].ToString().Utf8Value();
 			ChannelOptions options =
 			    ParseChannelOptions(info.Length() > 1 ? info[1] : env.Undefined());
-			auto dataChannel =
-			    binding_->peerConnection->createDataChannel(label, ToRtcInit(options));
+			auto dataChannel = Peer()->createDataChannel(label, ToRtcInit(options));
 			auto channel = binding_->AddChannel(std::move(dataChannel), std::move(options));
 			return NativeDataChannel::NewInstance(env, std::move(channel));
 		} catch (const std::exception &e) {
@@ -1853,7 +1868,7 @@ private:
 			if (info.Length() < 2 || !info[1].IsFunction())
 				throw std::invalid_argument("createTrack requires options and an event callback");
 			auto description = ParseMediaDescription(info[0]);
-			auto track = binding_->peerConnection->addTrack(std::move(description));
+			auto track = Peer()->addTrack(std::move(description));
 			auto dispatcher = EventDispatcher::Create(env, info[1].As<Napi::Function>());
 			auto trackBinding = TrackBinding::Create(std::move(track), std::move(dispatcher));
 			if (!binding_->AddTrackBinding(trackBinding)) {
@@ -1871,7 +1886,7 @@ private:
 	Napi::Value CreateOffer(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			return DescriptionToObject(env, binding_->peerConnection->createOffer());
+			return DescriptionToObject(env, Peer()->createOffer());
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 			return env.Undefined();
@@ -1881,7 +1896,7 @@ private:
 	Napi::Value CreateAnswer(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			return DescriptionToObject(env, binding_->peerConnection->createAnswer());
+			return DescriptionToObject(env, Peer()->createAnswer());
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 			return env.Undefined();
@@ -1897,7 +1912,7 @@ private:
 			rtc::LocalDescriptionInit init;
 			if (info.Length() > 1)
 				init = ParseLocalDescriptionInit(info[1]);
-			binding_->peerConnection->setLocalDescription(ParseDescriptionType(type), init);
+			Peer()->setLocalDescription(ParseDescriptionType(type), init);
 			return env.Undefined();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -1911,7 +1926,7 @@ private:
 			Napi::Object object = info[0].As<Napi::Object>();
 			std::string type = object.Get("type").ToString().Utf8Value();
 			std::string sdp = object.Get("sdp").ToString().Utf8Value();
-			binding_->peerConnection->setRemoteDescription(rtc::Description(sdp, type));
+			Peer()->setRemoteDescription(rtc::Description(sdp, type));
 			return env.Undefined();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -1928,7 +1943,7 @@ private:
 			if (object.Has("sdpMid") && !object.Get("sdpMid").IsNull() &&
 			    !object.Get("sdpMid").IsUndefined())
 				mid = object.Get("sdpMid").ToString().Utf8Value();
-			binding_->peerConnection->addRemoteCandidate(rtc::Candidate(candidate, mid));
+			Peer()->addRemoteCandidate(rtc::Candidate(candidate, mid));
 			return env.Undefined();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -1939,7 +1954,7 @@ private:
 	Napi::Value GatherLocalCandidates(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			binding_->peerConnection->gatherLocalCandidates();
+			Peer()->gatherLocalCandidates();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 		}
@@ -1949,7 +1964,7 @@ private:
 	Napi::Value LocalDescription(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			auto description = binding_->peerConnection->localDescription();
+			auto description = Peer()->localDescription();
 			if (!description)
 				return env.Null();
 			return DescriptionToObject(env, *description);
@@ -1962,7 +1977,7 @@ private:
 	Napi::Value RemoteDescription(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			auto description = binding_->peerConnection->remoteDescription();
+			auto description = Peer()->remoteDescription();
 			if (!description)
 				return env.Null();
 			return DescriptionToObject(env, *description);
@@ -1975,7 +1990,7 @@ private:
 	Napi::Value RemoteFingerprint(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			auto fingerprint = binding_->peerConnection->remoteFingerprint();
+			auto fingerprint = Peer()->remoteFingerprint();
 			if (!fingerprint.isValid())
 				return env.Null();
 			Napi::Object result = Napi::Object::New(env);
@@ -1994,7 +2009,7 @@ private:
 		try {
 			rtc::Candidate local;
 			rtc::Candidate remote;
-			if (!binding_->peerConnection->getSelectedCandidatePair(&local, &remote))
+			if (!Peer()->getSelectedCandidatePair(&local, &remote))
 				return env.Null();
 			Napi::Object pair = Napi::Object::New(env);
 			pair.Set("local", CandidateToObject(env, local));
@@ -2010,16 +2025,17 @@ private:
 		Napi::Env env = info.Env();
 		try {
 			Napi::Object result = Napi::Object::New(env);
-			result.Set("bytesSent", Napi::Number::New(env, binding_->peerConnection->bytesSent()));
+			auto peer = Peer();
+			result.Set("bytesSent", Napi::Number::New(env, peer->bytesSent()));
 			result.Set("bytesReceived",
-			           Napi::Number::New(env, binding_->peerConnection->bytesReceived()));
-			auto rtt = binding_->peerConnection->rtt();
+			           Napi::Number::New(env, peer->bytesReceived()));
+			auto rtt = peer->rtt();
 			result.Set("roundTripTime",
 			           rtt ? Napi::Number::New(env, rtt->count() / 1000.0) : env.Null());
-			auto localAddress = binding_->peerConnection->localAddress();
+			auto localAddress = peer->localAddress();
 			result.Set("localAddress", localAddress ? Napi::String::New(env, *localAddress)
 			                                        : env.Null());
-			auto remoteAddress = binding_->peerConnection->remoteAddress();
+			auto remoteAddress = peer->remoteAddress();
 			result.Set("remoteAddress", remoteAddress ? Napi::String::New(env, *remoteAddress)
 			                                          : env.Null());
 			return result;
@@ -2031,7 +2047,7 @@ private:
 
 	Napi::Value ClearTransportStats(const Napi::CallbackInfo &info) {
 		try {
-			binding_->peerConnection->clearStats();
+			Peer()->clearStats();
 		} catch (const std::exception &e) {
 			Napi::Error::New(info.Env(), e.what()).ThrowAsJavaScriptException();
 		}
@@ -2048,27 +2064,27 @@ private:
 	}
 
 	Napi::Value GetConnectionState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->state()));
+		return Napi::String::New(info.Env(), ToString(Peer()->state()));
 	}
 
 	Napi::Value GetIceConnectionState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->iceState()));
+		return Napi::String::New(info.Env(), ToString(Peer()->iceState()));
 	}
 
 	Napi::Value GetIceGatheringState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->gatheringState()));
+		return Napi::String::New(info.Env(), ToString(Peer()->gatheringState()));
 	}
 
 	Napi::Value GetSignalingState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->signalingState()));
+		return Napi::String::New(info.Env(), ToString(Peer()->signalingState()));
 	}
 
 	Napi::Value GetRemoteMaxMessageSize(const Napi::CallbackInfo &info) {
-		return Napi::Number::New(info.Env(), binding_->peerConnection->remoteMaxMessageSize());
+		return Napi::Number::New(info.Env(), Peer()->remoteMaxMessageSize());
 	}
 
 	Napi::Value GetMaxDataChannelId(const Napi::CallbackInfo &info) {
-		return Napi::Number::New(info.Env(), binding_->peerConnection->maxDataChannelId());
+		return Napi::Number::New(info.Env(), Peer()->maxDataChannelId());
 	}
 };
 

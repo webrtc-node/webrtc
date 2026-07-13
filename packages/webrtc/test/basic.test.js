@@ -760,6 +760,26 @@ test("data-channel negotiation exposes an SCTP transport facade", async (t) => {
   answerer.close();
 });
 
+test("concurrent answer application retains native peer ownership", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
+  const channels = Array.from({ length: 20 }, (_, index) =>
+    offerer.createDataChannel(`concurrent-${index}`),
+  );
+
+  const offer = await offerer.createOffer();
+  await Promise.all([offerer.setLocalDescription(offer), answerer.setRemoteDescription(offer)]);
+  const answer = await answerer.createAnswer();
+  await Promise.all([offerer.setRemoteDescription(answer), answerer.setLocalDescription(answer)]);
+
+  assert.equal(
+    channels.every((channel) => channel.id !== null),
+    true,
+  );
+  assert.equal(new Set(channels.map((channel) => channel.id)).size, channels.length);
+});
+
 test("parameterless answer is applied during repeated data-channel renegotiation", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
