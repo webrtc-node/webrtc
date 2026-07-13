@@ -2807,7 +2807,9 @@ class RTCRtpSender {
     return this._track;
   }
   get transport() {
-    return this._transceiver._nativeTrack ? this._peerConnection._dtlsTransport : null;
+    return this._transceiver._nativeSendTrack || this._transceiver._nativeReceiveTrack
+      ? this._peerConnection._dtlsTransport
+      : null;
   }
   getParameters() {
     return senderRtpParameters(this._transceiver);
@@ -2861,7 +2863,9 @@ class RTCRtpReceiver {
     return this._track;
   }
   get transport() {
-    return this._transceiver._nativeTrack ? this._peerConnection._dtlsTransport : null;
+    return this._transceiver._nativeReceiveTrack || this._transceiver._nativeSendTrack
+      ? this._peerConnection._dtlsTransport
+      : null;
   }
   getStats() {
     return this._peerConnection.getStats(this);
@@ -2881,6 +2885,10 @@ class RTCRtpTransceiver {
     this._stopping = false;
     this._stopped = false;
     this._hasEverSent = false;
+    this._nativeSendTrack = null;
+    this._nativeReceiveTrack = null;
+    this._nativeAnnouncedReceiveTrack = null;
+    this._nativeReceiveTracks = new Set();
     this._sendEncodings = sendEncodings.length > 0 ? sendEncodings : [{ active: true }];
     this._senderTrackId = track?.id || crypto.randomUUID();
     this._sender = new RTCRtpSender(kInternalConstruct, peerConnection, track, streams);
@@ -3169,8 +3177,8 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver.sender._track = track;
       if (!transceiver._hasEverSent) transceiver._senderTrackId = track.id;
       transceiver.sender._streams = [...new Set(streams)];
-      if (transceiver._nativeTrack) {
-        mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeTrack);
+      if (transceiver._nativeSendTrack) {
+        mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeSendTrack);
       }
       if (transceiver.direction === "recvonly") transceiver._direction = "sendrecv";
       else if (transceiver.direction === "inactive") transceiver._direction = "sendonly";
@@ -3279,8 +3287,14 @@ class RTCPeerConnection extends SimpleEventTarget {
     for (const transceiver of this._transceivers) {
       if (transceiver._reusedForRemoteOffer) {
         transceiver._reusedForRemoteOffer = false;
-        const nativeTrack = transceiver._nativeTrack;
-        transceiver._nativeTrack = null;
+        const nativeTrack =
+          transceiver._nativeAnnouncedReceiveTrack ||
+          (transceiver._nativeReceiveTrack === transceiver._nativeSendTrack
+            ? null
+            : transceiver._nativeReceiveTrack);
+        transceiver._nativeReceiveTrack = null;
+        transceiver._nativeAnnouncedReceiveTrack = null;
+        if (nativeTrack) transceiver._nativeReceiveTracks.delete(nativeTrack);
         transceiver._mid = null;
         transceiver._currentDirection = null;
         if (nativeTrack) setImmediate(() => setImmediate(() => nativeTrack.close()));
@@ -3292,8 +3306,19 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver._stopped = true;
       transceiver._currentDirection = "stopped";
       transceiver._mid = null;
-      const nativeTrack = transceiver._nativeTrack;
-      if (nativeTrack) setImmediate(() => setImmediate(() => nativeTrack.close()));
+      const nativeTracks = new Set([
+        transceiver._nativeSendTrack,
+        transceiver._nativeReceiveTrack,
+        transceiver._nativeAnnouncedReceiveTrack,
+        ...transceiver._nativeReceiveTracks,
+      ]);
+      transceiver._nativeSendTrack = null;
+      transceiver._nativeReceiveTrack = null;
+      transceiver._nativeAnnouncedReceiveTrack = null;
+      transceiver._nativeReceiveTracks.clear();
+      for (const nativeTrack of nativeTracks) {
+        if (nativeTrack) setImmediate(() => setImmediate(() => nativeTrack.close()));
+      }
       this._queueReceiverTrackEnded(transceiver, true);
     }
   }
@@ -3314,7 +3339,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _detachSenderSource(sender) {
-    mediaTrackSources.get(sender.track)?._detachNativeTrack?.(sender._transceiver._nativeTrack);
+    mediaTrackSources.get(sender.track)?._detachNativeTrack?.(sender._transceiver._nativeSendTrack);
   }
 
   _replaceSenderTrack(sender, track) {
@@ -3326,8 +3351,8 @@ class RTCPeerConnection extends SimpleEventTarget {
     if (track) this._assertTrackCompatibleWithTransceiver(transceiver, track);
     this._detachSenderSource(sender);
     sender._track = track;
-    if (track && transceiver._nativeTrack) {
-      mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeTrack);
+    if (track && transceiver._nativeSendTrack) {
+      mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeSendTrack);
     }
   }
 
@@ -3339,15 +3364,15 @@ class RTCPeerConnection extends SimpleEventTarget {
       if (transceiver._remoteStopping) continue;
       const nativeDirection = this._answerDirectionFor(transceiver) || transceiver.direction;
       const nativeSends = nativeDirection === "sendrecv" || nativeDirection === "sendonly";
-      if (transceiver._nativeTrack) {
-        transceiver._nativeTrack.updateDescription(nativeDirection, transceiver.stopping);
-        transceiver._nativeTrack.updateStreams(
+      const existingNativeTrack = transceiver._nativeSendTrack || transceiver._nativeReceiveTrack;
+      if (existingNativeTrack) {
+        transceiver._nativeSendTrack = existingNativeTrack;
+        existingNativeTrack.updateDescription(nativeDirection, transceiver.stopping);
+        existingNativeTrack.updateStreams(
           transceiver.sender._streams.map((stream) => stream.id),
           nativeSends ? transceiver._senderTrackId : null,
         );
-        mediaTrackSources
-          .get(transceiver.sender.track)
-          ?._attachNativeTrack?.(transceiver._nativeTrack);
+        mediaTrackSources.get(transceiver.sender.track)?._attachNativeTrack?.(existingNativeTrack);
         continue;
       }
       if (transceiver.stopping) {
@@ -3383,10 +3408,13 @@ class RTCPeerConnection extends SimpleEventTarget {
         (events) => {
           for (const event of Array.isArray(events) ? events : [events]) {
             source?._handleNativeEvent?.(event, nativeTrack);
+            const receiverSource = mediaTrackSources.get(transceiver.receiver.track);
+            if (receiverSource !== source) receiverSource?._handleNativeEvent?.(event, nativeTrack);
           }
         },
       );
-      transceiver._nativeTrack = nativeTrack;
+      transceiver._nativeSendTrack = nativeTrack;
+      transceiver._nativeReceiveTracks.add(nativeTrack);
       this._ensureDtlsTransport();
       transceiver._mid = mid;
       this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
@@ -3421,7 +3449,7 @@ class RTCPeerConnection extends SimpleEventTarget {
             entry._kind === media[1].toLowerCase() &&
             !entry.stopped &&
             !entry.stopping &&
-            !entry._nativeTrack,
+            !entry._nativeReceiveTrack,
         );
         if (transceiver) transceiver._reusedForRemoteOffer = true;
         else {
@@ -3494,7 +3522,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           entry._kind === nativeTrack.kind &&
           !entry.stopped &&
           !entry.stopping &&
-          !entry._nativeTrack,
+          !entry._nativeReceiveTrack,
       );
       reusedForRemoteOffer = Boolean(transceiver);
     }
@@ -3509,16 +3537,17 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver._provisionalRemoteOffer = true;
     }
     transceiver._mid = nativeTrack.mid;
-    transceiver._nativeTrack = nativeTrack;
+    transceiver._nativeAnnouncedReceiveTrack = nativeTrack;
+    transceiver._nativeReceiveTracks.add(nativeTrack);
+    transceiver._nativeReceiveTrack ||= transceiver._nativeSendTrack || nativeTrack;
     this._ensureDtlsTransport();
-    mediaTrackSources.get(transceiver.sender.track)?._attachNativeTrack?.(nativeTrack);
     const remoteDescription =
       this._pendingRemoteDescription ||
       this._currentRemoteDescription ||
       this._native?.remoteDescription?.();
     const streams = this._applyRemoteTrackAssociations(transceiver, remoteDescription);
     const associationKey = this._remoteTrackAssociationKey(transceiver, remoteDescription);
-    this._ensureRemoteTrackSource(transceiver, nativeTrack);
+    this._ensureRemoteTrackSource(transceiver, transceiver._nativeReceiveTrack);
     this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
     const remoteDirection = mediaDirectionByMid(remoteDescription, transceiver.mid);
     if (remoteDirection === "sendrecv" || remoteDirection === "sendonly") {
@@ -3592,7 +3621,8 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _updateRemoteTrackAssociations(description) {
     for (const transceiver of this._transceivers) {
-      if (!transceiver._nativeTrack || transceiver.stopped || transceiver.mid === null) continue;
+      if (!transceiver._nativeReceiveTrack || transceiver.stopped || transceiver.mid === null)
+        continue;
       const remoteDirection = mediaDirectionByMid(description, transceiver.mid);
       if (remoteDirection !== "sendrecv" && remoteDirection !== "sendonly") continue;
       const associationKey = this._remoteTrackAssociationKey(transceiver, description);
@@ -3684,8 +3714,23 @@ class RTCPeerConnection extends SimpleEventTarget {
       return transceiver.sender.track === selector || transceiver.receiver.track === selector;
     });
     for (const transceiver of selectedTransceivers) {
-      if (!transceiver._nativeTrack) continue;
-      const stats = transceiver._nativeTrack.stats();
+      const sendStats = transceiver._nativeSendTrack?.stats();
+      const receiveTracks = new Set([
+        ...transceiver._nativeReceiveTracks,
+        transceiver._nativeReceiveTrack,
+        transceiver._nativeAnnouncedReceiveTrack,
+      ]);
+      let receiveTrack = null;
+      let receiveStats = null;
+      for (const candidate of receiveTracks) {
+        if (!candidate) continue;
+        const candidateStats = candidate.stats();
+        if (!receiveStats || candidateStats.packetsReceived > receiveStats.packetsReceived) {
+          receiveTrack = candidate;
+          receiveStats = candidateStats;
+        }
+      }
+      if (!sendStats && !receiveStats) continue;
       const source = mediaTrackSources.get(transceiver.sender.track);
       const includeOutbound =
         selector === null ||
@@ -3708,20 +3753,24 @@ class RTCPeerConnection extends SimpleEventTarget {
           ssrc: source?.ssrc ?? transceiver._ssrc,
           kind: transceiver._kind,
           mid: transceiver.mid,
-          packetsSent: stats.packetsSent,
-          bytesSent: stats.bytesSent,
+          packetsSent: sendStats?.packetsSent ?? 0,
+          bytesSent: sendStats?.bytesSent ?? 0,
         });
       }
-      if (includeInbound && (stats.packetsReceived > 0 || stats.bytesReceived > 0)) {
+      if (
+        includeInbound &&
+        receiveStats &&
+        (receiveStats.packetsReceived > 0 || receiveStats.bytesReceived > 0)
+      ) {
         report._set({
           id: `inbound-rtp-${transceiver.mid}`,
           timestamp,
           type: "inbound-rtp",
-          ssrc: transceiver._nativeTrack.ssrc ?? 0,
+          ssrc: receiveTrack?.ssrc ?? 0,
           kind: transceiver._kind,
           mid: transceiver.mid,
-          packetsReceived: stats.packetsReceived,
-          bytesReceived: stats.bytesReceived,
+          packetsReceived: receiveStats.packetsReceived,
+          bytesReceived: receiveStats.bytesReceived,
         });
       }
     }
@@ -5428,7 +5477,10 @@ class RTCPeerConnection extends SimpleEventTarget {
         transceiver._stopped = true;
         transceiver._currentDirection = "stopped";
         transceiver._mid = null;
-        transceiver._nativeTrack?.close();
+        transceiver._nativeSendTrack?.close();
+        transceiver._nativeReceiveTrack?.close();
+        transceiver._nativeAnnouncedReceiveTrack?.close();
+        for (const nativeTrack of transceiver._nativeReceiveTracks) nativeTrack.close();
         this._queueReceiverTrackEnded(transceiver);
         continue;
       }
@@ -5440,7 +5492,10 @@ class RTCPeerConnection extends SimpleEventTarget {
         transceiver._stopped = true;
         transceiver._currentDirection = "stopped";
         transceiver._mid = null;
-        transceiver._nativeTrack?.close();
+        transceiver._nativeSendTrack?.close();
+        transceiver._nativeReceiveTrack?.close();
+        transceiver._nativeAnnouncedReceiveTrack?.close();
+        for (const nativeTrack of transceiver._nativeReceiveTracks) nativeTrack.close();
         this._queueReceiverTrackEnded(transceiver);
         continue;
       }

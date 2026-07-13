@@ -536,6 +536,7 @@ const defaultSpecs = [
     file: "webrtc/RTCRtpReceiver-getStats.https.html",
     search: "?interop-2026",
     include: [
+      "via addTransceiver should return stats report containing inbound-rtp stats",
       "via addTrack should return stats report containing inbound-rtp stats",
       "closed PeerConnection but not have inbound-rtp objects",
     ],

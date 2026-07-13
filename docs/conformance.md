@@ -7,7 +7,7 @@ This experimental branch targets the WebRTC peer-connection, data-channel,
 encoded-media, and reliable-statistics surfaces exposed through
 `@webrtc-node/webrtc`.
 
-The current selected suite contains **774 expected-passing WPT subtests**. CI
+The current selected suite contains **775 expected-passing WPT subtests**. CI
 validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
 smoke check.

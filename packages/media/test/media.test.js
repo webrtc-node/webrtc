@@ -35,20 +35,20 @@ async function negotiate(offerer, answerer) {
   await offerer.setRemoteDescription(answerer.localDescription);
 }
 
-function rtpPacket(sequenceNumber = 1) {
+function rtpPacket(sequenceNumber = 1, payloadType = 96, ssrc = 42) {
   return Uint8Array.from([
     0x80,
-    96,
+    payloadType,
     sequenceNumber >> 8,
     sequenceNumber & 0xff,
     0,
     0,
     0,
     sequenceNumber,
-    0,
-    0,
-    0,
-    42,
+    ssrc >> 24,
+    (ssrc >> 16) & 0xff,
+    (ssrc >> 8) & 0xff,
+    ssrc & 0xff,
     1,
     2,
     3,
@@ -73,6 +73,54 @@ test("EncodedMediaSource provides a standard MediaStreamTrack", async () => {
   } finally {
     source.close();
     peer.close();
+  }
+});
+
+test("answerer-supplied encoded RTP reaches the offerer receiver", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const source = new EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+    ssrc: 43,
+  });
+  let sink;
+  try {
+    const { receiver } = offerer.addTransceiver("audio");
+    answerer.addTrack(source.track);
+    offerer.onicecandidate = ({ candidate }) =>
+      candidate && answerer.addIceCandidate(candidate).catch(() => {});
+    answerer.onicecandidate = ({ candidate }) =>
+      candidate && offerer.addIceCandidate(candidate).catch(() => {});
+    const unmuted = waitFor(receiver.track, "unmute");
+
+    await negotiate(offerer, answerer);
+    sink = new EncodedMediaSink(receiver.track);
+    const packetEvent = waitFor(sink, "packet");
+    const received = Promise.all([unmuted, packetEvent]);
+    let delivered = false;
+    received.then(() => {
+      delivered = true;
+    });
+    for (let sequenceNumber = 1; sequenceNumber <= 200 && !delivered; sequenceNumber += 1) {
+      try {
+        source.send(rtpPacket(sequenceNumber, 111, 43));
+      } catch (error) {
+        if (!/Track is not open/.test(error.message)) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const [, packet] = await received;
+    assert.equal(new Uint8Array(packet.data)[0], 0x80);
+
+    const inbound = [...(await receiver.getStats()).values()];
+    assert.equal(inbound[0].type, "inbound-rtp");
+    assert.ok(inbound[0].packetsReceived > 0);
+  } finally {
+    sink?.close();
+    source.close();
+    offerer.close();
+    answerer.close();
   }
 });
 

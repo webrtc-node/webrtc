@@ -73,13 +73,12 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   existing track. The facade detects changed remote associations from SDP, updates stream
   membership, preserves the encoded packet listener source, and queues the W3C-required repeated
   `track` event without duplicating native callbacks.
-- A bidirectional m-line may have distinct libdatachannel track handles for the locally created
-  sender and the remotely announced receiver even though both use the same `mid`. The binding must
-  retain separate native send/receive owners, callback registrations, and counters under one
-  JavaScript transceiver. Collapsing both handles into `_nativeTrack`, deduplicating them by `mid`,
-  or allowing either wrapper destructor to reset the other's callbacks loses answerer-started RTP
-  after negotiation. `RTCRtpReceiver-getStats.https.html`'s add-transceiver case remains outside
-  expected-pass until this ownership split has native teardown and GC coverage.
+- A bidirectional m-line may have multiple libdatachannel track handles for the locally created
+  sender and remotely announced receiver even though all use the same `mid`. The facade retains
+  separate send ownership plus every announced receive handle under one JavaScript transceiver.
+  Packet callbacks route to the stable receiver source, and inbound stats select the retained
+  receive view with authoritative packet counters without summing duplicate views. Focused package
+  flow and `RTCRtpReceiver-getStats.https.html` cover answerer-started RTP, teardown, and filtering.
 - Negotiation-needed state is revision-based: an applied local offer suppresses changes it
   represents, rollback restores unrepresented changes, and mutations made after offer creation are
   queued until signaling returns to stable.
