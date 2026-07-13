@@ -427,6 +427,8 @@ const defaultSpecs = [
     include: ["Tests that a removal from a MediaStream works as expected"],
   },
   { file: "mediacapture-streams/MediaStream-finished-add.https.html" },
+  { file: "mediacapture-streams/MediaStream-add-audio-track.https.html" },
+  { file: "mediacapture-streams/MediaStreamTrack-init.https.html" },
   {
     file: "webrtc/RTCRtpSender-replaceTrack.https.html",
     include: [
