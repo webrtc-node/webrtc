@@ -26,6 +26,18 @@ const shardCount = Number(process.env.WPT_SHARD_COUNT || 1);
 const shardIndex = Number(process.env.WPT_SHARD_INDEX || 0);
 const logPrefix = process.env.WPT_LOG_PREFIX || "";
 
+const mapIteratorPrototype = Object.getPrototypeOf(new Map().values());
+if (typeof mapIteratorPrototype.find !== "function") {
+  Object.defineProperty(mapIteratorPrototype, "find", {
+    configurable: true,
+    value(predicate) {
+      for (const value of this) if (predicate(value)) return value;
+      return undefined;
+    },
+    writable: true,
+  });
+}
+
 if (!Number.isInteger(shardCount) || shardCount < 1) {
   throw new Error("WPT_SHARD_COUNT must be a positive integer");
 }
@@ -1236,13 +1248,15 @@ function runSpecWorker(spec, index, extraEnv = {}) {
   if (!childSummary?.results) {
     const resultPath = `${spec.file}${spec.search || ""}`;
     const output = [outcome.child.stderr, outcome.child.stdout].filter(Boolean).join("\n").trim();
+    const workerName = spec.includeExact?.length === 1 ? spec.includeExact[0] : "worker process";
     recordResult({
       file: resultPath,
-      name: "worker process",
+      name: workerName,
       status: "FAIL",
       message:
         output ||
         outcome.child.error?.message ||
+        (outcome.child.signal ? `worker terminated by ${outcome.child.signal}` : null) ||
         `worker exited with status ${outcome.child.status}`,
       ...(retryCount > 0 ? { retries: retryCount, retryAttempts } : {}),
     });
