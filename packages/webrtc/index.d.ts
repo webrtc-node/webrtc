@@ -418,6 +418,15 @@ export interface RTCTransportStats extends RTCStats {
   readonly dtlsState: RTCDtlsTransportState;
   readonly iceState: RTCIceTransportState;
   readonly selectedCandidatePairId?: string;
+  readonly localCertificateId?: string;
+  readonly remoteCertificateId?: string;
+}
+
+export interface RTCCertificateStats extends RTCStats {
+  readonly type: "certificate";
+  readonly fingerprint: string;
+  readonly fingerprintAlgorithm: string;
+  readonly base64Certificate: string;
 }
 
 export interface RTCIceCandidateStats extends RTCStats {
@@ -474,6 +483,7 @@ export type RTCStatsEntry =
   | RTCPeerConnectionStats
   | RTCDataChannelStats
   | RTCTransportStats
+  | RTCCertificateStats
   | RTCIceCandidateStats
   | RTCIceCandidatePairStats
   | RTCCodecStats

@@ -72,6 +72,11 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   remote-candidate, and succeeded candidate-pair dictionaries derived from the parsed native
   candidates. Candidate-pair byte counts and RTT are omitted because the available aggregate
   transport counters are SCTP-level and cannot be attributed reliably to the pair.
+- Reports include the local certificate fingerprint and DER bytes retained by the binding. They
+  include a remote certificate dictionary only for in-process peers where the verified peer's
+  retained DER is authoritative. Libdatachannel's DTLS callbacks reduce external peer certificates
+  to a fingerprint and do not retain or publicly expose their DER, so external remote certificate
+  stats are omitted rather than reconstructed.
 - Sender stream and track IDs are written as media-level `a=msid` attributes. The facade parses
   those attributes from remote SDP, preserves remote `MediaStream` identity by ID, and dispatches
   `track` only after the remote-description operation resolves.

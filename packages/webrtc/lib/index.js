@@ -556,6 +556,26 @@ function certificatePemToArrayBuffer(pem) {
   return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
 }
 
+function certificateStats(id, certificate, timestamp) {
+  const material = getCertificateMaterial(certificate);
+  const fingerprint = certificate?.getFingerprints?.()[0];
+  if (!material || !fingerprint) return null;
+  try {
+    return {
+      id,
+      timestamp,
+      type: "certificate",
+      fingerprint: fingerprint.value,
+      fingerprintAlgorithm: fingerprint.algorithm,
+      base64Certificate: Buffer.from(certificatePemToArrayBuffer(material.certificatePem)).toString(
+        "base64",
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function generateCertificate(algorithm) {
   try {
     const normalizedAlgorithm = normalizeCertificateAlgorithm(algorithm);
@@ -3817,8 +3837,30 @@ class RTCPeerConnection extends SimpleEventTarget {
         });
       }
     }
-    if (selector === null) {
+    {
       const stats = this._native.transportStats();
+      const localCertificate = certificateStats(
+        "local-certificate-0",
+        this._nativeCertificates?.[0],
+        timestamp,
+      );
+      const pairedRemoteCertificate = certificateStats(
+        "remote-certificate-0",
+        this._pairedPeer?._nativeCertificates?.[0],
+        timestamp,
+      );
+      const verifiedRemoteFingerprint = this._native.remoteFingerprint();
+      const remoteCertificate =
+        this._dtlsTransport?.state === "connected" &&
+        pairedRemoteCertificate &&
+        verifiedRemoteFingerprint &&
+        pairedRemoteCertificate.fingerprintAlgorithm === verifiedRemoteFingerprint.algorithm &&
+        pairedRemoteCertificate.fingerprint.toLowerCase() ===
+          String(verifiedRemoteFingerprint.value).toLowerCase()
+          ? pairedRemoteCertificate
+          : null;
+      if (localCertificate) report._set(localCertificate);
+      if (remoteCertificate) report._set(remoteCertificate);
       report._set({
         id: "transport-0",
         timestamp,
@@ -3828,6 +3870,8 @@ class RTCPeerConnection extends SimpleEventTarget {
         dtlsState: this._dtlsTransport?.state ?? "new",
         iceState: this._dtlsTransport?.iceTransport.state ?? "new",
         ...(selectedPair ? { selectedCandidatePairId: "candidate-pair-0" } : {}),
+        ...(localCertificate ? { localCertificateId: localCertificate.id } : {}),
+        ...(remoteCertificate ? { remoteCertificateId: remoteCertificate.id } : {}),
       });
     }
     if (selectedPair) {

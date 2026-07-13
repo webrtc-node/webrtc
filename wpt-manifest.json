@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 814,
-  "selectedSubtestsSha256": "1805a2a05fe73c254756855c8676dee107e026b6308814e888c4ccd7fca7e5a9",
+  "expectedSelectedSubtests": 819,
+  "selectedSubtestsSha256": "6ac9fb7b3e2c2ff6942049dfd0a329419e37165c793f0071b0020aed3b0d773f",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -140,7 +140,7 @@
     "webrtc/RTCPeerConnection-perfect-negotiation*.html#media-lifecycle-cases",
     "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
     "webrtc/RTCPeerConnection-getStats.https.html#remaining-detailed-backend-stats-cases",
-    "webrtc/RTCPeerConnection-mandatory-getStats.https.html#loss-jitter-remote-report-decoded-source-pair-metrics-and-certificate-cases",
+    "webrtc/RTCPeerConnection-mandatory-getStats.https.html#loss-jitter-remote-report-decoded-source-and-pair-metric-cases",
     "webrtc/RTCRtp*.html#remaining-rtp-parameters-and-capabilities-cases"
   ],
   "expectedFail": [

@@ -270,6 +270,15 @@ test("standard track event exposes encoded RTP through an optional sink", async 
     );
     assert.equal(senderStats.find((entry) => entry.type === "outbound-rtp").packetsSent, 1);
     assert.ok(senderStats.some((entry) => entry.type === "candidate-pair"));
+    const senderTransport = senderStats.find((entry) => entry.type === "transport");
+    assert.equal(
+      senderStats.find((entry) => entry.id === senderTransport.localCertificateId).type,
+      "certificate",
+    );
+    assert.equal(
+      senderStats.find((entry) => entry.id === senderTransport.remoteCertificateId).type,
+      "certificate",
+    );
     assert.deepEqual(
       inbound.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["inbound-rtp"],
@@ -287,6 +296,15 @@ test("standard track event exposes encoded RTP through an optional sink", async 
     );
     assert.equal(receiverStats.find((entry) => entry.type === "inbound-rtp").packetsReceived, 1);
     assert.ok(receiverStats.some((entry) => entry.type === "candidate-pair"));
+    const receiverTransport = receiverStats.find((entry) => entry.type === "transport");
+    assert.equal(
+      receiverStats.find((entry) => entry.id === receiverTransport.localCertificateId).type,
+      "certificate",
+    );
+    assert.equal(
+      receiverStats.find((entry) => entry.id === receiverTransport.remoteCertificateId).type,
+      "certificate",
+    );
 
     const reassociatedStream = new MediaStream([source.track]);
     sender.setStreams(reassociatedStream);

@@ -53,6 +53,12 @@ decoded-media and media-source measurements, playout, bandwidth estimation,
 candidate-pair traffic/RTT, and remote RTP reports are omitted rather than
 fabricated.
 
+Local certificate stats use the exact X.509 DER configured on the native peer.
+Remote certificate stats are emitted only for connected in-process peers when
+the retained peer DER matches libdatachannel's verified remote fingerprint.
+Libdatachannel does not expose the verified DER chain for external peers, so
+those reports omit `remoteCertificateId` and the remote certificate dictionary.
+
 ## RTCConfiguration
 
 The JS facade validates and stores W3C-shaped `RTCConfiguration` dictionaries,

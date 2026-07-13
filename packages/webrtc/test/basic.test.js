@@ -875,6 +875,15 @@ test("connected data-channel ICE transports expose candidate pairs", async (t) =
   assert.equal(stats.get("candidate-pair-0").localCandidateId, "local-candidate-0");
   assert.equal(stats.get("candidate-pair-0").remoteCandidateId, "remote-candidate-0");
   assert.equal(stats.get("transport-0").selectedCandidatePairId, "candidate-pair-0");
+  const transport = stats.get("transport-0");
+  const localCertificate = stats.get(transport.localCertificateId);
+  const remoteCertificate = stats.get(transport.remoteCertificateId);
+  assert.equal(localCertificate.type, "certificate");
+  assert.equal(localCertificate.fingerprintAlgorithm, "sha-256");
+  assert.ok(Buffer.from(localCertificate.base64Certificate, "base64").byteLength > 0);
+  assert.equal(remoteCertificate.type, "certificate");
+  assert.equal(remoteCertificate.fingerprintAlgorithm, "sha-256");
+  assert.ok(Buffer.from(remoteCertificate.base64Certificate, "base64").byteLength > 0);
   assert.equal(stats.get("local-candidate-0").address, offererPair.local.address);
   assert.equal(stats.get("remote-candidate-0").address, offererPair.remote.address);
 

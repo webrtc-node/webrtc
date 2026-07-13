@@ -197,26 +197,34 @@ The named WPT files are from pinned WPT commit
    `webrtc/RTCIceConnectionState-candidate-pair.https.html`.
 2. **Source inspected.** `src/impl/transport.hpp`,
    `src/impl/icetransport.hpp`, `src/impl/icetransport.cpp`,
-   `src/impl/dtlstransport.hpp`, `src/impl/dtlssrtptransport.hpp`,
+   `src/impl/dtlstransport.hpp`, `src/impl/dtlstransport.cpp`,
+   `src/impl/dtlssrtptransport.hpp`,
    `src/impl/dtlssrtptransport.cpp`, `src/impl/peerconnection.hpp`,
    `src/impl/peerconnection.cpp`, `include/rtc/peerconnection.hpp`.
 3. **Absence evidence.** ICE, DTLS, and DTLS-SRTP have internal state callbacks,
    but public peer API exposes only aggregate peer/ICE state. It provides selected
    candidates and addresses, but no public transport handles, DTLS-SRTP state,
-   selected-pair change callback, pair counters, consent state, or ICE RTT.
+   selected-pair change callback, pair counters, consent state, or ICE RTT. The
+   TLS-specific certificate verification callbacks receive the peer certificate
+   but retain only its fingerprint; the public API does not expose the verified
+   DER certificate chain.
 4. **Current workaround.** The facade creates stable `RTCDtlsTransport` and
    `RTCIceTransport` objects, maps aggregate events, and polls selected pairs.
    SCTP bytes stand in for pair traffic; media-only traffic cannot be represented.
+   Local certificate stats use binding-retained DER. Remote certificate stats
+   are complete only for paired in-process peers, where the remote binding owns
+   authoritative DER; external peers expose only their verified fingerprint.
 5. **Why insufficient.** Aggregate state loses layer transitions and SCTP
    counters are wrong for media-only/mixed traffic. JavaScript object identity
    stays, but inferred facts and counters are removable.
 6. **Proposed upstream API.** Expose value-only `IceTransportSnapshot` and
    `DtlsTransportSnapshot` with state, role, selected pair/generation,
-   packet/octet counters, and optional RTT. Dispatch state/pair callbacks on
-   `Processor`; do not expose internal pointers across teardown threads.
+   packet/octet counters, optional RTT, and a copied verified peer certificate
+   chain in DER form. Dispatch state/pair callbacks on `Processor`; do not expose
+   internal pointers across teardown threads.
 7. **Required native tests.** ICE and DTLS transitions, selected-pair change,
-   media-only and mixed counters, close during callback, libjuice/libnice, and
-   TLS/SRTP backend matrices.
+   media-only and mixed counters, copied remote certificate lifetime and chain
+   order, close during callback, libjuice/libnice, and TLS/SRTP backend matrices.
 8. **Compatibility/build options.** Preserve aggregate APIs and make unavailable
    backend fields optional. SRTP counters require `RTC_ENABLE_MEDIA`.
 9. **Upstream links.** No matching issue or released API found as of 2026-07-13.

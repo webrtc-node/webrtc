@@ -99,6 +99,8 @@ const supportedMandatoryStatsTests = [
   "RTCTransportStats's bytesSent",
   "RTCTransportStats's bytesReceived",
   "RTCTransportStats's selectedCandidatePairId",
+  "RTCTransportStats's localCertificateId",
+  "RTCTransportStats's remoteCertificateId",
   "RTCIceCandidatePairStats's transportId",
   "RTCIceCandidatePairStats's localCandidateId",
   "RTCIceCandidatePairStats's remoteCandidateId",
@@ -108,6 +110,9 @@ const supportedMandatoryStatsTests = [
   "RTCIceCandidateStats's port",
   "RTCIceCandidateStats's protocol",
   "RTCIceCandidateStats's candidateType",
+  "RTCCertificateStats's fingerprint",
+  "RTCCertificateStats's fingerprintAlgorithm",
+  "RTCCertificateStats's base64Certificate",
 ];
 
 const defaultSpecs = [
