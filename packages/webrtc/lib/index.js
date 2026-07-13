@@ -4485,7 +4485,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     for (const transceiver of this._transceivers) {
       transceiver._stopping = false;
       transceiver._stopped = true;
-      transceiver._currentDirection = null;
+      transceiver._currentDirection = "stopped";
       const receiverTrack = transceiver.receiver.track;
       if (receiverTrack.readyState !== "ended") {
         const source = mediaTrackSources.get(receiverTrack);

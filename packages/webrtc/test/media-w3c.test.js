@@ -107,6 +107,15 @@ test("addTransceiver exposes standard sender receiver and direction state", () =
   }
 });
 
+test("closing a peer moves transceivers to their terminal state", () => {
+  const peer = new RTCPeerConnection();
+  const transceiver = peer.addTransceiver("audio");
+  peer.close();
+  assert.equal(transceiver.stopped, true);
+  assert.equal(transceiver.stopping, false);
+  assert.equal(transceiver.currentDirection, "stopped");
+});
+
 test("RTP endpoints expose the shared bundled DTLS and ICE transport", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();

@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 714,
-  "selectedSubtestsSha256": "5ecfe2f16f8d16fe162c25001a896323b81dfd258f64ee2fbe8c201c7cf177d3",
+  "expectedSelectedSubtests": 737,
+  "selectedSubtestsSha256": "0daee4ec0355bd4f4cd5b3e90cf18e07952f29a9033d5c93f1cceff93326717d",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -91,6 +91,7 @@
     "mediacapture-streams/MediaStream-finished-add.https.html",
     "mediacapture-streams/MediaStream-add-audio-track.https.html",
     "mediacapture-streams/MediaStreamTrack-init.https.html",
+    "webrtc/RTCPeerConnection-transceivers.https.html#construction-msection-reuse-and-close-subset",
     "webrtc/RTCRtpSender-replaceTrack.https.html#non-capture-lifecycle-subset",
     "webrtc/RTCPeerConnection-addTrack.https.html",
     "webrtc/RTCPeerConnection-addTransceiver.https.html#non-capture-subset",
@@ -130,6 +131,11 @@
     "webrtc/RTCPeerConnection-iceConnectionState.https.html#remaining-transport-object-and-media-cases",
     "webrtc/RTCPeerConnection-connectionState.https.html#remaining-transport-object-and-media-cases",
     "webrtc/RTCPeerConnection-onsignalingstatechanged.https.html",
+    "webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html#encoded-source-flow-harness",
+    "webrtc/RTCPeerConnection-ontrack.https.html#remaining-track-event-lifecycle-cases",
+    "webrtc/RTCPeerConnection-transceivers.https.html#remaining-negotiation-and-track-event-cases",
+    "webrtc/RTCPeerConnection-perfect-negotiation*.html#media-lifecycle-cases",
+    "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
     "webrtc/RTCPeerConnection-getStats.https.html#remaining-detailed-backend-stats-cases",
     "webrtc/RTCRtp*.html#remaining-rtp-parameters-and-capabilities-cases"
   ],
@@ -151,11 +157,6 @@
     "webrtc/RTCPeerConnection-getStats.https.html#capture-source-cases",
     "webrtc/RTCRtp*.html#capture-source-and-processing-cases",
     "webrtc/RTCRtpTransceiver-stopping.https.html?rest#mediaDevices-glare-cases",
-    "webrtc/RTCPeerConnection-addTransceiver-renegotiation*.html",
-    "webrtc/RTCPeerConnection-ontrack*.html",
-    "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
-    "webrtc/RTCPeerConnection-transceivers*.html",
-    "webrtc/RTCPeerConnection-perfect-negotiation*.html#media",
     "webrtc/idlharness.https.window.js#media-and-browser-only-members"
   ]
 }
