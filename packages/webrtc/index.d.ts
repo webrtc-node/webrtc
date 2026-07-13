@@ -328,9 +328,37 @@ export class RTCRtpSender {
   private constructor();
   readonly track: MediaStreamTrack | null;
   readonly transport: RTCDtlsTransport | null;
+  getParameters(): RTCRtpSendParameters;
   replaceTrack(track: MediaStreamTrack | null): Promise<void>;
   setStreams(...streams: MediaStream[]): void;
   getStats(): Promise<RTCStatsReport>;
+}
+
+export interface RTCRtpCodecParameters {
+  payloadType: number;
+  mimeType: string;
+  clockRate: number;
+  channels?: number;
+  sdpFmtpLine?: string;
+}
+
+export interface RTCRtpHeaderExtensionParameters {
+  uri: string;
+  id: number;
+  encrypted: boolean;
+}
+
+export interface RTCRtpEncodingParameters {
+  rid?: string;
+  active?: boolean;
+}
+
+export interface RTCRtpSendParameters {
+  transactionId: string;
+  encodings: RTCRtpEncodingParameters[];
+  headerExtensions: RTCRtpHeaderExtensionParameters[];
+  rtcp: { reducedSize: boolean; cname?: string };
+  codecs: RTCRtpCodecParameters[];
 }
 
 export class RTCRtpReceiver {

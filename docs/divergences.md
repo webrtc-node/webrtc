@@ -211,6 +211,21 @@ candidate insertion, and end-of-candidates mutation in
 `RTCPeerConnection-addIceCandidate.html`. Operations-chain timing and
 media-transceiver connection setup remain outside the selected scope.
 
+## RTP sender parameters
+
+`RTCRtpSender.getParameters()` preserves the sender's initialized encoding
+state and derives codec, header-extension, and reduced-size RTCP fields from the
+committed answer SDP. Returned dictionaries are snapshots and do not mutate
+the sender. libdatachannel's generated media SDP currently has no `extmap`
+lines, so `headerExtensions` is empty rather than populated with invented
+browser defaults. Runtime `setParameters()` controls are not exposed until the
+encoded-media backend can apply them reliably.
+
+Impact: the complete `RTCPeerConnection-transceivers.https.html` file passes,
+including initialized `sendEncodings[0].active`. The broader
+`RTCRtpSender-getParameters.html` case remains outside expected-pass because it
+requires at least one negotiated RTP header extension.
+
 ## ICE candidate errors
 
 `RTCPeerConnectionIceErrorEvent` and the `onicecandidateerror` handler

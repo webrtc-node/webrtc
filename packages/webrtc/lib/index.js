@@ -989,6 +989,55 @@ function parseSdpMediaSections(sdp) {
   return { sessionLines, mediaSections };
 }
 
+function senderRtpParameters(transceiver) {
+  const peer = transceiver._peerConnection;
+  const answer =
+    peer._currentLocalDescription?.type === "answer"
+      ? peer._currentLocalDescription
+      : peer._currentRemoteDescription?.type === "answer"
+        ? peer._currentRemoteDescription
+        : null;
+  const section = parseSdpMediaSections(answer?.sdp || "").mediaSections.find(
+    (entry) => entry.mid === transceiver.mid,
+  );
+  const codecs = [];
+  const headerExtensions = [];
+  if (section) {
+    const kind = transceiver._kind;
+    const payloadTypes = section.startLine.split(/\s+/).slice(3);
+    for (const payloadTypeText of payloadTypes) {
+      const payloadType = Number(payloadTypeText);
+      const rtpmap = section.lines.find((line) => line.startsWith(`a=rtpmap:${payloadTypeText} `));
+      if (!Number.isInteger(payloadType) || !rtpmap) continue;
+      const encoding = rtpmap.slice(rtpmap.indexOf(" ") + 1).split("/");
+      const clockRate = Number(encoding[1]);
+      if (!encoding[0] || !Number.isInteger(clockRate)) continue;
+      const codec = {
+        payloadType,
+        mimeType: `${kind}/${encoding[0]}`,
+        clockRate,
+      };
+      const channels = Number(encoding[2]);
+      if (Number.isInteger(channels)) codec.channels = channels;
+      const fmtp = section.lines.find((line) => line.startsWith(`a=fmtp:${payloadTypeText} `));
+      if (fmtp) codec.sdpFmtpLine = fmtp.slice(fmtp.indexOf(" ") + 1);
+      codecs.push(codec);
+    }
+    for (const line of section.lines) {
+      const match = /^a=extmap:(\d+)(?:\/\S+)?\s+(\S+)/.exec(line);
+      if (!match) continue;
+      headerExtensions.push({ uri: match[2], id: Number(match[1]), encrypted: false });
+    }
+  }
+  return {
+    transactionId: crypto.randomUUID(),
+    encodings: transceiver._sendEncodings.map((encoding) => ({ ...encoding })),
+    headerExtensions,
+    rtcp: { reducedSize: Boolean(section?.lines.includes("a=rtcp-rsize")) },
+    codecs,
+  };
+}
+
 function serializeSdp(sessionLines, mediaSections) {
   const lines = [...sessionLines];
   for (const section of mediaSections) lines.push(...section.lines);
@@ -2760,6 +2809,9 @@ class RTCRtpSender {
   get transport() {
     return this._transceiver._nativeTrack ? this._peerConnection._dtlsTransport : null;
   }
+  getParameters() {
+    return senderRtpParameters(this._transceiver);
+  }
   replaceTrack(track) {
     if (track !== null && !(track instanceof MediaStreamTrack)) {
       return Promise.reject(new TypeError("track must be a MediaStreamTrack or null"));
@@ -2819,7 +2871,7 @@ class RTCRtpReceiver {
 const rtpDirections = ["sendrecv", "sendonly", "recvonly", "inactive"];
 
 class RTCRtpTransceiver {
-  constructor(token, peerConnection, kind, track, direction, streams) {
+  constructor(token, peerConnection, kind, track, direction, streams, sendEncodings = []) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     this._peerConnection = peerConnection;
     this._kind = kind;
@@ -2829,6 +2881,7 @@ class RTCRtpTransceiver {
     this._stopping = false;
     this._stopped = false;
     this._hasEverSent = false;
+    this._sendEncodings = sendEncodings.length > 0 ? sendEncodings : [{ active: true }];
     this._senderTrackId = track?.id || crypto.randomUUID();
     this._sender = new RTCRtpSender(kInternalConstruct, peerConnection, track, streams);
     this._receiver = new RTCRtpReceiver(kInternalConstruct, peerConnection, kind);
@@ -3164,15 +3217,31 @@ class RTCPeerConnection extends SimpleEventTarget {
         throw new TypeError("sendEncodings contains duplicate rid values");
       rids.add(normalizedRid);
     }
-    const transceiver = this._createTransceiver(kind, track, direction, streams);
+    const normalizedSendEncodings = sendEncodings.map((encoding) => ({
+      ...(encoding?.rid === undefined ? {} : { rid: String(encoding.rid) }),
+      active: encoding?.active === undefined ? true : Boolean(encoding.active),
+    }));
+    const transceiver = this._createTransceiver(
+      kind,
+      track,
+      direction,
+      streams,
+      normalizedSendEncodings,
+    );
     this._markNegotiationNeeded();
     return transceiver;
   }
 
-  _createTransceiver(kind, track, direction, streams) {
-    const transceiver = new RTCRtpTransceiver(kInternalConstruct, this, kind, track, direction, [
-      ...new Set(streams),
-    ]);
+  _createTransceiver(kind, track, direction, streams, sendEncodings = []) {
+    const transceiver = new RTCRtpTransceiver(
+      kInternalConstruct,
+      this,
+      kind,
+      track,
+      direction,
+      [...new Set(streams)],
+      sendEncodings,
+    );
     this._transceivers.push(transceiver);
     return transceiver;
   }

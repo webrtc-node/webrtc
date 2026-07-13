@@ -82,6 +82,8 @@ const iceError = new RTCPeerConnectionIceErrorEvent("icecandidateerror", {
 });
 const iceErrorCode: number = iceError.errorCode;
 const channel = pc.createDataChannel("typed");
+const senderParameters = pc.addTransceiver("audio").sender.getParameters();
+const encodingActive: boolean | undefined = senderParameters.encodings[0]?.active;
 const maybeSctp: RTCSctpTransport | null = pc.sctp;
 const maybeDtls: RTCDtlsTransport | undefined = maybeSctp?.transport;
 const maybeIce: RTCIceTransport | undefined = maybeDtls?.iceTransport;
@@ -165,6 +167,7 @@ void udpMuxAddress;
 void remoteFingerprint;
 void importedCertificate;
 void nativeSurface;
+void encodingActive;
 udpMux.close();
 udpMux.stop();
 pc.close();

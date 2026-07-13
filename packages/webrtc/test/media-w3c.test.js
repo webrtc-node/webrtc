@@ -377,6 +377,32 @@ test("track events follow receiving transitions on existing media sections", asy
   }
 });
 
+test("sender parameters preserve encodings and expose negotiated SDP facts", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const sender = offerer.addTransceiver(track(), {
+      sendEncodings: [{ rid: "primary", active: false }],
+    }).sender;
+    const initial = sender.getParameters();
+    assert.deepEqual(initial.encodings, [{ rid: "primary", active: false }]);
+    assert.deepEqual(initial.codecs, []);
+    assert.deepEqual(initial.headerExtensions, []);
+    initial.encodings[0].active = true;
+    assert.equal(sender.getParameters().encodings[0].active, false);
+
+    await negotiate(offerer, answerer);
+    const negotiated = sender.getParameters();
+    assert.ok(negotiated.codecs.length > 0);
+    assert.match(negotiated.codecs[0].mimeType, /^audio\//);
+    assert.deepEqual(negotiated.headerExtensions, []);
+    assert.notEqual(negotiated.transactionId, sender.getParameters().transactionId);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 async function negotiate(offerer, answerer) {
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription);

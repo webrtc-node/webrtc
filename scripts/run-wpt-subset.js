@@ -470,6 +470,7 @@ const defaultSpecs = [
       "addTransceiver(track): creates a transceiver for the track",
       'addTransceiver(track): "transceiver == {sender,receiver}"',
       "addTransceiver(track, init): initialize direction to inactive",
+      "addTransceiver(track, init): initialize sendEncodings[0].active to false",
       "addTransceiver(0 streams): ontrack fires with no stream",
       "addTransceiver(1 stream): ontrack fires with corresponding stream",
       "addTransceiver(2 streams): ontrack fires with corresponding two streams",
