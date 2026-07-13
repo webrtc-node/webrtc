@@ -437,6 +437,8 @@ const defaultSpecs = [
       "addTrack() should cause remote connection to fire ontrack when setRemoteDescription()",
       "addTransceiver('video') should cause remote connection to fire ontrack when setRemoteDescription()",
       "addTransceiver() with inactive direction should not cause remote connection to fire ontrack when setRemoteDescription()",
+      "Using offerToReceiveAudio and offerToReceiveVideo should only cause a audio track event to fire, if audio was the only type negotiated",
+      "Using offerToReceiveAudio and offerToReceiveVideo should only cause a video track event to fire, if video was the only type negotiated",
       "addTransceiver order of kinds is retained in ontrack at the receiver",
       "ontrack should not fire for rejected media sections",
     ],
