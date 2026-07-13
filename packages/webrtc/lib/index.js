@@ -2678,7 +2678,7 @@ class MediaStream extends SimpleEventTarget {
     this.onaddtrack = null;
     this.onremovetrack = null;
     const initialTracks = tracks instanceof MediaStream ? tracks.getTracks() : Array.from(tracks);
-    for (const track of initialTracks) this._addTrack(track, false);
+    for (const track of initialTracks) this._addTrack(track, false, false);
     this._active = this._tracks.some((track) => track.readyState === "live");
   }
 
@@ -2702,10 +2702,10 @@ class MediaStream extends SimpleEventTarget {
   }
 
   addTrack(track) {
-    this._addTrack(track, true);
+    this._addTrack(track, false);
   }
 
-  _addTrack(track, dispatch) {
+  _addTrack(track, dispatch, updateActive = true) {
     if (!(track instanceof MediaStreamTrack))
       throw new TypeError("track must be a MediaStreamTrack");
     if (this._tracks.includes(track)) return;
@@ -2716,13 +2716,15 @@ class MediaStream extends SimpleEventTarget {
       mediaTrackStreams.set(track, streams);
     }
     streams.add(this);
-    if (dispatch) {
-      this._updateActiveState();
-      this.dispatchEvent(new MediaStreamTrackEvent("addtrack", { track }));
-    }
+    if (updateActive) this._updateActiveState();
+    if (dispatch) this.dispatchEvent(new MediaStreamTrackEvent("addtrack", { track }));
   }
 
   removeTrack(track) {
+    this._removeTrack(track, false);
+  }
+
+  _removeTrack(track, dispatch) {
     if (!(track instanceof MediaStreamTrack))
       throw new TypeError("track must be a MediaStreamTrack");
     const index = this._tracks.indexOf(track);
@@ -2730,7 +2732,7 @@ class MediaStream extends SimpleEventTarget {
     this._tracks.splice(index, 1);
     mediaTrackStreams.get(track)?.delete(this);
     this._updateActiveState();
-    this.dispatchEvent(new MediaStreamTrackEvent("removetrack", { track }));
+    if (dispatch) this.dispatchEvent(new MediaStreamTrackEvent("removetrack", { track }));
   }
 
   _updateActiveState() {
@@ -3400,11 +3402,11 @@ class RTCPeerConnection extends SimpleEventTarget {
         stream._id = id;
         this._remoteMediaStreams.set(id, stream);
       }
-      stream.addTrack(transceiver.receiver.track);
+      stream._addTrack(transceiver.receiver.track, true);
       return stream;
     });
     for (const previous of transceiver._remoteStreams || []) {
-      if (!streams.includes(previous)) previous.removeTrack(transceiver.receiver.track);
+      if (!streams.includes(previous)) previous._removeTrack(transceiver.receiver.track, true);
     }
     transceiver._remoteStreams = streams;
     return streams;

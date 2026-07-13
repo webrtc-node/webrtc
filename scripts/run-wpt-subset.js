@@ -423,6 +423,11 @@ const defaultSpecs = [
   { file: "mediacapture-streams/MediaStream-gettrackid.https.html" },
   { file: "mediacapture-streams/MediaStream-id.https.html" },
   {
+    file: "mediacapture-streams/MediaStream-removetrack.https.html",
+    include: ["Tests that a removal from a MediaStream works as expected"],
+  },
+  { file: "mediacapture-streams/MediaStream-finished-add.https.html" },
+  {
     file: "webrtc/RTCRtpSender-replaceTrack.https.html",
     include: [
       "Calling replaceTrack on closed connection should reject with InvalidStateError",

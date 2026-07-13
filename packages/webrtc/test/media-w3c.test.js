@@ -49,7 +49,7 @@ test("MediaStream maintains track identity and clones tracks", () => {
   assert.notEqual(clone.getVideoTracks()[0], video);
 });
 
-test("MediaStream copies track sets and reports track and active state changes", () => {
+test("MediaStream copies track sets without events for script track mutations", () => {
   const audio = track();
   const original = new MediaStream([audio]);
   const copy = new MediaStream(original);
@@ -60,23 +60,21 @@ test("MediaStream copies track sets and reports track and active state changes",
   const events = [];
   stream.addEventListener("active", () => events.push("active"));
   stream.addEventListener("addtrack", (event) => {
-    assert.ok(event instanceof MediaStreamTrackEvent);
-    assert.equal(event.track, audio);
-    events.push("addtrack");
+    events.push(event.type);
   });
   stream.addEventListener("inactive", () => events.push("inactive"));
   stream.addTrack(audio);
   assert.equal(stream.active, true);
   audio.stop();
   assert.equal(stream.active, false);
-  assert.deepEqual(events, ["active", "addtrack", "inactive"]);
+  assert.deepEqual(events, ["active", "inactive"]);
 
-  let removedTrack = null;
+  let removedTrack = false;
   stream.addEventListener("removetrack", (event) => {
-    removedTrack = event.track;
+    removedTrack = event.track === audio;
   });
   stream.removeTrack(audio);
-  assert.equal(removedTrack, audio);
+  assert.equal(removedTrack, false);
 });
 
 test("MediaStreamTrack has source-independent clone and stop state", () => {
@@ -277,6 +275,10 @@ test("setStreams updates remote stream membership while preserving track identit
       initial.streams.map((stream) => stream.id),
       [first.id],
     );
+    let removedTrack = null;
+    initial.streams[0].addEventListener("removetrack", (event) => {
+      removedTrack = event.track;
+    });
 
     sender.setStreams(second);
     const updatedTrackEvent = waitFor(remote, "track");
@@ -288,6 +290,7 @@ test("setStreams updates remote stream membership while preserving track identit
       [second.id],
     );
     assert.deepEqual(initial.streams[0].getTracks(), []);
+    assert.equal(removedTrack, updated.track);
     assert.deepEqual(updated.streams[0].getTracks(), [updated.track]);
   } finally {
     peer.close();
