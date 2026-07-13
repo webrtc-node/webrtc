@@ -1238,6 +1238,29 @@ function sameCandidateEndpoint(left, right) {
   );
 }
 
+function candidateStats(id, type, candidate, timestamp) {
+  const stats = {
+    id,
+    timestamp,
+    type,
+    transportId: "transport-0",
+  };
+  const fields = {
+    address: candidate.address,
+    port: candidate.port,
+    protocol: candidate.protocol,
+    candidateType: candidate.type,
+    priority: candidate.priority,
+    foundation: candidate.foundation,
+    relayProtocol: candidate.relayProtocol,
+    url: candidate.url,
+  };
+  for (const [name, value] of Object.entries(fields)) {
+    if (value !== null && value !== undefined) stats[name] = value;
+  }
+  return stats;
+}
+
 function selectKnownCandidateByEndpoint(candidates, selectedCandidate) {
   return (
     candidates.find((candidate) => sameCandidateEndpoint(candidate, selectedCandidate)) ||
@@ -3784,6 +3807,25 @@ class RTCPeerConnection extends SimpleEventTarget {
         bytesReceived: stats.bytesReceived,
         dtlsState: this._dtlsTransport?.state ?? "new",
         iceState: this._dtlsTransport?.iceTransport.state ?? "new",
+      });
+    }
+    const selectedPair = this._dtlsTransport?.iceTransport.getSelectedCandidatePair();
+    if (selectedPair) {
+      report._set(
+        candidateStats("local-candidate-0", "local-candidate", selectedPair.local, timestamp),
+      );
+      report._set(
+        candidateStats("remote-candidate-0", "remote-candidate", selectedPair.remote, timestamp),
+      );
+      report._set({
+        id: "candidate-pair-0",
+        timestamp,
+        type: "candidate-pair",
+        transportId: "transport-0",
+        localCandidateId: "local-candidate-0",
+        remoteCandidateId: "remote-candidate-0",
+        state: "succeeded",
+        nominated: true,
       });
     }
     return report;

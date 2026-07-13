@@ -870,6 +870,12 @@ test("connected data-channel ICE transports expose candidate pairs", async (t) =
   assert.equal(answerer.sctp.transport.getRemoteCertificates()[0] instanceof ArrayBuffer, true);
   assert.equal(offerer.sctp.transport.getRemoteCertificates()[0].byteLength > 0, true);
   assert.equal(answerer.sctp.transport.getRemoteCertificates()[0].byteLength > 0, true);
+  const stats = await offerer.getStats();
+  assert.equal(stats.get("candidate-pair-0").state, "succeeded");
+  assert.equal(stats.get("candidate-pair-0").localCandidateId, "local-candidate-0");
+  assert.equal(stats.get("candidate-pair-0").remoteCandidateId, "remote-candidate-0");
+  assert.equal(stats.get("local-candidate-0").address, offererPair.local.address);
+  assert.equal(stats.get("remote-candidate-0").address, offererPair.remote.address);
 
   offerer.close();
   answerer.close();

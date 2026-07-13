@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 775,
-  "selectedSubtestsSha256": "ca14a56099e2ccd62c0a2d10008aecb21d46925b953597991960ba1d831c47d5",
+  "expectedSelectedSubtests": 777,
+  "selectedSubtestsSha256": "cf65edee2f13b32e14e8d7fda01501b415ebd9b8ea0928e01fcf275dff10cc71",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -100,8 +100,8 @@
     "webrtc/RTCPeerConnection-getStats.https.html?interop-2026#empty-peer-connection-subset",
     "webrtc/getstats.html",
     "webrtc/RTCPeerConnection-getStats-timestamp.https.html#base-performance-time-subset",
-    "webrtc/RTCRtpSender-getStats.https.html#rtp-object-lifecycle-subset",
-    "webrtc/RTCRtpReceiver-getStats.https.html?interop-2026#rtp-object-and-closed-lifecycle-subset",
+    "webrtc/RTCRtpSender-getStats.https.html",
+    "webrtc/RTCRtpReceiver-getStats.https.html?interop-2026",
     "webrtc/RTCRtpReceiver-getStats.https.html?rest#stopped-lifecycle-subset",
     "webrtc/RTCRtpTransceiver-stop.html",
     "webrtc/RTCRtpTransceiver-direction.html",
@@ -139,8 +139,6 @@
     "webrtc/RTCPeerConnection-perfect-negotiation*.html#media-lifecycle-cases",
     "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
     "webrtc/RTCPeerConnection-getStats.https.html#remaining-detailed-backend-stats-cases",
-    "webrtc/RTCRtpSender-getStats.https.html#candidate-graph-case",
-    "webrtc/RTCRtpReceiver-getStats.https.html#candidate-graph-case",
     "webrtc/RTCRtp*.html#remaining-rtp-parameters-and-capabilities-cases"
   ],
   "expectedFail": [

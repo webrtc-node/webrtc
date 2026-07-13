@@ -66,6 +66,10 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   data are negotiated.
 - Native RTP counters count version-2 RTP packets and exclude RTCP packet types. Unsupported loss,
   jitter, codec, bandwidth, media-source, playout, and remote-report fields are omitted.
+- When libdatachannel exposes a selected ICE pair, reports include standardized local-candidate,
+  remote-candidate, and succeeded candidate-pair dictionaries derived from the parsed native
+  candidates. Candidate-pair byte counts and RTT are omitted because the available aggregate
+  transport counters are SCTP-level and cannot be attributed reliably to the pair.
 - Sender stream and track IDs are written as media-level `a=msid` attributes. The facade parses
   those attributes from remote SDP, preserves remote `MediaStream` identity by ID, and dispatches
   `track` only after the remote-description operation resolves.

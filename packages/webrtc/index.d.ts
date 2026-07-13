@@ -419,6 +419,28 @@ export interface RTCTransportStats extends RTCStats {
   readonly iceState: RTCIceTransportState;
 }
 
+export interface RTCIceCandidateStats extends RTCStats {
+  readonly type: "local-candidate" | "remote-candidate";
+  readonly transportId: string;
+  readonly address?: string;
+  readonly port?: number;
+  readonly protocol?: string;
+  readonly candidateType?: string;
+  readonly priority?: number;
+  readonly foundation?: string;
+  readonly relayProtocol?: string;
+  readonly url?: string;
+}
+
+export interface RTCIceCandidatePairStats extends RTCStats {
+  readonly type: "candidate-pair";
+  readonly transportId: string;
+  readonly localCandidateId: string;
+  readonly remoteCandidateId: string;
+  readonly state: "succeeded";
+  readonly nominated: boolean;
+}
+
 export interface RTCInboundRtpStreamStats extends RTCStats {
   readonly type: "inbound-rtp";
   readonly ssrc: number;

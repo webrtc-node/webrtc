@@ -252,25 +252,27 @@ test("standard track event exposes encoded RTP through an optional sink", async 
     const senderStats = [...(await sender.getStats()).values()];
     const receiverStats = [...(await receiver.getStats()).values()];
     assert.deepEqual(
-      outbound.map((entry) => entry.type),
+      outbound.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["outbound-rtp"],
     );
-    assert.equal(outbound[0].packetsSent, 1);
+    assert.equal(outbound.find((entry) => entry.type === "outbound-rtp").packetsSent, 1);
     assert.deepEqual(
-      senderStats.map((entry) => entry.type),
+      senderStats.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["outbound-rtp"],
     );
-    assert.equal(senderStats[0].packetsSent, 1);
+    assert.equal(senderStats.find((entry) => entry.type === "outbound-rtp").packetsSent, 1);
+    assert.ok(senderStats.some((entry) => entry.type === "candidate-pair"));
     assert.deepEqual(
-      inbound.map((entry) => entry.type),
+      inbound.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["inbound-rtp"],
     );
-    assert.equal(inbound[0].packetsReceived, 1);
+    assert.equal(inbound.find((entry) => entry.type === "inbound-rtp").packetsReceived, 1);
     assert.deepEqual(
-      receiverStats.map((entry) => entry.type),
+      receiverStats.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["inbound-rtp"],
     );
-    assert.equal(receiverStats[0].packetsReceived, 1);
+    assert.equal(receiverStats.find((entry) => entry.type === "inbound-rtp").packetsReceived, 1);
+    assert.ok(receiverStats.some((entry) => entry.type === "candidate-pair"));
 
     const reassociatedStream = new MediaStream([source.track]);
     sender.setStreams(reassociatedStream);

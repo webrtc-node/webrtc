@@ -528,10 +528,7 @@ const defaultSpecs = [
     file: "webrtc/RTCPeerConnection-getStats-timestamp.https.html",
     include: ["RTCStats.timestamp is expressed as Performance time"],
   },
-  {
-    file: "webrtc/RTCRtpSender-getStats.https.html",
-    exclude: ["ICE candidate stats"],
-  },
+  { file: "webrtc/RTCRtpSender-getStats.https.html" },
   {
     file: "webrtc/RTCRtpReceiver-getStats.https.html",
     search: "?interop-2026",
@@ -539,6 +536,7 @@ const defaultSpecs = [
       "via addTransceiver should return stats report containing inbound-rtp stats",
       "via addTrack should return stats report containing inbound-rtp stats",
       "closed PeerConnection but not have inbound-rtp objects",
+      "stats report containing ICE candidate stats",
     ],
   },
   {
