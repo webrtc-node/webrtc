@@ -64,8 +64,10 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
 - libdatachannel exposes one bundled DTLS-SRTP transport for media. The facade presents that as a
   stable `RTCDtlsTransport`/`RTCIceTransport` shared by RTP endpoints and SCTP when both media and
   data are negotiated.
-- Native RTP counters count version-2 RTP packets and exclude RTCP packet types. Unsupported loss,
-  jitter, codec, bandwidth, media-source, playout, and remote-report fields are omitted.
+- Native RTP counters count version-2 RTP packets and exclude RTCP packet types. Reports link RTP
+  dictionaries to the shared transport and to codec dictionaries derived from negotiated SDP;
+  inbound reports also expose the stable receiver track identifier. Unsupported loss, jitter,
+  bandwidth, decoded-media, media-source, playout, and remote-report fields are omitted.
 - When libdatachannel exposes a selected ICE pair, reports include standardized local-candidate,
   remote-candidate, and succeeded candidate-pair dictionaries derived from the parsed native
   candidates. Candidate-pair byte counts and RTT are omitted because the available aggregate
@@ -91,4 +93,7 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
 
 Required coverage includes facade lifecycle tests, Node-to-Node RTP, browser-to-Node RTP, focused
 media/stats WPT, native close and forced-process teardown, TypeScript/API checks, package dry runs,
-and remote full conformance. The full WPT suite is not run locally.
+and remote full conformance. The full WPT suite is not run locally. The mandatory stats WPT
+currently registers most field checks dynamically: a focused run passes 37 of 73 checks, while
+selection list mode discovers only its initial test. Those checks cannot enter the sharded expected-pass
+contract until the runner can discover their stable identities without executing the full test.

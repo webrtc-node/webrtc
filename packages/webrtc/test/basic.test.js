@@ -874,6 +874,7 @@ test("connected data-channel ICE transports expose candidate pairs", async (t) =
   assert.equal(stats.get("candidate-pair-0").state, "succeeded");
   assert.equal(stats.get("candidate-pair-0").localCandidateId, "local-candidate-0");
   assert.equal(stats.get("candidate-pair-0").remoteCandidateId, "remote-candidate-0");
+  assert.equal(stats.get("transport-0").selectedCandidatePairId, "candidate-pair-0");
   assert.equal(stats.get("local-candidate-0").address, offererPair.local.address);
   assert.equal(stats.get("remote-candidate-0").address, offererPair.remote.address);
 

@@ -3729,6 +3729,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     if (!this._native || this._closed) {
       return report;
     }
+    const selectedPair = this._dtlsTransport?.iceTransport.getSelectedCandidatePair();
     const selectedTransceivers = this._transceivers.filter((transceiver) => {
       if (transceiver.stopped || transceiver.stopping) return false;
       if (selector === null) return true;
@@ -3754,6 +3755,20 @@ class RTCPeerConnection extends SimpleEventTarget {
         }
       }
       if (!sendStats && !receiveStats) continue;
+      const parameters = senderRtpParameters(transceiver);
+      const codec =
+        parameters.codecs.find((entry) => entry.payloadType === transceiver._codec?.payloadType) ||
+        parameters.codecs[0];
+      const codecId = codec ? `codec-${transceiver.mid}-${codec.payloadType}` : undefined;
+      if (codec) {
+        report._set({
+          id: codecId,
+          timestamp,
+          type: "codec",
+          transportId: "transport-0",
+          ...codec,
+        });
+      }
       const source = mediaTrackSources.get(transceiver.sender.track);
       const includeOutbound =
         selector === null ||
@@ -3776,6 +3791,8 @@ class RTCPeerConnection extends SimpleEventTarget {
           ssrc: source?.ssrc ?? transceiver._ssrc,
           kind: transceiver._kind,
           mid: transceiver.mid,
+          transportId: "transport-0",
+          ...(codecId ? { codecId } : {}),
           packetsSent: sendStats?.packetsSent ?? 0,
           bytesSent: sendStats?.bytesSent ?? 0,
         });
@@ -3792,6 +3809,9 @@ class RTCPeerConnection extends SimpleEventTarget {
           ssrc: receiveTrack?.ssrc ?? 0,
           kind: transceiver._kind,
           mid: transceiver.mid,
+          transportId: "transport-0",
+          ...(codecId ? { codecId } : {}),
+          trackIdentifier: transceiver.receiver.track.id,
           packetsReceived: receiveStats.packetsReceived,
           bytesReceived: receiveStats.bytesReceived,
         });
@@ -3807,9 +3827,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         bytesReceived: stats.bytesReceived,
         dtlsState: this._dtlsTransport?.state ?? "new",
         iceState: this._dtlsTransport?.iceTransport.state ?? "new",
+        ...(selectedPair ? { selectedCandidatePairId: "candidate-pair-0" } : {}),
       });
     }
-    const selectedPair = this._dtlsTransport?.iceTransport.getSelectedCandidatePair();
     if (selectedPair) {
       report._set(
         candidateStats("local-candidate-0", "local-candidate", selectedPair.local, timestamp),

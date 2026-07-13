@@ -45,11 +45,13 @@ timing. Selected WPT covers these lifecycle behaviors, but m-line recycling and
 browser media-source integration remain experimental.
 
 Statistics include only backend measurements that can be attributed reliably:
-encoded RTP packet/byte counters, aggregate transport bytes, and facade-owned
-data-channel message/byte and lifecycle counters. Data-channel bytes count the
-application payload accepted by `send()` or received from SCTP. Jitter, packet
-loss, codec, media-source, playout, bandwidth estimation, and remote RTP reports
-are omitted rather than fabricated.
+encoded RTP packet/byte counters, aggregate transport bytes, negotiated codec
+dictionaries, selected ICE candidate facts, and facade-owned data-channel
+message/byte and lifecycle counters. Data-channel bytes count the application
+payload accepted by `send()` or received from SCTP. Jitter, packet loss,
+decoded-media and media-source measurements, playout, bandwidth estimation,
+candidate-pair traffic/RTT, and remote RTP reports are omitted rather than
+fabricated.
 
 ## RTCConfiguration
 

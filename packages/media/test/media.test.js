@@ -113,9 +113,11 @@ test("answerer-supplied encoded RTP reaches the offerer receiver", async () => {
     const [, packet] = await received;
     assert.equal(new Uint8Array(packet.data)[0], 0x80);
 
-    const inbound = [...(await receiver.getStats()).values()];
-    assert.equal(inbound[0].type, "inbound-rtp");
-    assert.ok(inbound[0].packetsReceived > 0);
+    const inbound = [...(await receiver.getStats()).values()].find(
+      (entry) => entry.type === "inbound-rtp",
+    );
+    assert.ok(inbound);
+    assert.ok(inbound.packetsReceived > 0);
   } finally {
     sink?.close();
     source.close();
@@ -255,7 +257,13 @@ test("standard track event exposes encoded RTP through an optional sink", async 
       outbound.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["outbound-rtp"],
     );
-    assert.equal(outbound.find((entry) => entry.type === "outbound-rtp").packetsSent, 1);
+    const outboundRtp = outbound.find((entry) => entry.type === "outbound-rtp");
+    assert.equal(outboundRtp.packetsSent, 1);
+    assert.equal(outboundRtp.transportId, "transport-0");
+    const outboundCodec = outbound.find((entry) => entry.id === outboundRtp.codecId);
+    assert.equal(outboundCodec.type, "codec");
+    assert.equal(outboundCodec.mimeType, "video/VP8");
+    assert.equal(outboundCodec.clockRate, 90000);
     assert.deepEqual(
       senderStats.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["outbound-rtp"],
@@ -266,7 +274,13 @@ test("standard track event exposes encoded RTP through an optional sink", async 
       inbound.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["inbound-rtp"],
     );
-    assert.equal(inbound.find((entry) => entry.type === "inbound-rtp").packetsReceived, 1);
+    const inboundRtp = inbound.find((entry) => entry.type === "inbound-rtp");
+    assert.equal(inboundRtp.packetsReceived, 1);
+    assert.equal(inboundRtp.transportId, "transport-0");
+    assert.equal(inboundRtp.trackIdentifier, track.id);
+    const inboundCodec = inbound.find((entry) => entry.id === inboundRtp.codecId);
+    assert.equal(inboundCodec.type, "codec");
+    assert.equal(inboundCodec.mimeType, "video/VP8");
     assert.deepEqual(
       receiverStats.filter((entry) => entry.type.endsWith("-rtp")).map((entry) => entry.type),
       ["inbound-rtp"],

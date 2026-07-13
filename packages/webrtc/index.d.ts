@@ -417,6 +417,7 @@ export interface RTCTransportStats extends RTCStats {
   readonly bytesReceived: number;
   readonly dtlsState: RTCDtlsTransportState;
   readonly iceState: RTCIceTransportState;
+  readonly selectedCandidatePairId?: string;
 }
 
 export interface RTCIceCandidateStats extends RTCStats {
@@ -446,6 +447,9 @@ export interface RTCInboundRtpStreamStats extends RTCStats {
   readonly ssrc: number;
   readonly kind: "audio" | "video";
   readonly mid: string;
+  readonly transportId: string;
+  readonly codecId?: string;
+  readonly trackIdentifier: string;
   readonly packetsReceived: number;
   readonly bytesReceived: number;
 }
@@ -455,14 +459,24 @@ export interface RTCOutboundRtpStreamStats extends RTCStats {
   readonly ssrc: number;
   readonly kind: "audio" | "video";
   readonly mid: string;
+  readonly transportId: string;
+  readonly codecId?: string;
   readonly packetsSent: number;
   readonly bytesSent: number;
+}
+
+export interface RTCCodecStats extends RTCStats, RTCRtpCodecParameters {
+  readonly type: "codec";
+  readonly transportId: string;
 }
 
 export type RTCStatsEntry =
   | RTCPeerConnectionStats
   | RTCDataChannelStats
   | RTCTransportStats
+  | RTCIceCandidateStats
+  | RTCIceCandidatePairStats
+  | RTCCodecStats
   | RTCInboundRtpStreamStats
   | RTCOutboundRtpStreamStats;
 
