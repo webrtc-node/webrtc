@@ -180,7 +180,7 @@ test("standard track event exposes encoded RTP through an optional sink", async 
     const sourceOpen = waitFor(source, "open");
     await offerer.setLocalDescription(await offerer.createOffer());
     await answerer.setRemoteDescription(offerer.localDescription);
-    assert.equal(trackDispatched, false);
+    assert.equal(trackDispatched, true);
     await answerer.setLocalDescription(await answerer.createAnswer());
     await offerer.setRemoteDescription(answerer.localDescription);
     const { track, receiver, streams, transceiver } = await trackEvent;

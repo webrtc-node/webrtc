@@ -2993,6 +2993,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._dataChannelAnnouncementRepairDeadline = 0;
     this._remoteAnnouncedDataChannelIds = new Set();
     this._pendingSyntheticDataChannelAnnouncements = new Map();
+    this._pendingTrackEventTasks = new Set();
     this._localDataChannelCount = 0;
     this._dataChannelsOpened = 0;
     this._dataChannelsClosed = 0;
@@ -3331,7 +3332,83 @@ class RTCPeerConnection extends SimpleEventTarget {
     return intersectDirections(transceiver.direction, remoteDirection);
   }
 
+  _prepareRemoteTransceivers(description) {
+    const { mediaSections } = parseSdpMediaSections(description?.sdp || "");
+    for (const section of mediaSections) {
+      const media = /^m=(audio|video)\s+(\d+)\s/i.exec(section.startLine);
+      if (!media) continue;
+      const mid = section.lines.find((line) => /^a=mid:/i.test(line))?.slice(6);
+      if (!mid || this._transceivers.some((entry) => entry.mid === mid)) continue;
+      const remoteDirection =
+        section.lines
+          .find((line) => /^a=(sendrecv|sendonly|recvonly|inactive)$/i.test(line))
+          ?.slice(2)
+          .toLowerCase() || "sendrecv";
+      let transceiver = this._transceivers.find(
+        (entry) =>
+          entry.mid === null &&
+          entry._kind === media[1].toLowerCase() &&
+          !entry.stopped &&
+          !entry.stopping &&
+          !entry._nativeTrack,
+      );
+      if (transceiver) transceiver._reusedForRemoteOffer = true;
+      else {
+        transceiver = this._createTransceiver(
+          media[1].toLowerCase(),
+          null,
+          disableSending(reverseDirection(remoteDirection)),
+          [],
+        );
+        transceiver._provisionalRemoteOffer = true;
+      }
+      transceiver._mid = mid;
+      if (media[2] === "0") {
+        transceiver._remoteStopping = true;
+        continue;
+      }
+      if (remoteDirection !== "sendrecv" && remoteDirection !== "sendonly") continue;
+      this._ensureRemoteTrackSource(transceiver);
+      const streams = this._applyRemoteTrackAssociations(transceiver, description);
+      this._queueTrackEvent(
+        transceiver,
+        streams,
+        this._remoteTrackAssociationKey(transceiver, description),
+      );
+    }
+  }
+
+  _ensureRemoteTrackSource(transceiver, nativeTrack = null) {
+    let source = mediaTrackSources.get(transceiver.receiver.track);
+    if (!source?.listeners) {
+      source = {
+        nativeTrack,
+        listeners: new Set(),
+        _handleNativeEvent(event) {
+          if (event.type === "message") {
+            if (transceiver.receiver.track._muted) {
+              transceiver.receiver.track._muted = false;
+              transceiver.receiver.track.dispatchEvent(makeEvent("unmute"));
+            }
+            for (const listener of this.listeners) listener(event.data);
+          }
+          if (event.type === "close") this._endTracks?.();
+        },
+      };
+      registerMediaTrackSource(transceiver.receiver.track, source);
+    } else if (nativeTrack) {
+      source.nativeTrack = nativeTrack;
+    }
+    return source;
+  }
+
   _adoptIncomingNativeTrack(nativeTrack) {
+    const appliedRemoteDescription =
+      this._pendingRemoteDescription || this._currentRemoteDescription;
+    if (!mediaSectionByMid(appliedRemoteDescription, nativeTrack.mid)) {
+      nativeTrack.close();
+      return;
+    }
     let transceiver = this._transceivers.find((entry) => entry.mid === nativeTrack.mid);
     let reusedForRemoteOffer = false;
     if (!transceiver) {
@@ -3365,26 +3442,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._native?.remoteDescription?.();
     const streams = this._applyRemoteTrackAssociations(transceiver, remoteDescription);
     const associationKey = this._remoteTrackAssociationKey(transceiver, remoteDescription);
-    let source = mediaTrackSources.get(transceiver.receiver.track);
-    if (source?.listeners) {
-      source.nativeTrack = nativeTrack;
-    } else {
-      source = {
-        nativeTrack,
-        listeners: new Set(),
-        _handleNativeEvent(event) {
-          if (event.type === "message") {
-            if (transceiver.receiver.track._muted) {
-              transceiver.receiver.track._muted = false;
-              transceiver.receiver.track.dispatchEvent(makeEvent("unmute"));
-            }
-            for (const listener of this.listeners) listener(event.data);
-          }
-          if (event.type === "close") this._endTracks?.();
-        },
-      };
-    }
-    registerMediaTrackSource(transceiver.receiver.track, source);
+    this._ensureRemoteTrackSource(transceiver, nativeTrack);
     this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
     const remoteDirection = mediaDirectionByMid(remoteDescription, transceiver.mid);
     if (remoteDirection === "sendrecv" || remoteDirection === "sendonly") {
@@ -3425,19 +3483,35 @@ class RTCPeerConnection extends SimpleEventTarget {
       return;
     }
     transceiver._pendingTrackEventAssociationKey = associationKey;
+    let finishTask;
+    const task = new Promise((resolve) => {
+      finishTask = resolve;
+    });
+    this._pendingTrackEventTasks.add(task);
     setTimeout(() => {
-      if (this._closed || transceiver.stopped) return;
-      transceiver._pendingTrackEventAssociationKey = null;
-      transceiver._lastTrackEventAssociationKey = associationKey;
-      this.dispatchEvent(
-        new RTCTrackEvent("track", {
-          receiver: transceiver.receiver,
-          track: transceiver.receiver.track,
-          streams,
-          transceiver,
-        }),
-      );
+      try {
+        if (this._closed || transceiver.stopped) return;
+        transceiver._pendingTrackEventAssociationKey = null;
+        transceiver._lastTrackEventAssociationKey = associationKey;
+        this.dispatchEvent(
+          new RTCTrackEvent("track", {
+            receiver: transceiver.receiver,
+            track: transceiver.receiver.track,
+            streams,
+            transceiver,
+          }),
+        );
+      } finally {
+        this._pendingTrackEventTasks.delete(task);
+        finishTask();
+      }
     }, 0);
+  }
+
+  async _waitForPendingTrackEvents() {
+    while (this._pendingTrackEventTasks.size > 0) {
+      await Promise.all([...this._pendingTrackEventTasks]);
+    }
   }
 
   _updateRemoteTrackAssociations(description) {
@@ -4261,6 +4335,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         if (normalized.type === "offer") {
           this._rollbackLocalDescription();
           this._setPendingRemoteDescription(normalized);
+          this._prepareRemoteTransceivers(normalized);
           this._markRemotelyStoppedTransceivers(normalized);
         } else if (normalized.type === "answer") {
           this._commitLocalDescription();
@@ -4319,6 +4394,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._canTrickleIceCandidates = hasTrickleIceOption(remoteDescription);
       this._remoteDescription = new RTCSessionDescription(remoteDescription);
       this._pairWithRemoteDescription(this._remoteDescription);
+      if (normalized.type === "offer") this._prepareRemoteTransceivers(this._remoteDescription);
       this._syncStatesFromNative();
       if (normalized.type === "offer") {
         this._rollbackLocalDescription();
@@ -4341,6 +4417,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._flushPendingRemoteCandidatesForNative();
       }
       await nextTask();
+      if (normalized.type === "offer") await this._waitForPendingTrackEvents();
       if (
         suppressedNativeSignalingState !== null &&
         this._suppressNextNativeSignalingState === suppressedNativeSignalingState
@@ -5267,6 +5344,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   _updateNegotiatedTransceivers() {
     const localIsAnswer = this._currentLocalDescription?.type === "answer";
     const answer = localIsAnswer ? this._currentLocalDescription : this._currentRemoteDescription;
+    if (answer?.type !== "answer") return;
     for (const transceiver of this._transceivers) {
       if (transceiver._stopped) continue;
       if (transceiver._stopping) {

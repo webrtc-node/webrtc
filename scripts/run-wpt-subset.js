@@ -430,6 +430,18 @@ const defaultSpecs = [
   { file: "mediacapture-streams/MediaStream-add-audio-track.https.html" },
   { file: "mediacapture-streams/MediaStreamTrack-init.https.html" },
   {
+    file: "webrtc/RTCPeerConnection-ontrack.https.html",
+    include: [
+      "setRemoteDescription should trigger ontrack event when the MSID of the stream is is parsed.",
+      "setRemoteDescription() with m= line of recvonly direction should not trigger track event",
+      "addTrack() should cause remote connection to fire ontrack when setRemoteDescription()",
+      "addTransceiver('video') should cause remote connection to fire ontrack when setRemoteDescription()",
+      "addTransceiver() with inactive direction should not cause remote connection to fire ontrack when setRemoteDescription()",
+      "addTransceiver order of kinds is retained in ontrack at the receiver",
+      "ontrack should not fire for rejected media sections",
+    ],
+  },
+  {
     file: "webrtc/RTCPeerConnection-transceivers.https.html",
     include: [
       "addTrack: creates a transceiver for the sender",

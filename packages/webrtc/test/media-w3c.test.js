@@ -331,6 +331,26 @@ test("addTrack reuses a same-kind transceiver while a remote offer is pending", 
   }
 });
 
+test("remote offer track events complete in media-section order", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    for (const kind of ["audio", "video", "video", "audio"]) {
+      offerer.addTransceiver(kind);
+    }
+    const kinds = [];
+    answerer.addEventListener("track", (event) => kinds.push(event.track.kind));
+
+    await answerer.setRemoteDescription(await offerer.createOffer());
+
+    assert.deepEqual(kinds, ["audio", "video", "video", "audio"]);
+    assert.equal(answerer.getTransceivers().length, 4);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 async function negotiate(offerer, answerer) {
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription);
