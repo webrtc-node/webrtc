@@ -3338,36 +3338,43 @@ class RTCPeerConnection extends SimpleEventTarget {
       const media = /^m=(audio|video)\s+(\d+)\s/i.exec(section.startLine);
       if (!media) continue;
       const mid = section.lines.find((line) => /^a=mid:/i.test(line))?.slice(6);
-      if (!mid || this._transceivers.some((entry) => entry.mid === mid)) continue;
+      if (!mid) continue;
       const remoteDirection =
         section.lines
           .find((line) => /^a=(sendrecv|sendonly|recvonly|inactive)$/i.test(line))
           ?.slice(2)
           .toLowerCase() || "sendrecv";
-      let transceiver = this._transceivers.find(
-        (entry) =>
-          entry.mid === null &&
-          entry._kind === media[1].toLowerCase() &&
-          !entry.stopped &&
-          !entry.stopping &&
-          !entry._nativeTrack,
-      );
-      if (transceiver) transceiver._reusedForRemoteOffer = true;
-      else {
-        transceiver = this._createTransceiver(
-          media[1].toLowerCase(),
-          null,
-          disableSending(reverseDirection(remoteDirection)),
-          [],
+      let transceiver = this._transceivers.find((entry) => entry.mid === mid);
+      if (!transceiver) {
+        transceiver = this._transceivers.find(
+          (entry) =>
+            entry.mid === null &&
+            entry._kind === media[1].toLowerCase() &&
+            !entry.stopped &&
+            !entry.stopping &&
+            !entry._nativeTrack,
         );
-        transceiver._provisionalRemoteOffer = true;
+        if (transceiver) transceiver._reusedForRemoteOffer = true;
+        else {
+          transceiver = this._createTransceiver(
+            media[1].toLowerCase(),
+            null,
+            disableSending(reverseDirection(remoteDirection)),
+            [],
+          );
+          transceiver._provisionalRemoteOffer = true;
+        }
+        transceiver._mid = mid;
       }
-      transceiver._mid = mid;
       if (media[2] === "0") {
         transceiver._remoteStopping = true;
+        transceiver._lastTrackEventAssociationKey = null;
         continue;
       }
-      if (remoteDirection !== "sendrecv" && remoteDirection !== "sendonly") continue;
+      if (remoteDirection !== "sendrecv" && remoteDirection !== "sendonly") {
+        transceiver._lastTrackEventAssociationKey = null;
+        continue;
+      }
       this._ensureRemoteTrackSource(transceiver);
       const streams = this._applyRemoteTrackAssociations(transceiver, description);
       this._queueTrackEvent(
@@ -4394,7 +4401,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._canTrickleIceCandidates = hasTrickleIceOption(remoteDescription);
       this._remoteDescription = new RTCSessionDescription(remoteDescription);
       this._pairWithRemoteDescription(this._remoteDescription);
-      if (normalized.type === "offer") this._prepareRemoteTransceivers(this._remoteDescription);
+      this._prepareRemoteTransceivers(this._remoteDescription);
       this._syncStatesFromNative();
       if (normalized.type === "offer") {
         this._rollbackLocalDescription();
@@ -4417,7 +4424,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._flushPendingRemoteCandidatesForNative();
       }
       await nextTask();
-      if (normalized.type === "offer") await this._waitForPendingTrackEvents();
+      await this._waitForPendingTrackEvents();
       if (
         suppressedNativeSignalingState !== null &&
         this._suppressNextNativeSignalingState === suppressedNativeSignalingState

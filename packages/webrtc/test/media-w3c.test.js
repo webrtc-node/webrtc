@@ -351,6 +351,32 @@ test("remote offer track events complete in media-section order", async () => {
   }
 });
 
+test("track events follow receiving transitions on existing media sections", async () => {
+  const first = new RTCPeerConnection();
+  const second = new RTCPeerConnection();
+  try {
+    const local = first.addTransceiver(track(), { direction: "sendrecv" });
+    await first.setLocalDescription(await first.createOffer());
+    await second.setRemoteDescription(first.localDescription);
+    second.addTrack(track());
+
+    const answerTrack = waitFor(first, "track");
+    await second.setLocalDescription(await second.createAnswer());
+    await first.setRemoteDescription(second.localDescription);
+    assert.equal((await answerTrack).transceiver, local);
+
+    local.direction = "inactive";
+    await negotiate(first, second);
+    local.direction = "sendrecv";
+    const resumedTrack = waitFor(second, "track");
+    await negotiate(first, second);
+    assert.equal((await resumedTrack).transceiver, second.getTransceivers()[0]);
+  } finally {
+    first.close();
+    second.close();
+  }
+});
+
 async function negotiate(offerer, answerer) {
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription);
