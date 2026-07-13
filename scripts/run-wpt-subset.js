@@ -528,6 +528,23 @@ const defaultSpecs = [
     file: "webrtc/RTCPeerConnection-getStats-timestamp.https.html",
     include: ["RTCStats.timestamp is expressed as Performance time"],
   },
+  {
+    file: "webrtc/RTCRtpSender-getStats.https.html",
+    exclude: ["ICE candidate stats"],
+  },
+  {
+    file: "webrtc/RTCRtpReceiver-getStats.https.html",
+    search: "?interop-2026",
+    include: [
+      "via addTrack should return stats report containing inbound-rtp stats",
+      "closed PeerConnection but not have inbound-rtp objects",
+    ],
+  },
+  {
+    file: "webrtc/RTCRtpReceiver-getStats.https.html",
+    search: "?rest",
+    include: ["stopped transceiver but not have inbound-rtp objects"],
+  },
   { file: "webrtc/RTCRtpTransceiver-stop.html" },
   { file: "webrtc/RTCRtpTransceiver-direction.html" },
   { file: "webrtc/RTCRtpTransceiver-stopping.https.html", search: "?interop-2026" },
@@ -812,14 +829,60 @@ async function runFile(spec) {
     },
   };
 
+  function syntheticNoiseTrack(kind) {
+    const payloadType = kind === "audio" ? 111 : 96;
+    const ssrc = kind === "audio" ? 0x57505401 : 0x57505402;
+    let sequenceNumber = 0;
+    let timestamp = 0;
+    let timer = null;
+    const source = {
+      codec: { codec: kind === "audio" ? "opus" : "VP8", payloadType },
+      ssrc,
+      _attachNativeTrack(nativeTrack) {
+        this.nativeTrack = nativeTrack;
+      },
+      _detachNativeTrack(nativeTrack) {
+        if (this.nativeTrack === nativeTrack) this.nativeTrack = null;
+      },
+      stop() {
+        clearInterval(timer);
+        timer = null;
+      },
+    };
+    const track = webrtc.nonstandard.createMediaStreamTrack({
+      kind,
+      label: `WPT ${kind}`,
+      source,
+    });
+    timer = setInterval(() => {
+      if (!source.nativeTrack?.isOpen) return;
+      sequenceNumber = (sequenceNumber + 1) & 0xffff;
+      timestamp = (timestamp + (kind === "audio" ? 960 : 3000)) >>> 0;
+      const packet = Uint8Array.from([
+        0x80,
+        payloadType,
+        sequenceNumber >>> 8,
+        sequenceNumber & 0xff,
+        timestamp >>> 24,
+        (timestamp >>> 16) & 0xff,
+        (timestamp >>> 8) & 0xff,
+        timestamp & 0xff,
+        ssrc >>> 24,
+        (ssrc >>> 16) & 0xff,
+        (ssrc >>> 8) & 0xff,
+        ssrc & 0xff,
+        0,
+      ]);
+      source.nativeTrack.send(packet);
+    }, 20);
+    timer.unref?.();
+    return track;
+  }
+
   async function syntheticMediaStream(constraints = {}) {
     const tracks = [];
-    if (constraints.audio) {
-      tracks.push(webrtc.nonstandard.createMediaStreamTrack({ kind: "audio", label: "WPT audio" }));
-    }
-    if (constraints.video) {
-      tracks.push(webrtc.nonstandard.createMediaStreamTrack({ kind: "video", label: "WPT video" }));
-    }
+    if (constraints.audio) tracks.push(syntheticNoiseTrack("audio"));
+    if (constraints.video) tracks.push(syntheticNoiseTrack("video"));
     return new webrtc.MediaStream(tracks);
   }
 
