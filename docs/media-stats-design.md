@@ -14,6 +14,15 @@ application-supplied encoded packet I/O so native track lifecycle does not cross
 - Signaling methods and `replaceTrack()` share the W3C FIFO operations chain. Successful stats
   collection is asynchronous but does not join that chain; selector validation still rejects in
   the initiating task.
+- `RTCRtpSender.getParameters()` owns a task-scoped transaction snapshot. `setParameters()` is
+  asynchronous and independent of the operations chain, validates all read-only native/SDP facts,
+  and applies `encodings[0].active` through an atomic outbound-RTP gate. RTCP remains enabled, so
+  activation does not synthesize BYE or renegotiation.
+- The application-supplied encoded backend has one real sending encoding. It trims excess initial
+  encodings to that capacity and does not expose a RID for the lone encoding. Encoder and pacing
+  controls are rejected rather than stored as ineffective state: codec selection, bitrate,
+  frame-rate, and resolution scaling are not implemented. The WebRTC Extensions key-frame option
+  is not part of the public declarations because the package has no encoder.
 - SDP media sections and DTLS-SRTP packet transport are native libdatachannel behavior.
 - `RTCStatsReport` is a read-only JavaScript maplike object. Only measurements produced reliably by
   the backend are included.
@@ -33,10 +42,13 @@ uses synthetic encoded tracks only to exercise W3C object and lifecycle semantic
   only when the local description already contains media or `forceMediaTransport` is enabled.
 - `include/rtc/track.hpp`, `src/track.cpp`, and `src/impl/track.cpp`: tracks expose their media
   description, permit `setDescription()`, enforce send/receive direction, and route callbacks from
-  transport threads. There is no browser transceiver or remove-track object.
+  transport threads. `Track::send()` synchronously enters the media-handler/DTLS-SRTP path and
+  treats RTCP control independently from RTP direction checks; there is no per-encoding active
+  state, browser transceiver, or remove-track object.
 - `include/rtc/description.hpp` and `src/description.cpp`: media entries carry mid, direction,
   codecs, SSRCs, arbitrary media-level attributes, and a removed state. Answer generation
-  reciprocates direction. `addSSRC()` accepts one optional media-stream association, while
+  reciprocates direction. `addSSRC()` accepts an explicit CNAME plus one optional media-stream
+  association, while
   `addAttribute()` and `removeAttribute()` allow multiple `a=msid` lines without duplicating SSRC
   ownership.
 - `include/rtc/rtppacketizer.hpp`, `src/rtppacketizer.cpp`,
@@ -103,6 +115,9 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   RFC 9429 stream-only `a=msid:<stream-id>` attributes when no sender track ID exists; it does not
   invent an encoded source, SSRC, or track ID. libdatachannel retains these arbitrary media
   attributes when `Track::setDescription()` produces the next offer.
+- Each peer connection creates one stable RTCP CNAME. The addon supplies it to
+  `Description::Media::addSSRC()` on creation and description updates, so `getParameters().rtcp`
+  reports the same value that libdatachannel serializes for every local SSRC.
 - libdatachannel does not invoke `onTrack()` again when renegotiation only changes `a=msid` on an
   existing track. The facade detects changed remote associations from SDP, updates stream
   membership, preserves the encoded packet listener source, and queues the W3C-required repeated

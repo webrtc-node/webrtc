@@ -226,14 +226,33 @@ connection setup remains outside the selected scope.
 
 `RTCRtpSender.getParameters()` preserves the sender's initialized encoding
 state and derives codec, header-extension, and reduced-size RTCP fields from the
-committed answer SDP. Returned dictionaries are snapshots and do not mutate
-the sender. libdatachannel's generated media SDP currently has no `extmap`
-lines, so `headerExtensions` is empty rather than populated with invented
-browser defaults. Runtime `setParameters()` controls are not exposed until the
-encoded-media backend can apply them reliably.
+committed answer SDP. It returns isolated dictionaries backed by one
+task-scoped transaction, as required by WebRTC-PC. The RTCP CNAME is stable for
+the peer connection and is the same value written to native media SDP.
 
-Impact: the complete `RTCPeerConnection-transceivers.https.html` file passes,
-including initialized `sendEncodings[0].active`. The broader
+`RTCRtpSender.setParameters()` implements transaction lifetime, required
+dictionary conversion, read-only validation, asynchronous completion, and the
+single real runtime control available for application-supplied packetized
+media: `encodings[0].active`. An atomic addon gate suppresses outbound RTP while
+inactive without suppressing RTCP or changing SDP. This does not join the peer
+connection operations chain.
+
+The encoded adapter reports a maximum of one encoding. Excess initial
+encodings are trimmed to that real backend capacity and a lone RID is removed.
+Sender-side codec selection, bitrate limiting, frame-rate limiting, resolution
+scaling, and key-frame generation require encoding or pacing that this package
+does not perform. Initial codec, bitrate, frame-rate, and scaling requests that
+remain after kind-specific normalization throw `NotSupportedError`; runtime
+requests reject with `OperationError` (or the normative validation error
+first). The WebRTC Extensions key-frame-generation member is not exposed.
+libdatachannel's generated media SDP currently has no `extmap` lines, so
+`headerExtensions` is empty rather than populated with invented browser
+defaults.
+
+Impact: focused WPT covers sender transactions, immutable RTCP and header
+extension fields, operation timing, one-encoding normalization, and active
+state changes. Node-to-Node tests additionally prove that inactive RTP is
+suppressed and resumes without renegotiation. The broader
 `RTCRtpSender-getParameters.html` case remains outside expected-pass because it
 requires at least one negotiated RTP header extension.
 

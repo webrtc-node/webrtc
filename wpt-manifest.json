@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 868,
-  "selectedSubtestsSha256": "b382c2b5fa4415e2a00bd63e7487df2f8371e274e9b97c7f74d9512438c2a370",
+  "expectedSelectedSubtests": 913,
+  "selectedSubtestsSha256": "f6ec3d3fe81df779b5520067ab6935e3059964812eb992b4a30738e67f0c88c7",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -84,6 +84,14 @@
     "webrtc/RTCPeerConnection-ondatachannel.html",
     "webrtc/RTCPeerConnection-onnegotiationneeded.html#datachannel-and-setStreams-subset",
     "webrtc/RTCRtpSender-setStreams.https.html",
+    "webrtc/RTCRtpSender-setParameters.html?rest",
+    "webrtc/RTCRtpSender-setParameters.html?interop-2026",
+    "webrtc/RTCRtpParameters-transactionId.html?rest",
+    "webrtc/RTCRtpParameters-transactionId.html?interop-2026",
+    "webrtc/RTCRtpParameters-rtcp.html",
+    "webrtc/RTCRtpParameters-headerExtensions.html",
+    "webrtc/RTCRtpParameters-encodings.html?rest#single-encoding-and-active-control-subset",
+    "webrtc/RTCRtpParameters-encodings.html?interop-2026#single-encoding-and-active-control-subset",
     "webrtc/RTCTrackEvent-constructor.html",
     "mediacapture-streams/MediaStreamTrackEvent-constructor.https.html#required-dictionary-subset",
     "mediacapture-streams/MediaStream-clone.https.html",
@@ -102,7 +110,7 @@
     "webrtc/protocol/transceiver-mline-recycling.html",
     "webrtc/RTCRtpSender-replaceTrack.https.html#non-capture-lifecycle-subset",
     "webrtc/RTCPeerConnection-addTrack.https.html",
-    "webrtc/RTCPeerConnection-addTransceiver.https.html#non-capture-subset",
+    "webrtc/RTCPeerConnection-addTransceiver.https.html#non-capture-and-supported-encoding-subset",
     "webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html",
     "webrtc/RTCPeerConnection-getStats.https.html?rest#basic-promise-subset",
     "webrtc/RTCPeerConnection-getStats.https.html?interop-2026#empty-peer-connection-subset",
@@ -136,7 +144,6 @@
     "webrtc/RTCPeerConnection-setLocalDescription-rollback.html#transceiver-queued-state-ordering",
     "webrtc/RTCPeerConnection-setRemoteDescription.html#remaining-browser-media-and-sdp-munging-cases",
     "webrtc/RTCPeerConnection-setRemoteDescription-offer.html#remaining-media-transceiver-and-invalid-offer-timeout-cases",
-    "webrtc/RTCPeerConnection-operations.https.html#setParameters-cases",
     "webrtc/RTCPeerConnection-addIceCandidate-connectionSetup.html#media-transceiver-connection-setup",
     "webrtc/RTCPeerConnection-restartIce.https.html#remaining-initial-negotiation-fresh-ufrag-media-and-signaling-edge-cases",
     "webrtc/RTCPeerConnection-iceGatheringState.html#remaining-media-restart-fresh-credential-and-candidate-ordering-cases",
@@ -146,7 +153,7 @@
     "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
     "webrtc/RTCPeerConnection-getStats.https.html#remaining-detailed-backend-stats-cases",
     "webrtc/RTCPeerConnection-mandatory-getStats.https.html#loss-jitter-remote-report-decoded-source-and-pair-metric-cases",
-    "webrtc/RTCRtp*.html#remaining-rtp-parameters-and-capabilities-cases"
+    "webrtc/RTCRtp*.html#remaining-receiver-parameters-capabilities-codec-and-simulcast-cases"
   ],
   "expectedFail": [
     "webrtc/RTCPeerConnection-setLocalDescription*.html#arbitrary-local-sdp-munging",
@@ -165,6 +172,8 @@
     "webrtc/RTCPeerConnection-addTransceiver.https.html#track-source-capture-cases",
     "webrtc/RTCPeerConnection-getStats.https.html#capture-source-cases",
     "webrtc/RTCRtp*.html#capture-source-and-processing-cases",
+    "webrtc/RTCRtpParameters-encodings.html#encoder-pacing-scaling-and-simulcast-layer-controls",
+    "webrtc/RTCRtpSender-setParameters-keyFrame.html#encoder-key-frame-generation",
     "webrtc/RTCRtpTransceiver-stopping.https.html?rest#mediaDevices-glare-cases",
     "webrtc/idlharness.https.window.js#media-and-browser-only-members"
   ]

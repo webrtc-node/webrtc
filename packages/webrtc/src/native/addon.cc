@@ -141,6 +141,10 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (options.Has("trackId") && !options.Get("trackId").IsNull() &&
 	    !options.Get("trackId").IsUndefined())
 		trackId = options.Get("trackId").ToString().Utf8Value();
+	std::optional<std::string> cname;
+	if (options.Has("cname") && !options.Get("cname").IsNull() &&
+	    !options.Get("cname").IsUndefined())
+		cname = options.Get("cname").ToString().Utf8Value();
 	auto streamIds = ParseStringArray(options.Get("streamIds"), "streamIds");
 
 	if (mid.empty())
@@ -158,6 +162,8 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 		throw std::invalid_argument("profile must not contain line breaks");
 	if (trackId && (trackId->empty() || trackId->find_first_of(" \t\r\n") != std::string::npos))
 		throw std::invalid_argument("trackId must be a non-empty SDP token");
+	if (cname && (cname->empty() || cname->find_first_of(" \t\r\n") != std::string::npos))
+		throw std::invalid_argument("cname must be a non-empty SDP token");
 
 	rtc::Description::Direction parsedDirection = ParseMediaDirection(direction);
 	if (kind == "audio") {
@@ -165,7 +171,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 		media.addAudioCodec(payloadType, codec, profile);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
-			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), mid);
+			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), cname.value_or(mid));
 		SetMediaStreamIds(media, streamIds, trackId);
 		return media;
 	}
@@ -174,7 +180,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 		media.addVideoCodec(payloadType, codec, profile);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
-			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), mid);
+			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), cname.value_or(mid));
 		SetMediaStreamIds(media, streamIds, trackId);
 		return media;
 	}
@@ -1105,6 +1111,7 @@ struct TrackBinding : public std::enable_shared_from_this<TrackBinding> {
 	std::atomic<uint64_t> bytesSent{0};
 	std::atomic<uint64_t> packetsReceived{0};
 	std::atomic<uint64_t> bytesReceived{0};
+	std::atomic<bool> active{true};
 
 private:
 	TrackBinding(std::shared_ptr<rtc::Track> track_,
@@ -1183,6 +1190,7 @@ public:
 		    env, "NativeTrack",
 		    {
 		        InstanceMethod("send", &NativeTrack::Send),
+		        InstanceMethod("setActive", &NativeTrack::SetActive),
 		        InstanceMethod("close", &NativeTrack::Close),
 		        InstanceMethod("stats", &NativeTrack::Stats),
 		        InstanceMethod("updateDescription", &NativeTrack::UpdateDescription),
@@ -1232,8 +1240,11 @@ private:
 				throw std::invalid_argument("send expects a Uint8Array containing RTP or RTCP");
 			auto view = info[0].As<Napi::Uint8Array>();
 			const auto *bytes = reinterpret_cast<const rtc::byte *>(view.Data());
+			const bool isRtp = IsRtpPacket(bytes, view.ByteLength());
+			if (isRtp && !binding_->active.load(std::memory_order_acquire))
+				return Napi::Boolean::New(env, false);
 			const bool sent = binding_->track->send(bytes, view.ByteLength());
-			if (sent && IsRtpPacket(bytes, view.ByteLength())) {
+			if (sent && isRtp) {
 				binding_->packetsSent.fetch_add(1, std::memory_order_relaxed);
 				binding_->bytesSent.fetch_add(view.ByteLength(), std::memory_order_relaxed);
 			}
@@ -1242,6 +1253,11 @@ private:
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 			return env.Undefined();
 		}
+	}
+
+	Napi::Value SetActive(const Napi::CallbackInfo &info) {
+		binding_->active.store(info[0].ToBoolean().Value(), std::memory_order_release);
+		return info.Env().Undefined();
 	}
 
 	Napi::Value Close(const Napi::CallbackInfo &info) {
@@ -1269,6 +1285,12 @@ private:
 			if (trackId &&
 			    (trackId->empty() || trackId->find_first_of(" \t\r\n") != std::string::npos))
 				throw std::invalid_argument("trackId must be a non-empty SDP token");
+			std::optional<std::string> cname;
+			if (info.Length() > 5 && !info[5].IsNull() && !info[5].IsUndefined())
+				cname = info[5].ToString().Utf8Value();
+			if (cname &&
+			    (cname->empty() || cname->find_first_of(" \t\r\n") != std::string::npos))
+				throw std::invalid_argument("cname must be a non-empty SDP token");
 
 			auto description = binding_->track->description();
 			if (info.Length() > 1 && info[1].ToBoolean().Value()) {
@@ -1281,7 +1303,7 @@ private:
 				auto ssrc = info[2].ToNumber().Uint32Value();
 				if (ssrc == 0)
 					throw std::invalid_argument("ssrc must be between 1 and 4294967295");
-				description.addSSRC(ssrc, description.mid());
+				description.addSSRC(ssrc, cname.value_or(description.mid()));
 			}
 			SetMediaStreamIds(description, streamIds, trackId);
 			binding_->track->setDescription(std::move(description));

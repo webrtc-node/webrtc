@@ -329,17 +329,24 @@ export class RTCRtpSender {
   readonly track: MediaStreamTrack | null;
   readonly transport: RTCDtlsTransport | null;
   getParameters(): RTCRtpSendParameters;
+  setParameters(
+    parameters: RTCRtpSendParameters,
+    setParameterOptions?: RTCSetParameterOptions,
+  ): Promise<void>;
   replaceTrack(track: MediaStreamTrack | null): Promise<void>;
   setStreams(...streams: MediaStream[]): void;
   getStats(): Promise<RTCStatsReport>;
 }
 
-export interface RTCRtpCodecParameters {
-  payloadType: number;
+export interface RTCRtpCodec {
   mimeType: string;
   clockRate: number;
   channels?: number;
   sdpFmtpLine?: string;
+}
+
+export interface RTCRtpCodecParameters extends RTCRtpCodec {
+  payloadType: number;
 }
 
 export interface RTCRtpHeaderExtensionParameters {
@@ -351,7 +358,13 @@ export interface RTCRtpHeaderExtensionParameters {
 export interface RTCRtpEncodingParameters {
   rid?: string;
   active?: boolean;
+  codec?: RTCRtpCodec;
+  maxBitrate?: number;
+  maxFramerate?: number;
+  scaleResolutionDownBy?: number;
 }
+
+export type RTCSetParameterOptions = object;
 
 export interface RTCRtpSendParameters {
   transactionId: string;
@@ -384,7 +397,7 @@ export class RTCRtpTransceiver {
 export interface RTCRtpTransceiverInit {
   direction?: RTCRtpTransceiverDirection;
   streams?: Iterable<MediaStream>;
-  sendEncodings?: Iterable<{ rid?: string; active?: boolean }>;
+  sendEncodings?: Iterable<RTCRtpEncodingParameters>;
 }
 
 export interface RTCStats {
@@ -636,6 +649,9 @@ export namespace nonstandard {
         payloadType: number;
         profile?: string;
         ssrc?: number;
+        streamIds: string[];
+        trackId: string | null;
+        cname?: string;
       },
       callback: (event: unknown) => void,
     ): {
@@ -648,13 +664,21 @@ export namespace nonstandard {
       readonly isClosed: boolean;
       readonly maxMessageSize: number;
       send(packet: Uint8Array): boolean;
+      setActive(active: boolean): void;
       stats(): {
         packetsSent: number;
         bytesSent: number;
         packetsReceived: number;
         bytesReceived: number;
       };
-      updateDescription(direction: RTCRtpTransceiverDirection, stopped: boolean): void;
+      updateDescription(
+        direction: RTCRtpTransceiverDirection,
+        stopped: boolean,
+        ssrc: number | null,
+        streamIds: string[],
+        trackId: string | null,
+        cname: string,
+      ): void;
       close(): void;
     };
     transportStats(): {

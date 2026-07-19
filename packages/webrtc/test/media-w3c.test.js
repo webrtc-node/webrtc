@@ -111,6 +111,30 @@ test("addTransceiver exposes standard sender receiver and direction state", () =
   }
 });
 
+test("addTransceiver reports its single pre-encoded RTP encoding envelope", () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const transceiver = peer.addTransceiver("video", {
+      sendEncodings: [
+        { rid: "low", active: false },
+        { rid: "high", active: true },
+      ],
+    });
+    assert.deepEqual(transceiver.sender.getParameters().encodings, [
+      { active: false, scaleResolutionDownBy: 1 },
+    ]);
+    assert.throws(() => peer.addTransceiver("audio", { sendEncodings: [{ maxBitrate: 64_000 }] }), {
+      name: "NotSupportedError",
+    });
+    assert.throws(
+      () => peer.addTransceiver("video", { sendEncodings: [{ scaleResolutionDownBy: 2 }] }),
+      { name: "NotSupportedError" },
+    );
+  } finally {
+    peer.close();
+  }
+});
+
 test("closing a peer moves transceivers to their terminal state", () => {
   const peer = new RTCPeerConnection();
   const transceiver = peer.addTransceiver("audio");
@@ -477,7 +501,7 @@ test("sender parameters preserve encodings and expose negotiated SDP facts", asy
       sendEncodings: [{ rid: "primary", active: false }],
     }).sender;
     const initial = sender.getParameters();
-    assert.deepEqual(initial.encodings, [{ rid: "primary", active: false }]);
+    assert.deepEqual(initial.encodings, [{ active: false }]);
     assert.deepEqual(initial.codecs, []);
     assert.deepEqual(initial.headerExtensions, []);
     initial.encodings[0].active = true;
@@ -488,10 +512,60 @@ test("sender parameters preserve encodings and expose negotiated SDP facts", asy
     assert.ok(negotiated.codecs.length > 0);
     assert.match(negotiated.codecs[0].mimeType, /^audio\//);
     assert.deepEqual(negotiated.headerExtensions, []);
+    assert.equal(negotiated.transactionId, sender.getParameters().transactionId);
+    assert.equal(typeof negotiated.rtcp.cname, "string");
+    assert.ok(negotiated.rtcp.cname.length > 0);
+    await new Promise((resolve) => setImmediate(resolve));
     assert.notEqual(negotiated.transactionId, sender.getParameters().transactionId);
   } finally {
     offerer.close();
     answerer.close();
+  }
+});
+
+test("sender parameter transactions validate task lifetime and immutable fields", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const sender = peer.addTransceiver("audio").sender;
+    const first = sender.getParameters();
+    const second = sender.getParameters();
+    assert.notEqual(first, second);
+    assert.equal(first.transactionId, second.transactionId);
+    first.encodings[0].active = false;
+    assert.equal(second.encodings[0].active, true);
+    await undefined;
+    assert.equal(first.transactionId, sender.getParameters().transactionId);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    await assert.rejects(sender.setParameters(first), { name: "InvalidStateError" });
+
+    const modified = sender.getParameters();
+    modified.rtcp.cname = `${modified.rtcp.cname}-modified`;
+    await assert.rejects(sender.setParameters(modified), { name: "InvalidModificationError" });
+
+    const unsupported = sender.getParameters();
+    unsupported.encodings[0].maxBitrate = 64_000;
+    await assert.rejects(sender.setParameters(unsupported), { name: "OperationError" });
+  } finally {
+    peer.close();
+  }
+});
+
+test("sender parameters use the peer CNAME written to local SDP", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const audioSender = peer.addTransceiver(track("audio")).sender;
+    const videoSender = peer.addTransceiver(track("video")).sender;
+    const cname = audioSender.getParameters().rtcp.cname;
+    assert.equal(videoSender.getParameters().rtcp.cname, cname);
+    const offer = await peer.createOffer();
+    const advertisedCnames = [...offer.sdp.matchAll(/^a=ssrc:\d+ cname:(\S+)$/gm)].map((match) =>
+      match[1].replace(/\r$/, ""),
+    );
+    assert.ok(advertisedCnames.length >= 2);
+    assert.deepEqual(new Set(advertisedCnames), new Set([cname]));
+  } finally {
+    peer.close();
   }
 });
 

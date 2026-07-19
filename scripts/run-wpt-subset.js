@@ -272,6 +272,7 @@ const defaultSpecs = [
     include: [
       "createOffer must detect InvalidStateError synchronously",
       "createAnswer must detect InvalidStateError synchronously",
+      "setParameters must detect InvalidStateError synchronously",
       "isOperationsChainEmpty detects empty in stable",
       "isOperationsChainEmpty detects empty in have-local-offer",
       "isOperationsChainEmpty detects empty in have-remote-offer",
@@ -299,6 +300,7 @@ const defaultSpecs = [
       "Negotiationneeded only fires once operations chain is empty",
       "addIceCandidate chains onto SRD, fails before",
       "Operations queue not vulnerable to recursion by chained negotiationneeded",
+      "setParameters does NOT use the operations chain",
     ],
   },
   { file: "webrtc/RTCPeerConnection-addIceCandidate-timing.https.html" },
@@ -471,6 +473,46 @@ const defaultSpecs = [
     ],
   },
   { file: "webrtc/RTCRtpSender-setStreams.https.html" },
+  { file: "webrtc/RTCRtpSender-setParameters.html", search: "?rest" },
+  { file: "webrtc/RTCRtpSender-setParameters.html", search: "?interop-2026" },
+  { file: "webrtc/RTCRtpParameters-transactionId.html", search: "?rest" },
+  { file: "webrtc/RTCRtpParameters-transactionId.html", search: "?interop-2026" },
+  { file: "webrtc/RTCRtpParameters-rtcp.html" },
+  { file: "webrtc/RTCRtpParameters-headerExtensions.html" },
+  {
+    file: "webrtc/RTCRtpParameters-encodings.html",
+    search: "?rest",
+    include: [
+      "getParameters should return RTCRtpEncodingParameters with all required fields",
+      "addTransceiver(video) with undefined sendEncodings",
+      "addTransceiver(video) with empty list sendEncodings",
+      "addTransceiver with a ridiculous number of encodings",
+      "addTransceiver(audio) should remove",
+      "addTransceiver with duplicate rid",
+      "addTransceiver with missing rid",
+      "addTransceiver with empty rid",
+      "addTransceiver with invalid rid characters",
+      "addTransceiver with scaleResolutionDownBy < 1",
+      "sender.setParameters() with encodings unset",
+      "setParameters() with encoding.scaleResolutionDownBy field set to less than 1.0",
+      "setParameters() with missing encoding.scaleResolutionDownBy",
+      "setParameters() with encoding.active",
+    ],
+  },
+  {
+    file: "webrtc/RTCRtpParameters-encodings.html",
+    search: "?interop-2026",
+    include: [
+      "addTransceiver(audio) with undefined sendEncodings",
+      "addTransceiver(audio) with empty list sendEncodings",
+      "addTransceiver(audio) with multiple encodings",
+      "setParameters with scaleResolutionDownBy on an audio sender",
+      "setParameters with an invalid scaleResolutionDownBy on an audio sender",
+      "addTransceiver with rid longer than 255 characters",
+      "sender.setParameters() with added encodings",
+      "sender.setParameters() with empty encodings",
+    ],
+  },
   { file: "webrtc/RTCTrackEvent-constructor.html" },
   {
     file: "mediacapture-streams/MediaStreamTrackEvent-constructor.https.html",
@@ -574,6 +616,7 @@ const defaultSpecs = [
     exclude: [
       "addTransceiver(track) should have result with sender.track be given track",
       "addTransceiver(track) multiple times should create multiple transceivers",
+      "with valid sendEncodings should succeed",
     ],
   },
   { file: "webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html" },
@@ -1080,6 +1123,11 @@ async function runFile(spec) {
   sandbox.assert_own_property = (object, property, message = "") => {
     if (!Object.hasOwn(Object(object), property)) {
       throw new Error(`${message} expected own property ${property}`.trim());
+    }
+  };
+  sandbox.assert_not_own_property = (object, property, message = "") => {
+    if (Object.hasOwn(Object(object), property)) {
+      throw new Error(`${message} expected no own property ${property}`.trim());
     }
   };
   sandbox.assert_less_than = (actual, expected, message = "") => {

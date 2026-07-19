@@ -57,6 +57,19 @@ function rtpPacket(sequenceNumber = 1, payloadType = 96, ssrc = 42) {
   ]);
 }
 
+function rtcpReceiverReport(ssrc = 42) {
+  return Uint8Array.from([
+    0x80,
+    201,
+    0,
+    1,
+    ssrc >> 24,
+    (ssrc >> 16) & 0xff,
+    (ssrc >> 8) & 0xff,
+    ssrc & 0xff,
+  ]);
+}
+
 test("EncodedMediaSource provides a standard MediaStreamTrack", async () => {
   const peer = new RTCPeerConnection();
   const source = new EncodedMediaSource({
@@ -119,6 +132,79 @@ test("answerer-supplied encoded RTP reaches the offerer receiver", async () => {
     );
     assert.ok(inbound);
     assert.ok(inbound.packetsReceived > 0);
+  } finally {
+    sink?.close();
+    source.close();
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("RTCRtpSender active parameters suppress and resume encoded RTP", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const source = new EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+    ssrc: 44,
+  });
+  let sink;
+  try {
+    const sender = offerer.addTransceiver(source.track, {
+      sendEncodings: [{ active: false }],
+    }).sender;
+    const remoteTrack = waitFor(answerer, "track");
+    await negotiate(offerer, answerer);
+    sink = new EncodedMediaSink((await remoteTrack).track);
+
+    assert.equal(source.send(rtpPacket(1, 111, 44)), false);
+    assert.equal(
+      [...(await sender.getStats()).values()].find((entry) => entry.type === "outbound-rtp")
+        ?.packetsSent,
+      0,
+    );
+
+    const controlEvent = waitFor(sink, "packet");
+    let controlDelivered = false;
+    controlEvent.then(() => {
+      controlDelivered = true;
+    });
+    for (let attempt = 0; attempt < 200 && !controlDelivered; attempt += 1) {
+      try {
+        source.send(rtcpReceiverReport(44));
+      } catch (error) {
+        if (!/Track is not open/.test(error.message)) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(new Uint8Array((await controlEvent).data)[1], 201);
+
+    const enabled = sender.getParameters();
+    enabled.encodings[0].active = true;
+    await sender.setParameters(enabled);
+    const packetEvent = waitFor(sink, "packet");
+    let delivered = false;
+    packetEvent.then(() => {
+      delivered = true;
+    });
+    for (let sequenceNumber = 2; sequenceNumber <= 200 && !delivered; sequenceNumber += 1) {
+      try {
+        source.send(rtpPacket(sequenceNumber, 111, 44));
+      } catch (error) {
+        if (!/Track is not open/.test(error.message)) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await packetEvent;
+
+    const disabled = sender.getParameters();
+    disabled.encodings[0].active = false;
+    await sender.setParameters(disabled);
+    assert.equal(source.send(rtpPacket(201, 111, 44)), false);
+    const outbound = [...(await sender.getStats()).values()].find(
+      (entry) => entry.type === "outbound-rtp",
+    );
+    assert.ok(outbound.packetsSent > 0);
   } finally {
     sink?.close();
     source.close();

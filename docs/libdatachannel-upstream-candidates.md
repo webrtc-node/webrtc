@@ -73,6 +73,40 @@ The named WPT files are from pinned WPT commit
   issue. Native integration checks pin the option, while Node and selected WPT
   tests cover late media and ordinary data-channel behavior.
 
+### Evaluated integration constraint: sender activation and RTCP CNAME
+
+**Disposition:** binding/facade policy using existing upstream primitives; not
+an upstream candidate.
+
+- **Requirement and WPT.** WebRTC-PC requires task-scoped
+  `getParameters()`/`setParameters()` transactions, a stable sender RTCP CNAME,
+  and `encodings[].active` changes that stop RTP without renegotiation or an
+  RTCP BYE. Applicable WPT: `webrtc/RTCRtpSender-setParameters.html`,
+  `webrtc/RTCRtpParameters-transactionId.html`,
+  `webrtc/RTCRtpParameters-rtcp.html`,
+  `webrtc/RTCRtpParameters-encodings.html`, and the `setParameters` cases in
+  `webrtc/RTCPeerConnection-operations.https.html`.
+- **Source inspected.** `include/rtc/track.hpp`, `src/track.cpp`,
+  `src/impl/track.hpp`, `src/impl/track.cpp`, `include/rtc/mediahandler.hpp`,
+  `src/mediahandler.cpp`, `src/impl/dtlssrtptransport.cpp`,
+  `include/rtc/description.hpp`, and `src/description.cpp`.
+- **Evidence.** `Track::send()` synchronously enters `impl::Track::outgoing()`.
+  With no media handler it classifies RTCP as control, applies media direction
+  only to non-control packets, and then calls the DTLS-SRTP transport. This is a
+  packet transport API, not a W3C sender-encoding state machine, so a general
+  C++ `active` property would duplicate caller policy. Separately,
+  `Description::Media::addSSRC()` already accepts and serializes the CNAME; the
+  binding had incorrectly supplied each media-section MID instead of one
+  peer-level value.
+- **Binding action.** JavaScript owns transaction IDs, WebIDL conversion,
+  immutable-field checks, task timing, and unsupported encoder-control errors.
+  `TrackBinding` has an atomic gate immediately before `Track::send()` that
+  drops only outbound RTP while inactive; RTCP still enters libdatachannel.
+  Peer construction creates one CNAME and supplies it to `addSSRC()` on track
+  creation and every description update. Focused WPT plus Node-to-Node packet
+  flow and SDP tests cover suppression, resumption, RTCP metadata, close, and
+  asynchronous completion. No upstream issue is warranted.
+
 ## Existing-track description and msid notifications
 
 **Status:** `confirmed-absent`

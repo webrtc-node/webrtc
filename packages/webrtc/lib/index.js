@@ -1009,7 +1009,7 @@ function effectiveTransceiverMid(transceiver) {
   return transceiver._mid ?? transceiver._nativeMid;
 }
 
-function senderRtpParameters(transceiver) {
+function senderRtpParameters(transceiver, transactionId) {
   const peer = transceiver._peerConnection;
   const answer =
     peer._currentLocalDescription?.type === "answer"
@@ -1050,12 +1050,279 @@ function senderRtpParameters(transceiver) {
     }
   }
   return {
-    transactionId: crypto.randomUUID(),
+    transactionId,
     encodings: transceiver._sendEncodings.map((encoding) => ({ ...encoding })),
     headerExtensions,
-    rtcp: { reducedSize: Boolean(section?.lines.includes("a=rtcp-rsize")) },
+    rtcp: {
+      cname: peer._rtcpCname,
+      reducedSize: Boolean(section?.lines.includes("a=rtcp-rsize")),
+    },
     codecs,
   };
+}
+
+function cloneRtpSendParameters(parameters) {
+  return {
+    transactionId: parameters.transactionId,
+    encodings: parameters.encodings.map((encoding) => ({
+      ...encoding,
+      ...(encoding.codec === undefined ? {} : { codec: { ...encoding.codec } }),
+    })),
+    headerExtensions: parameters.headerExtensions.map((extension) => ({ ...extension })),
+    rtcp: { ...parameters.rtcp },
+    codecs: parameters.codecs.map((codec) => ({ ...codec })),
+  };
+}
+
+function requiredDictionaryMember(dictionary, name) {
+  const value = dictionary[name];
+  if (value === undefined) throw new TypeError(`${name} is required`);
+  return value;
+}
+
+function toSequence(value, name) {
+  if (value == null || typeof value[Symbol.iterator] !== "function") {
+    throw new TypeError(`${name} must be iterable`);
+  }
+  return Array.from(value);
+}
+
+function toFiniteDouble(value, name) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new TypeError(`${name} must be a finite number`);
+  return number;
+}
+
+function normalizeRtpCodec(codec, name, includePayloadType) {
+  if (codec == null || (typeof codec !== "object" && typeof codec !== "function")) {
+    throw new TypeError(`${name} must be an object`);
+  }
+  const result = {
+    mimeType: String(requiredDictionaryMember(codec, "mimeType")),
+    clockRate: toUnsignedLong(requiredDictionaryMember(codec, "clockRate")),
+  };
+  if (includePayloadType) {
+    result.payloadType = enforceRange(
+      requiredDictionaryMember(codec, "payloadType"),
+      `${name}.payloadType`,
+      255,
+    );
+  }
+  if (codec.channels !== undefined) {
+    result.channels = enforceRange(codec.channels, `${name}.channels`, 65535);
+  }
+  if (codec.sdpFmtpLine !== undefined) result.sdpFmtpLine = String(codec.sdpFmtpLine);
+  return result;
+}
+
+function normalizeRtpSendParameters(parameters, kind) {
+  if (parameters == null || (typeof parameters !== "object" && typeof parameters !== "function")) {
+    throw new TypeError("parameters must be an RTCRtpSendParameters dictionary");
+  }
+  const transactionId = String(requiredDictionaryMember(parameters, "transactionId"));
+  const encodings = toSequence(requiredDictionaryMember(parameters, "encodings"), "encodings").map(
+    (encoding, index) => {
+      const value = encoding == null ? {} : Object(encoding);
+      const normalized = { active: value.active === undefined ? true : Boolean(value.active) };
+      if (value.rid !== undefined) normalized.rid = String(value.rid);
+      if (value.codec !== undefined) {
+        normalized.codec = normalizeRtpCodec(value.codec, `encodings[${index}].codec`, false);
+      }
+      if (value.maxBitrate !== undefined) normalized.maxBitrate = toUnsignedLong(value.maxBitrate);
+      if (value.maxFramerate !== undefined) {
+        normalized.maxFramerate = toFiniteDouble(
+          value.maxFramerate,
+          `encodings[${index}].maxFramerate`,
+        );
+      }
+      if (value.scaleResolutionDownBy !== undefined) {
+        normalized.scaleResolutionDownBy = toFiniteDouble(
+          value.scaleResolutionDownBy,
+          `encodings[${index}].scaleResolutionDownBy`,
+        );
+      }
+      if (kind === "audio") {
+        delete normalized.maxFramerate;
+        delete normalized.scaleResolutionDownBy;
+      } else if (normalized.scaleResolutionDownBy === undefined) {
+        normalized.scaleResolutionDownBy = 1;
+      }
+      return normalized;
+    },
+  );
+  const headerExtensions = toSequence(
+    requiredDictionaryMember(parameters, "headerExtensions"),
+    "headerExtensions",
+  ).map((extension, index) => {
+    if (extension == null || (typeof extension !== "object" && typeof extension !== "function")) {
+      throw new TypeError(`headerExtensions[${index}] must be an object`);
+    }
+    return {
+      uri: String(requiredDictionaryMember(extension, "uri")),
+      id: enforceRange(requiredDictionaryMember(extension, "id"), `headerExtensions[${index}].id`),
+      encrypted: extension.encrypted === undefined ? false : Boolean(extension.encrypted),
+    };
+  });
+  const rtcpValue = requiredDictionaryMember(parameters, "rtcp");
+  if (rtcpValue == null || (typeof rtcpValue !== "object" && typeof rtcpValue !== "function")) {
+    throw new TypeError("rtcp must be an object");
+  }
+  const rtcp = {};
+  if (rtcpValue.cname !== undefined) rtcp.cname = String(rtcpValue.cname);
+  if (rtcpValue.reducedSize !== undefined) rtcp.reducedSize = Boolean(rtcpValue.reducedSize);
+  const codecs = toSequence(requiredDictionaryMember(parameters, "codecs"), "codecs").map(
+    (codec, index) => normalizeRtpCodec(codec, `codecs[${index}]`, true),
+  );
+  return { transactionId, encodings, headerExtensions, rtcp, codecs };
+}
+
+function sameOptionalMember(left, right, name) {
+  return (
+    Object.hasOwn(left, name) === Object.hasOwn(right, name) &&
+    (!Object.hasOwn(left, name) || left[name] === right[name])
+  );
+}
+
+function sameRtpCodec(left, right, includePayloadType) {
+  return (
+    (!includePayloadType || left.payloadType === right.payloadType) &&
+    left.mimeType === right.mimeType &&
+    left.clockRate === right.clockRate &&
+    sameOptionalMember(left, right, "channels") &&
+    sameOptionalMember(left, right, "sdpFmtpLine")
+  );
+}
+
+function sameRtpParameterSequence(left, right, compare) {
+  return left.length === right.length && left.every((entry, index) => compare(entry, right[index]));
+}
+
+function hasModifiedReadOnlyRtpParameters(parameters, lastReturned) {
+  if (parameters.transactionId !== lastReturned.transactionId) return true;
+  if (parameters.encodings.length !== lastReturned.encodings.length) return true;
+  if (
+    parameters.encodings.some(
+      (encoding, index) => !sameOptionalMember(encoding, lastReturned.encodings[index], "rid"),
+    )
+  ) {
+    return true;
+  }
+  if (
+    !sameRtpParameterSequence(parameters.headerExtensions, lastReturned.headerExtensions, (a, b) =>
+      ["uri", "id", "encrypted"].every((name) => a[name] === b[name]),
+    )
+  ) {
+    return true;
+  }
+  if (
+    !sameOptionalMember(parameters.rtcp, lastReturned.rtcp, "cname") ||
+    !sameOptionalMember(parameters.rtcp, lastReturned.rtcp, "reducedSize")
+  ) {
+    return true;
+  }
+  return !sameRtpParameterSequence(parameters.codecs, lastReturned.codecs, (a, b) =>
+    sameRtpCodec(a, b, true),
+  );
+}
+
+function validateSupportedSenderParameters(transceiver, parameters) {
+  for (const encoding of parameters.encodings) {
+    if (encoding.scaleResolutionDownBy !== undefined && encoding.scaleResolutionDownBy < 1) {
+      throw new RangeError("scaleResolutionDownBy must be at least 1");
+    }
+    if (encoding.maxFramerate !== undefined && encoding.maxFramerate < 0) {
+      throw new RangeError("maxFramerate must not be negative");
+    }
+    if (encoding.codec !== undefined) {
+      const choosableCodecs = parameters.codecs;
+      if (!choosableCodecs.some((codec) => sameRtpCodec(encoding.codec, codec, false))) {
+        throw makeDOMException("The selected codec was not negotiated", "InvalidModificationError");
+      }
+      throw makeDOMException(
+        "Per-encoding codec selection is unavailable for pre-encoded media",
+        "OperationError",
+      );
+    }
+    if (encoding.maxBitrate !== undefined || encoding.maxFramerate !== undefined) {
+      throw makeDOMException(
+        "Bitrate and frame-rate controls require an encoder or packet pacer",
+        "OperationError",
+      );
+    }
+    if (transceiver._kind === "video" && encoding.scaleResolutionDownBy !== 1) {
+      throw makeDOMException("Resolution scaling requires an encoder", "OperationError");
+    }
+  }
+  const activeChanged = parameters.encodings.some(
+    (encoding, index) => encoding.active !== transceiver._sendEncodings[index]?.active,
+  );
+  if (activeChanged && parameters.encodings.length > 1) {
+    throw makeDOMException(
+      "Per-encoding activation requires negotiated encoded layers",
+      "OperationError",
+    );
+  }
+}
+
+function normalizeInitialSendEncodings(kind, value) {
+  const encodings = value === undefined ? [] : Array.from(value);
+  const normalized = encodings.map((encoding, index) => {
+    const input = encoding == null ? {} : Object(encoding);
+    const result = { active: input.active === undefined ? true : Boolean(input.active) };
+    if (input.rid !== undefined) {
+      const rid = String(input.rid);
+      if (!/^[A-Za-z0-9]{1,255}$/.test(rid)) {
+        throw new TypeError(`sendEncodings[${index}].rid is not a valid RID`);
+      }
+      result.rid = rid;
+    }
+    if (input.maxBitrate !== undefined || input.codec !== undefined) {
+      throw makeDOMException(
+        "Encoded media does not provide sender-side bitrate or codec control",
+        "NotSupportedError",
+      );
+    }
+    if (kind === "video") {
+      if (input.maxFramerate !== undefined) {
+        throw makeDOMException(
+          "Encoded media does not provide sender-side frame-rate control",
+          "NotSupportedError",
+        );
+      }
+      const scale =
+        input.scaleResolutionDownBy === undefined
+          ? 1
+          : toFiniteDouble(
+              input.scaleResolutionDownBy,
+              `sendEncodings[${index}].scaleResolutionDownBy`,
+            );
+      if (scale < 1) throw new RangeError("scaleResolutionDownBy must be at least 1");
+      if (scale !== 1) {
+        throw makeDOMException(
+          "Encoded media does not provide sender-side resolution scaling",
+          "NotSupportedError",
+        );
+      }
+      result.scaleResolutionDownBy = 1;
+    }
+    return result;
+  });
+  const ridCount = normalized.filter((encoding) => encoding.rid !== undefined).length;
+  if (ridCount !== 0 && ridCount !== normalized.length) {
+    throw new TypeError("Either all or none of sendEncodings must contain a rid");
+  }
+  const rids = new Set();
+  for (const encoding of normalized) {
+    if (encoding.rid === undefined) continue;
+    if (rids.has(encoding.rid)) throw new TypeError("sendEncodings contains duplicate rid values");
+    rids.add(encoding.rid);
+  }
+  const result =
+    normalized.length > 0
+      ? [normalized[0]]
+      : [kind === "video" ? { active: true, scaleResolutionDownBy: 1 } : { active: true }];
+  delete result[0].rid;
+  return result;
 }
 
 function serializeSdp(sessionLines, mediaSections) {
@@ -3019,6 +3286,7 @@ class RTCRtpSender {
     this._peerConnection = peerConnection;
     this._track = track;
     this._streams = [...streams];
+    this._lastReturnedParameters = null;
   }
   get track() {
     return this._track;
@@ -3029,7 +3297,65 @@ class RTCRtpSender {
       : null;
   }
   getParameters() {
-    return senderRtpParameters(this._transceiver);
+    if (this._lastReturnedParameters === null) {
+      const parameters = senderRtpParameters(this._transceiver, crypto.randomUUID());
+      this._lastReturnedParameters = parameters;
+      setImmediate(() => {
+        if (this._lastReturnedParameters === parameters) this._lastReturnedParameters = null;
+      });
+    }
+    return cloneRtpSendParameters(this._lastReturnedParameters);
+  }
+  setParameters(parameters, setParameterOptions = {}) {
+    let normalized;
+    try {
+      normalized = normalizeRtpSendParameters(parameters, this._transceiver._kind);
+      if (
+        setParameterOptions != null &&
+        typeof setParameterOptions !== "object" &&
+        typeof setParameterOptions !== "function"
+      ) {
+        throw new TypeError("setParameterOptions must be an object");
+      }
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const transceiver = this._transceiver;
+    if (transceiver.stopping || transceiver.stopped) {
+      return Promise.reject(makeDOMException("Transceiver is stopping", "InvalidStateError"));
+    }
+    const lastReturned = this._lastReturnedParameters;
+    if (lastReturned === null) {
+      return Promise.reject(
+        makeDOMException("getParameters() was not called in this task", "InvalidStateError"),
+      );
+    }
+    if (hasModifiedReadOnlyRtpParameters(normalized, lastReturned)) {
+      return Promise.reject(
+        makeDOMException("Read-only RTP parameters were modified", "InvalidModificationError"),
+      );
+    }
+    try {
+      validateSupportedSenderParameters(transceiver, normalized);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return new Promise((resolve, reject) => {
+      setImmediate(() => {
+        try {
+          transceiver._sendEncodings = normalized.encodings.map((encoding) => ({ ...encoding }));
+          transceiver._nativeSendTrack?.setActive(
+            transceiver._sendEncodings.some((encoding) => encoding.active),
+          );
+          if (this._lastReturnedParameters === lastReturned) {
+            this._lastReturnedParameters = null;
+          }
+          resolve();
+        } catch (error) {
+          reject(mapNativeError(error));
+        }
+      });
+    });
   }
   replaceTrack(track) {
     if (track !== null && !(track instanceof MediaStreamTrack)) {
@@ -3104,7 +3430,10 @@ class RTCRtpTransceiver {
     this._nativeAnnouncedReceiveTrack = null;
     this._nativeReceiveTracks = new Set();
     this._createdByAddTrack = false;
-    this._sendEncodings = sendEncodings.length > 0 ? sendEncodings : [{ active: true }];
+    this._sendEncodings =
+      sendEncodings.length > 0
+        ? sendEncodings
+        : [kind === "video" ? { active: true, scaleResolutionDownBy: 1 } : { active: true }];
     this._senderTrackId = track?.id || crypto.randomUUID();
     this._sender = new RTCRtpSender(kInternalConstruct, peerConnection, track, streams);
     this._receiver = new RTCRtpReceiver(kInternalConstruct, peerConnection, kind);
@@ -3206,6 +3535,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     super();
     const normalizedConfiguration = normalizePeerConnectionConfiguration(configuration);
     this._configuration = normalizedConfiguration;
+    this._rtcpCname = crypto.randomUUID();
     this._channels = new Map();
     this._transceivers = [];
     this._nativeMediaTracks = new Map();
@@ -3432,20 +3762,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     const streams = init.streams === undefined ? [] : Array.from(init.streams);
     for (const stream of streams)
       if (!(stream instanceof MediaStream)) throw new TypeError("stream must be a MediaStream");
-    const sendEncodings = init.sendEncodings === undefined ? [] : Array.from(init.sendEncodings);
-    const rids = new Set();
-    for (const encoding of sendEncodings) {
-      const rid = encoding?.rid;
-      if (rid === undefined) continue;
-      const normalizedRid = String(rid);
-      if (rids.has(normalizedRid))
-        throw new TypeError("sendEncodings contains duplicate rid values");
-      rids.add(normalizedRid);
-    }
-    const normalizedSendEncodings = sendEncodings.map((encoding) => ({
-      ...(encoding?.rid === undefined ? {} : { rid: String(encoding.rid) }),
-      active: encoding?.active === undefined ? true : Boolean(encoding.active),
-    }));
+    const normalizedSendEncodings = normalizeInitialSendEncodings(kind, init.sendEncodings);
     const transceiver = this._createTransceiver(
       kind,
       track,
@@ -3615,6 +3932,10 @@ class RTCPeerConnection extends SimpleEventTarget {
           ssrc,
           transceiver.sender._streams.map((stream) => stream.id),
           nativeHasSource ? transceiver._senderTrackId : null,
+          this._rtcpCname,
+        );
+        existingNativeTrack.setActive(
+          transceiver._sendEncodings.some((encoding) => encoding.active),
         );
         source?._attachNativeTrack?.(existingNativeTrack);
         continue;
@@ -3645,6 +3966,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           ssrc,
           streamIds: transceiver.sender._streams.map((stream) => stream.id),
           trackId: nativeHasSource ? transceiver._senderTrackId : null,
+          cname: this._rtcpCname,
         },
         (events) => {
           for (const event of Array.isArray(events) ? events : [events]) {
@@ -3655,6 +3977,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         },
       );
       transceiver._nativeSendTrack = nativeTrack;
+      nativeTrack.setActive(transceiver._sendEncodings.some((encoding) => encoding.active));
       transceiver._nativeReceiveTracks.add(nativeTrack);
       this._ensureDtlsTransport();
       transceiver._nativeMid = mid;

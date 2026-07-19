@@ -40,6 +40,11 @@ pc.addEventListener("track", ({ track }) => {
 });
 ```
 
+`source.send(packet)` returns the native send result. It returns `false` for
+RTP while the associated sender's sole encoding has `active: false`; RTCP is
+not suppressed. The encoded adapter does not pace, transcode, scale, generate
+key frames, or implement multiple sending encodings.
+
 The adapters do not capture devices, encode or decode media, render media,
 generate RTP headers, or pace packets. Packet validity, sequence numbers,
 timestamps, SSRC consistency, pacing, and codec compatibility are application
