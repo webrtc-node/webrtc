@@ -60,6 +60,11 @@ timestamps, SSRC consistency, pacing, and codec compatibility are application
 responsibilities. Supported audio codecs are Opus, PCMA, PCMU, G722, and AAC;
 supported video codecs are H264, H265, VP8, VP9, and AV1.
 
+The source's declared codec and payload type are fixed because packet bytes are
+not rewritten. Offer or answer generation fails with `OperationError` when
+codec preferences or a remote offer cannot preserve that mapping. A committed
+answer's payload mappings are retained if that answerer later creates an offer.
+
 Cloned tracks share their encoded source. Stopping one clone does not close the
 source while another clone remains live; `source.close()` ends every live clone
 and dispatches one `close` event.

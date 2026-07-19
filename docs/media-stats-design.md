@@ -21,6 +21,13 @@ application-supplied encoded packet I/O so native track lifecycle does not cross
 - Static sender and receiver capabilities describe every encoded RTP codec that the backend can
   carry through its raw packet track API. They do not claim codec processing. The only advertised
   RTP header extension is MID, which is represented natively in SDP and transported unchanged.
+- `RTCRtpTransceiver.setCodecPreferences()` conversion and validation remain JavaScript policy.
+  The addon receives the resulting complete ordered codec list and replaces one copied native
+  track description before libdatachannel creates an offer or answer. Answers preserve remote
+  payload types, intersect supported codecs, retain valid RTX `apt` associations, and apply the
+  answerer's preference order. Committed answer mappings seed later offers from the same
+  transceiver. RTP packet bytes are not rewritten, so offer/answer generation rejects an attached
+  encoded source whose fixed codec/payload mapping is absent or conflicts with the media section.
 - `RTCRtpReceiver.getParameters()` derives fresh codec, MID-extension, and RTCP dictionaries from
   the committed answer. It stays empty before answer application and has no sender transaction,
   encoding, or CNAME fields.
@@ -53,8 +60,10 @@ uses synthetic encoded tracks only to exercise W3C object and lifecycle semantic
   state, browser transceiver, or remove-track object.
 - `include/rtc/description.hpp` and `src/description.cpp`: media entries carry mid, direction,
   codecs, SSRCs, arbitrary media-level attributes, RTP `ExtMap` values, and a removed state.
-  Answer generation reciprocates media and extension direction. `addSSRC()` accepts an explicit
-  CNAME plus one optional media-stream association, while
+  `mOrderedPayloadTypes` preserves m-line preference order, while RTP-map attributes are currently
+  serialized by numeric payload type from `mRtpMaps`. Answer generation reciprocates media and
+  extension direction. `addSSRC()` accepts an explicit CNAME plus one optional media-stream
+  association, while
   `addAttribute()` and `removeAttribute()` allow multiple `a=msid` lines without duplicating SSRC
   ownership.
 - `include/rtc/rtppacketizer.hpp`, `src/rtppacketizer.cpp`,
@@ -99,10 +108,14 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   the pinned backend failed all four late-track runs with the default and passed all four when the
   option was enabled. This is a required binding configuration, not a missing upstream capability.
 - When an answerer turns a remote-created track into a local sender, the addon atomically replaces
-  direction, SSRC, and `msid` on one copied media description before generating the answer. Native
-  track events are routed to both sender and receiver packet adapters attached to that binding.
-  This preserves one backend description revision and lets libdatachannel populate its multi-track
-  SSRC demultiplexing cache from the answer.
+  direction, codecs, SSRC, and `msid` on one copied media description before generating the
+  answer. Native track events are routed to both sender and receiver packet adapters attached to
+  that binding. This preserves one backend description revision and lets libdatachannel populate
+  its multi-track SSRC demultiplexing cache from the answer.
+- libdatachannel stores m-line codec preference order correctly but serializes `a=rtpmap`,
+  `a=fmtp`, and payload-specific `a=rtcp-fb` groups in numeric payload-type order. The facade
+  normalizes those attribute groups to m-line order for W3C-visible descriptions. This workaround
+  is removable if the source-backed upstream candidate is resolved.
 - libdatachannel exposes one bundled DTLS-SRTP transport for media. The facade presents that as a
   stable `RTCDtlsTransport`/`RTCIceTransport` shared by RTP endpoints and SCTP when both media and
   data are negotiated.

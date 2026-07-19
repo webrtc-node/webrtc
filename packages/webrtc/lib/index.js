@@ -1009,6 +1009,45 @@ function effectiveTransceiverMid(transceiver) {
   return transceiver._mid ?? transceiver._nativeMid;
 }
 
+function rtpCodecsFromMediaSection(section, kind) {
+  const codecs = [];
+  if (!section) return codecs;
+  const wildcardFeedback = section.lines
+    .filter((line) => line.startsWith("a=rtcp-fb:* "))
+    .map((line) => line.slice("a=rtcp-fb:* ".length));
+  for (const payloadTypeText of section.startLine.split(/\s+/).slice(3)) {
+    const payloadType = Number(payloadTypeText);
+    const rtpmap = section.lines.find((line) => line.startsWith(`a=rtpmap:${payloadTypeText} `));
+    if (!Number.isInteger(payloadType) || !rtpmap) continue;
+    const encoding = rtpmap.slice(rtpmap.indexOf(" ") + 1).split("/");
+    const clockRate = Number(encoding[1]);
+    if (!encoding[0] || !Number.isInteger(clockRate)) continue;
+    const codec = {
+      payloadType,
+      mimeType: `${kind}/${encoding[0]}`,
+      clockRate,
+      codec: encoding[0],
+      rtcpFeedback: [
+        ...wildcardFeedback,
+        ...section.lines
+          .filter((line) => line.startsWith(`a=rtcp-fb:${payloadTypeText} `))
+          .map((line) => line.slice(`a=rtcp-fb:${payloadTypeText} `.length)),
+      ],
+    };
+    const channels = Number(encoding[2]);
+    if (Number.isInteger(channels)) codec.channels = channels;
+    const fmtp = section.lines.find((line) => line.startsWith(`a=fmtp:${payloadTypeText} `));
+    if (fmtp) {
+      codec.sdpFmtpLine = fmtp.slice(fmtp.indexOf(" ") + 1);
+      codec.profile = codec.sdpFmtpLine;
+      const apt = /(?:^|;)\s*apt=(\d+)(?:;|$)/i.exec(codec.sdpFmtpLine);
+      if (apt) codec.associatedPayloadType = Number(apt[1]);
+    }
+    codecs.push(codec);
+  }
+  return codecs;
+}
+
 function negotiatedRtpParameters(transceiver) {
   const peer = transceiver._peerConnection;
   const answer =
@@ -1020,29 +1059,17 @@ function negotiatedRtpParameters(transceiver) {
   const section = parseSdpMediaSections(answer?.sdp || "").mediaSections.find(
     (entry) => entry.mid === effectiveTransceiverMid(transceiver),
   );
-  const codecs = [];
+  const codecs = rtpCodecsFromMediaSection(section, transceiver._kind).map(
+    ({
+      codec: _codec,
+      profile: _profile,
+      rtcpFeedback: _feedback,
+      associatedPayloadType: _apt,
+      ...codec
+    }) => codec,
+  );
   const headerExtensions = [];
   if (section) {
-    const kind = transceiver._kind;
-    const payloadTypes = section.startLine.split(/\s+/).slice(3);
-    for (const payloadTypeText of payloadTypes) {
-      const payloadType = Number(payloadTypeText);
-      const rtpmap = section.lines.find((line) => line.startsWith(`a=rtpmap:${payloadTypeText} `));
-      if (!Number.isInteger(payloadType) || !rtpmap) continue;
-      const encoding = rtpmap.slice(rtpmap.indexOf(" ") + 1).split("/");
-      const clockRate = Number(encoding[1]);
-      if (!encoding[0] || !Number.isInteger(clockRate)) continue;
-      const codec = {
-        payloadType,
-        mimeType: `${kind}/${encoding[0]}`,
-        clockRate,
-      };
-      const channels = Number(encoding[2]);
-      if (Number.isInteger(channels)) codec.channels = channels;
-      const fmtp = section.lines.find((line) => line.startsWith(`a=fmtp:${payloadTypeText} `));
-      if (fmtp) codec.sdpFmtpLine = fmtp.slice(fmtp.indexOf(" ") + 1);
-      codecs.push(codec);
-    }
     for (const line of section.lines) {
       const match = /^a=extmap:(\d+)(?:\/\S+)?\s+(\S+)/.exec(line);
       if (!match) continue;
@@ -1093,8 +1120,29 @@ const rtpCodecCapabilities = {
     { mimeType: "video/VP8", clockRate: 90000 },
     { mimeType: "video/VP9", clockRate: 90000 },
     { mimeType: "video/AV1", clockRate: 90000 },
+    { mimeType: "video/rtx", clockRate: 90000 },
+    { mimeType: "video/red", clockRate: 90000 },
+    { mimeType: "video/ulpfec", clockRate: 90000 },
   ],
 };
+
+const defaultRtpPayloadTypes = new Map([
+  ["audio/opus", 111],
+  ["audio/pcma", 8],
+  ["audio/pcmu", 0],
+  ["audio/g722", 9],
+  ["audio/aac", 112],
+  ["video/vp8", 96],
+  ["video/vp9", 98],
+  ["video/av1", 100],
+  ["video/h264", 102],
+  ["video/h265", 104],
+  ["video/red", 116],
+  ["video/ulpfec", 117],
+]);
+
+const defaultVideoRtcpFeedback = ["nack", "nack pli", "ccm fir", "goog-remb"];
+const resilienceCodecNames = new Set(["rtx", "red", "ulpfec", "cn"]);
 
 const rtpHeaderExtensionCapabilities = [{ uri: "urn:ietf:params:rtp-hdrext:sdes:mid" }];
 
@@ -1105,6 +1153,337 @@ function getRtpCapabilities(kind) {
     codecs: codecs.map((codec) => ({ ...codec })),
     headerExtensions: rtpHeaderExtensionCapabilities.map((extension) => ({ ...extension })),
   };
+}
+
+function rtpCodecName(codec) {
+  const separator = codec.mimeType.indexOf("/");
+  return separator === -1 ? "" : codec.mimeType.slice(separator + 1);
+}
+
+function rtpCodecKey(codec, suffix = "") {
+  return [
+    codec.mimeType.toLowerCase(),
+    codec.clockRate,
+    codec.channels ?? "",
+    codec.sdpFmtpLine ?? "",
+    suffix,
+  ].join("|");
+}
+
+function sameRtpCodecCapability(left, right) {
+  return (
+    left.mimeType.toLowerCase() === right.mimeType.toLowerCase() &&
+    left.clockRate === right.clockRate &&
+    sameOptionalMember(left, right, "channels") &&
+    sameOptionalMember(left, right, "sdpFmtpLine")
+  );
+}
+
+function supportedNegotiatedCodec(kind, codec) {
+  return rtpCodecCapabilities[kind].some(
+    (capability) =>
+      capability.mimeType.toLowerCase() === codec.mimeType.toLowerCase() &&
+      capability.clockRate === codec.clockRate &&
+      (capability.channels === undefined || capability.channels === codec.channels),
+  );
+}
+
+function isResilienceCodec(codec) {
+  return resilienceCodecNames.has(rtpCodecName(codec).toLowerCase());
+}
+
+function encodedSourceMatchesCodec(kind, source, codec) {
+  if (!source?.codec) return false;
+  const mimeType = (codec.mimeType || `${kind}/${codec.codec}`).toLowerCase();
+  if (mimeType !== source.codec.mimeType) return false;
+  if (codec.clockRate !== source.codec.clockRate) return false;
+  if ((codec.channels ?? 1) !== (source.codec.channels ?? 1)) return false;
+  const fmtp = codec.sdpFmtpLine ?? codec.profile;
+  return source.codec.profile === undefined || fmtp === source.codec.profile;
+}
+
+function assertEncodedSourceCodecMapping(kind, codecs, source) {
+  if (!source?.codec) return;
+  const compatible = codecs.filter((codec) => encodedSourceMatchesCodec(kind, source, codec));
+  if (compatible.length === 0) {
+    throw makeDOMException(
+      "Encoded source codec is not present in the negotiated media section",
+      "OperationError",
+    );
+  }
+  if (!compatible.some((codec) => codec.payloadType === source.codec.payloadType)) {
+    throw makeDOMException(
+      "Encoded source payload type conflicts with the negotiated codec mapping",
+      "OperationError",
+    );
+  }
+}
+
+function rememberCodecPayloadTypes(transceiver, codecs) {
+  const payloadTypes = new Map();
+  const genericPrimaryCodecs = new Set();
+  for (const codec of codecs) {
+    const normalized = {
+      mimeType: codec.mimeType || `${transceiver._kind}/${codec.codec}`,
+      clockRate: codec.clockRate,
+      ...(codec.channels === undefined ? {} : { channels: codec.channels }),
+      ...((codec.sdpFmtpLine ?? codec.profile) === undefined
+        ? {}
+        : { sdpFmtpLine: codec.sdpFmtpLine ?? codec.profile }),
+    };
+    const codecName = rtpCodecName(normalized).toLowerCase();
+    if (codecName === "rtx") {
+      const apt =
+        codec.associatedPayloadType ??
+        Number(/(?:^|;)\s*apt=(\d+)(?:;|$)/i.exec(normalized.sdpFmtpLine || "")?.[1]);
+      if (Number.isInteger(apt)) {
+        payloadTypes.set(
+          rtpCodecKey(
+            { mimeType: normalized.mimeType, clockRate: normalized.clockRate },
+            `apt=${apt}`,
+          ),
+          codec.payloadType,
+        );
+      }
+      continue;
+    }
+    payloadTypes.set(rtpCodecKey(normalized), codec.payloadType);
+    const generic = { ...normalized };
+    delete generic.sdpFmtpLine;
+    const genericKey = rtpCodecKey(generic);
+    if (!genericPrimaryCodecs.has(genericKey)) {
+      payloadTypes.set(genericKey, codec.payloadType);
+      genericPrimaryCodecs.add(genericKey);
+    }
+  }
+  transceiver._codecPayloadTypes = payloadTypes;
+}
+
+function normalizeCodecPreferences(kind, value) {
+  const codecs = toSequence(value, "codecs").map((codec, index) =>
+    normalizeRtpCodec(codec, `codecs[${index}]`, false),
+  );
+  if (codecs.length === 0) return [];
+  const unique = [];
+  for (const codec of codecs) {
+    if (!unique.some((entry) => sameRtpCodecCapability(entry, codec))) unique.push(codec);
+  }
+  const capabilities = rtpCodecCapabilities[kind];
+  if (unique.some((codec) => !capabilities.some((entry) => sameRtpCodecCapability(entry, codec)))) {
+    throw makeDOMException(
+      "Codec is not supported by this transceiver",
+      "InvalidModificationError",
+    );
+  }
+  if (unique.every(isResilienceCodec)) {
+    throw makeDOMException(
+      "Codec preferences must include a primary media codec",
+      "InvalidModificationError",
+    );
+  }
+  return unique.map((codec) => ({ ...codec }));
+}
+
+function reserveRtpPayloadType(transceiver, codec, preferred, suffix = "") {
+  const key = rtpCodecKey(codec, suffix);
+  const existing = transceiver._codecPayloadTypes.get(key);
+  if (existing !== undefined) return existing;
+  const used = new Set(transceiver._codecPayloadTypes.values());
+  let payloadType = preferred;
+  if (!Number.isInteger(payloadType) || used.has(payloadType)) {
+    payloadType = Array.from({ length: 32 }, (_, index) => index + 96).find(
+      (candidate) => !used.has(candidate),
+    );
+  }
+  if (payloadType === undefined) {
+    throw makeDOMException("No RTP payload type is available", "OperationError");
+  }
+  transceiver._codecPayloadTypes.set(key, payloadType);
+  return payloadType;
+}
+
+function reserveEncodedSourcePayloadType(transceiver, source) {
+  if (!source?.codec?.mimeType) return;
+  const capability = rtpCodecCapabilities[transceiver._kind].find(
+    (entry) => entry.mimeType.toLowerCase() === source.codec.mimeType,
+  );
+  if (!capability) return;
+  const key = rtpCodecKey(capability);
+  const occupied = [...transceiver._codecPayloadTypes].find(
+    ([candidateKey, payloadType]) =>
+      candidateKey !== key && payloadType === source.codec.payloadType,
+  );
+  if (occupied) {
+    const peer = transceiver._peerConnection;
+    if (peer._currentLocalDescription || peer._pendingLocalDescription) {
+      throw makeDOMException(
+        "Encoded source payload type is already negotiated for another codec",
+        "InvalidModificationError",
+      );
+    }
+    transceiver._codecPayloadTypes.delete(occupied[0]);
+  }
+  const existing = transceiver._codecPayloadTypes.get(key);
+  if (existing !== undefined && existing !== source.codec.payloadType) {
+    const peer = transceiver._peerConnection;
+    if (peer._currentLocalDescription || peer._pendingLocalDescription) {
+      throw makeDOMException(
+        "Encoded source payload type differs from the negotiated codec mapping",
+        "InvalidModificationError",
+      );
+    }
+  }
+  transceiver._codecPayloadTypes.set(key, source.codec.payloadType);
+}
+
+function codecDescriptionFromCapability(transceiver, capability, source) {
+  const sourceMatches = source?.codec?.mimeType === capability.mimeType.toLowerCase();
+  const payloadType = reserveRtpPayloadType(
+    transceiver,
+    capability,
+    sourceMatches
+      ? source.codec.payloadType
+      : defaultRtpPayloadTypes.get(capability.mimeType.toLowerCase()),
+  );
+  const resilience = isResilienceCodec(capability);
+  return {
+    payloadType,
+    codec: rtpCodecName(capability),
+    clockRate: capability.clockRate,
+    ...(capability.channels === undefined ? {} : { channels: capability.channels }),
+    ...(sourceMatches && source.codec.profile !== undefined
+      ? { profile: source.codec.profile }
+      : capability.sdpFmtpLine === undefined
+        ? {}
+        : { profile: capability.sdpFmtpLine }),
+    rtcpFeedback: transceiver._kind === "video" && !resilience ? [...defaultVideoRtcpFeedback] : [],
+  };
+}
+
+function offerCodecDescriptions(transceiver, source) {
+  reserveEncodedSourcePayloadType(transceiver, source);
+  let preferences =
+    transceiver._preferredCodecs.length > 0
+      ? transceiver._preferredCodecs
+      : rtpCodecCapabilities[transceiver._kind];
+  if (transceiver._preferredCodecs.length === 0 && source?.codec?.mimeType) {
+    preferences = [...preferences].sort((left, right) => {
+      const leftMatches = left.mimeType.toLowerCase() === source.codec.mimeType;
+      const rightMatches = right.mimeType.toLowerCase() === source.codec.mimeType;
+      return Number(rightMatches) - Number(leftMatches);
+    });
+  }
+  const includeRtx = preferences.some((codec) => rtpCodecName(codec).toLowerCase() === "rtx");
+  const primaryDescriptions = new Map();
+  for (const capability of preferences) {
+    if (rtpCodecName(capability).toLowerCase() === "rtx") continue;
+    primaryDescriptions.set(
+      capability,
+      codecDescriptionFromCapability(transceiver, capability, source),
+    );
+  }
+  const descriptions = [];
+  for (const capability of preferences) {
+    const name = rtpCodecName(capability).toLowerCase();
+    if (name === "rtx") continue;
+    const primary = primaryDescriptions.get(capability);
+    descriptions.push(primary);
+    if (includeRtx && !isResilienceCodec(capability)) {
+      const rtxCapability = { mimeType: "video/rtx", clockRate: primary.clockRate };
+      descriptions.push({
+        payloadType: reserveRtpPayloadType(
+          transceiver,
+          rtxCapability,
+          undefined,
+          `apt=${primary.payloadType}`,
+        ),
+        codec: "rtx",
+        clockRate: primary.clockRate,
+        profile: `apt=${primary.payloadType}`,
+        rtcpFeedback: [],
+      });
+    }
+  }
+  assertEncodedSourceCodecMapping(transceiver._kind, descriptions, source);
+  return descriptions;
+}
+
+function answerCodecDescriptions(transceiver, section, source) {
+  const remote = rtpCodecsFromMediaSection(section, transceiver._kind);
+  const explicit = transceiver._preferredCodecs.length > 0;
+  const preferences = explicit
+    ? transceiver._preferredCodecs
+    : rtpCodecCapabilities[transceiver._kind];
+  const allowRtx = preferences.some((codec) => rtpCodecName(codec).toLowerCase() === "rtx");
+  const baseRemote = remote.filter(
+    (codec) =>
+      rtpCodecName(codec).toLowerCase() !== "rtx" &&
+      supportedNegotiatedCodec(transceiver._kind, codec),
+  );
+  const ordered = [];
+  if (explicit) {
+    for (const preference of preferences) {
+      if (rtpCodecName(preference).toLowerCase() === "rtx") continue;
+      for (const codec of baseRemote) {
+        if (ordered.includes(codec)) continue;
+        if (
+          preference.mimeType.toLowerCase() === codec.mimeType.toLowerCase() &&
+          preference.clockRate === codec.clockRate &&
+          (preference.channels === undefined || preference.channels === codec.channels)
+        ) {
+          ordered.push(codec);
+        }
+      }
+    }
+  } else {
+    ordered.push(...baseRemote);
+  }
+  const result = [];
+  for (const codec of ordered) {
+    result.push(codec);
+    if (!allowRtx || isResilienceCodec(codec)) continue;
+    result.push(
+      ...remote.filter(
+        (candidate) =>
+          rtpCodecName(candidate).toLowerCase() === "rtx" &&
+          candidate.associatedPayloadType === codec.payloadType,
+      ),
+    );
+  }
+  assertEncodedSourceCodecMapping(transceiver._kind, result, source);
+  return nativeCodecDescriptionsFromCodecs(result);
+}
+
+function nativeCodecDescriptionsFromCodecs(codecs) {
+  return codecs.map(
+    ({ mimeType: _mimeType, sdpFmtpLine: _fmtp, associatedPayloadType: _apt, ...codec }) => codec,
+  );
+}
+
+function nativeCodecDescriptions(peer, transceiver, source, localSection = null) {
+  if (localSection) {
+    const parsedCodecs = rtpCodecsFromMediaSection(localSection, transceiver._kind);
+    assertEncodedSourceCodecMapping(transceiver._kind, parsedCodecs, source);
+    rememberCodecPayloadTypes(transceiver, parsedCodecs);
+    const codecs = nativeCodecDescriptionsFromCodecs(parsedCodecs);
+    if (codecs.length === 0) {
+      throw makeDOMException("Local media section has no RTP codecs", "OperationError");
+    }
+    return codecs;
+  }
+  const remoteSection =
+    peer._signalingState === "have-remote-offer"
+      ? parseSdpMediaSections(peer.remoteDescription?.sdp || "").mediaSections.find(
+          (section) => section.mid === effectiveTransceiverMid(transceiver),
+        )
+      : null;
+  const codecs = remoteSection
+    ? answerCodecDescriptions(transceiver, remoteSection, source)
+    : offerCodecDescriptions(transceiver, source);
+  if (codecs.length === 0) {
+    throw makeDOMException("No common RTP codec is available", "OperationError");
+  }
+  return codecs;
 }
 
 function cloneRtpSendParameters(parameters) {
@@ -1375,6 +1754,48 @@ function serializeSdp(sessionLines, mediaSections) {
   const lines = [...sessionLines];
   for (const section of mediaSections) lines.push(...section.lines);
   return `${lines.join("\r\n")}\r\n`;
+}
+
+function orderCodecAttributeLines(description) {
+  if (!description?.sdp) return description;
+  const parsed = parseSdpMediaSections(description.sdp);
+  let changed = false;
+  for (const section of parsed.mediaSections) {
+    if (!/^m=(?:audio|video)\b/i.test(section.startLine)) continue;
+    const payloadTypes = section.startLine.split(/\s+/).slice(3);
+    const groups = new Map();
+    const remaining = [];
+    let insertionIndex = null;
+    for (const line of section.lines) {
+      const match = /^a=(?:rtpmap|fmtp|rtcp-fb):(\d+)(?:\s|$)/i.exec(line);
+      if (!match) {
+        remaining.push(line);
+        continue;
+      }
+      insertionIndex ??= remaining.length;
+      const lines = groups.get(match[1]) || [];
+      lines.push(line);
+      groups.set(match[1], lines);
+    }
+    if (insertionIndex === null) continue;
+    const ordered = [];
+    for (const payloadType of payloadTypes) {
+      const lines = groups.get(payloadType);
+      if (!lines) continue;
+      ordered.push(...lines);
+      groups.delete(payloadType);
+    }
+    for (const lines of groups.values()) ordered.push(...lines);
+    remaining.splice(insertionIndex, 0, ...ordered);
+    section.lines = remaining;
+    section.startLine = remaining[0];
+    changed = true;
+  }
+  if (!changed) return description;
+  return new RTCSessionDescription({
+    type: description.type,
+    sdp: serializeSdp(parsed.sessionLines, parsed.mediaSections),
+  });
 }
 
 function alignMediaDirections(description, template) {
@@ -3230,7 +3651,19 @@ function normalizeEncodedMediaInit(init) {
       throw new RangeError("ssrc must be an integer between 1 and 4294967295");
     }
   }
-  return { kind, mimeType, codec, payloadType, profile, ssrc };
+  const capability = rtpCodecCapabilities[kind].find(
+    (entry) => entry.mimeType.toLowerCase() === mimeType,
+  );
+  return {
+    kind,
+    mimeType,
+    codec,
+    payloadType,
+    profile,
+    ssrc,
+    clockRate: capability.clockRate,
+    channels: capability.channels,
+  };
 }
 
 class EncodedMediaSource extends SimpleEventTarget {
@@ -3250,9 +3683,12 @@ class EncodedMediaSource extends SimpleEventTarget {
     this._closed = false;
     this._source = {
       codec: {
+        mimeType: normalized.mimeType,
         codec: normalized.codec,
         payloadType: normalized.payloadType,
         profile: normalized.profile,
+        clockRate: normalized.clockRate,
+        channels: normalized.channels,
       },
       ssrc: normalized.ssrc,
       nativeTracks: new Set(),
@@ -3537,6 +3973,8 @@ class RTCRtpTransceiver {
     this._nativeAnnouncedReceiveTrack = null;
     this._nativeReceiveTracks = new Set();
     this._createdByAddTrack = false;
+    this._preferredCodecs = [];
+    this._codecPayloadTypes = new Map();
     this._sendEncodings =
       sendEncodings.length > 0
         ? sendEncodings
@@ -3582,6 +4020,9 @@ class RTCRtpTransceiver {
     this._stopping = true;
     this._peerConnection._queueReceiverTrackEnded(this);
     this._peerConnection._markNegotiationNeeded();
+  }
+  setCodecPreferences(codecs) {
+    this._preferredCodecs = normalizeCodecPreferences(this._kind, codecs);
   }
 }
 
@@ -4016,8 +4457,11 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _materializeTransceivers() {
+  _materializeTransceivers(localDescriptionTemplate = null) {
     const nativePeer = this._ensureNativePeerConnection();
+    const localSections = localDescriptionTemplate
+      ? parseSdpMediaSections(localDescriptionTemplate.sdp).mediaSections
+      : [];
     for (let index = 0; index < this._transceivers.length; index += 1) {
       const transceiver = this._transceivers[index];
       if (transceiver.stopped) continue;
@@ -4027,6 +4471,21 @@ class RTCPeerConnection extends SimpleEventTarget {
       const nativeSends = nativeDirection === "sendrecv" || nativeDirection === "sendonly";
       const source = mediaTrackSources.get(transceiver.sender.track);
       const nativeHasSource = nativeSends && transceiver.sender.track !== null;
+      const localSection = localSections.find(
+        (section) => section.mid === effectiveTransceiverMid(transceiver),
+      );
+      const codecs = nativeCodecDescriptions(
+        this,
+        transceiver,
+        nativeHasSource ? source : null,
+        localSection,
+      );
+      const codec = source?.codec || {
+        codec: codecs[0].codec,
+        payloadType: codecs[0].payloadType,
+        profile: codecs[0].profile,
+      };
+      transceiver._codec = codec;
       const ssrc = nativeHasSource
         ? (source?.ssrc ?? transceiver._ssrc ?? crypto.randomInt(1, 0x100000000))
         : null;
@@ -4041,6 +4500,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           transceiver.sender._streams.map((stream) => stream.id),
           nativeHasSource ? transceiver._senderTrackId : null,
           this._rtcpCname,
+          codecs,
         );
         existingNativeTrack.setActive(
           transceiver._sendEncodings.some((encoding) => encoding.active),
@@ -4056,21 +4516,13 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._queueReceiverTrackEnded(transceiver);
         continue;
       }
-      const codec =
-        source?.codec ||
-        (transceiver._kind === "audio"
-          ? { codec: "opus", payloadType: 111 }
-          : { codec: "VP8", payloadType: 96 });
-      transceiver._codec = codec;
       const mid = source?.mid || `media-${index}`;
       const nativeTrack = nativePeer.createTrack(
         {
           kind: transceiver._kind,
           mid,
           direction: nativeDirection,
-          codec: codec.codec,
-          payloadType: codec.payloadType,
-          profile: codec.profile,
+          codecs,
           ssrc,
           streamIds: transceiver.sender._streams.map((stream) => stream.id),
           trackId: nativeHasSource ? transceiver._senderTrackId : null,
@@ -4672,6 +5124,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         };
       }
       offer = reconcileRejectedMediaSections(offer, this._currentLocalDescription);
+      offer = orderCodecAttributeLines(offer);
       this._lastCreatedOffer = new RTCSessionDescription(offer);
       this._lastCreatedOfferRevision = this._negotiationRevision;
       if (jsOnlyIceRestart) markJsOnlyIceRestart(this._lastCreatedOffer);
@@ -4714,7 +5167,9 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._materializeTransceivers();
       if (this._jsOnlyIceRestartRemoteOffer) {
         const answer = markJsOnlyIceRestart(
-          new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
+          orderCodecAttributeLines(
+            new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
+          ),
         );
         this._lastCreatedAnswer = answer;
         this._lastCreatedAnswerRevision = this._negotiationRevision;
@@ -4733,9 +5188,10 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._lastCreatedAnswerRevision = this._negotiationRevision;
         return answer;
       }
-      const answer =
+      let answer =
         this._prepareNonstandardLocalDescription("answer") ||
         this._ensureNativePeerConnection().createAnswer();
+      answer = orderCodecAttributeLines(answer);
       this._lastCreatedAnswer = new RTCSessionDescription(answer);
       this._lastCreatedAnswerRevision = this._negotiationRevision;
       Object.defineProperty(answer, "_webrtcNodeAnswerer", {
@@ -4894,7 +5350,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._materializeTransceivers();
         const offer =
           this._lastCreatedOffer ||
-          new RTCSessionDescription(this._ensureNativePeerConnection().createOffer());
+          orderCodecAttributeLines(
+            new RTCSessionDescription(this._ensureNativePeerConnection().createOffer()),
+          );
         if (isNoMediaSdp(offer)) {
           await this._applyNoMediaLocalDescription(offer);
           this._localDescriptionSetByApi = hasDataMediaSection(this._localDescription);
@@ -4916,7 +5374,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         const answer =
           normalized ||
           this._lastCreatedAnswer ||
-          new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer());
+          orderCodecAttributeLines(
+            new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
+          );
         await this._applyJsOnlyLocalAnswer(answer);
         this._localDescriptionSetByApi = hasDataMediaSection(this._localDescription);
         return;
@@ -4974,14 +5434,14 @@ class RTCPeerConnection extends SimpleEventTarget {
           manuallyUpdatedSignalingState = true;
           usedJsOnlyIceRestart = true;
         } else {
-          if (type === "offer" || type === "answer") this._materializeTransceivers();
+          if (type === "offer" || type === "answer") this._materializeTransceivers(normalized);
           const localDescriptionInit = this._localOfferInit(type);
           this._ensureNativePeerConnection().setLocalDescription(type, localDescriptionInit);
-          if (type === "offer" || type === "answer") this._materializeTransceivers();
+          if (type === "offer" || type === "answer") this._materializeTransceivers(normalized);
           appliedIceRestart = hadIceRestartRequest;
           const nativeDescription = this._ensureNativePeerConnection().localDescription();
           const generatedDescription = nativeDescription
-            ? new RTCSessionDescription(nativeDescription)
+            ? orderCodecAttributeLines(new RTCSessionDescription(nativeDescription))
             : null;
           const directionTemplate =
             normalized || (type === "offer" ? this._lastCreatedOffer : this._lastCreatedAnswer);
@@ -6566,7 +7026,9 @@ class RTCPeerConnection extends SimpleEventTarget {
       if (!description) {
         throw new Error("libdatachannel did not generate a local description");
       }
-      this._preparedLocalDescription = new RTCSessionDescription(description);
+      this._preparedLocalDescription = orderCodecAttributeLines(
+        new RTCSessionDescription(description),
+      );
       return this._preparedLocalDescription.toJSON();
     } catch (error) {
       this._nonstandardPreparedLocalDescriptionType = null;
@@ -6674,7 +7136,9 @@ class RTCPeerConnection extends SimpleEventTarget {
       const answer =
         this._lastCreatedAnswer ||
         markJsOnlyIceRestart(
-          new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
+          orderCodecAttributeLines(
+            new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
+          ),
         );
       await this._applyJsOnlyLocalAnswer(answer);
       return this._localDescription;
@@ -6692,7 +7156,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._ensureNativePeerConnection().setLocalDescription("answer");
     const nativeDescription = this._ensureNativePeerConnection().localDescription();
     this._localDescription = nativeDescription
-      ? new RTCSessionDescription(nativeDescription)
+      ? orderCodecAttributeLines(new RTCSessionDescription(nativeDescription))
       : null;
     this._syncStatesFromNative();
     this._commitRemoteDescription();
@@ -6791,7 +7255,9 @@ class RTCPeerConnection extends SimpleEventTarget {
     if (!this._native) return;
     const nativeDescription = this._native.localDescription();
     if (nativeDescription) {
-      this._refreshCurrentOrPendingLocalDescription(new RTCSessionDescription(nativeDescription));
+      this._refreshCurrentOrPendingLocalDescription(
+        orderCodecAttributeLines(new RTCSessionDescription(nativeDescription)),
+      );
       this._registerLocalDescriptionForPairing();
     }
     this._syncStatesFromNative();
@@ -6901,7 +7367,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._adoptIncomingNativeTrack(event.track);
         break;
       case "localdescription": {
-        const description = new RTCSessionDescription(event.description);
+        const description = orderCodecAttributeLines(new RTCSessionDescription(event.description));
         if (this._nonstandardPreparedLocalDescriptionType === description.type) {
           this._preparedLocalDescription = description;
           break;

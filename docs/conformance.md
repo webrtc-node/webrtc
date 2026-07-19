@@ -7,7 +7,7 @@ This experimental branch targets the WebRTC peer-connection, data-channel,
 encoded-media, and reliable-statistics surfaces exposed through
 `@webrtc-node/webrtc`.
 
-The current selected suite contains **923 expected-passing WPT subtests**. CI
+The current selected suite contains **947 expected-passing WPT subtests**. CI
 validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
 smoke check.
@@ -25,7 +25,8 @@ Expected-pass coverage currently includes:
   `RTCIceCandidate`, `RTCDataChannelEvent`, and ICE events
 - media stream and track identity, sender/receiver/transceiver construction,
   direction and stopping semantics, media negotiation lifecycle, RTP
-  capabilities, and negotiated sender/receiver parameters
+  capabilities, negotiated sender/receiver parameters, and transceiver codec
+  preference validation and offer/answer ordering
 - `RTCStatsReport` maplike behavior and reliable peer, data-channel,
   transport, and encoded RTP counters, including asynchronous collection
   timing outside the operations chain
@@ -67,5 +68,5 @@ weighted shards running concurrently inside each OS/Node job. Ordinary WPT
 files stay within one process so file-level setup and ordering are preserved;
 files already marked for per-test isolation distribute those isolated tests
 individually. The shard outputs are merged into the same complete
-`wpt-results.json`; the strict checker still requires all 923 unique subtests
+`wpt-results.json`; the strict checker still requires all 947 unique subtests
 with no failures or retries.

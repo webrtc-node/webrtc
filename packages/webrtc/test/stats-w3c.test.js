@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { RTCPeerConnection, RTCStatsReport } = require("..");
+const { RTCPeerConnection, RTCStatsReport, nonstandard } = require("..");
 
 function waitFor(target, type, timeout = 10000) {
   return new Promise((resolve, reject) => {
@@ -23,6 +23,23 @@ async function negotiate(offerer, answerer) {
   await answerer.setRemoteDescription(offerer.localDescription);
   await answerer.setLocalDescription(await answerer.createAnswer());
   await offerer.setRemoteDescription(answerer.localDescription);
+}
+
+function exchangeIceCandidates(first, second) {
+  first.addEventListener("icecandidate", ({ candidate }) => {
+    if (candidate && second.signalingState !== "closed") {
+      second.addIceCandidate(candidate).catch(() => {});
+    }
+  });
+  second.addEventListener("icecandidate", ({ candidate }) => {
+    if (candidate && first.signalingState !== "closed") {
+      first.addIceCandidate(candidate).catch(() => {});
+    }
+  });
+}
+
+async function waitForConnected(peer) {
+  while (peer.connectionState !== "connected") await waitFor(peer, "connectionstatechange");
 }
 
 test("RTCPeerConnection.getStats returns a read-only RTCStatsReport", async () => {
@@ -121,4 +138,59 @@ test("standard data-channel stats count accepted and received messages", async (
     offerer.close();
     answerer.close();
   }
+});
+
+test("receiver stats snapshot survives a synchronous transceiver stop", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const source = new nonstandard.EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+    ssrc: 0x53544154,
+  });
+  let sequenceNumber = 0;
+  let timestamp = 0;
+  let packetTimer;
+  t.after(() => {
+    clearInterval(packetTimer);
+    source.close();
+    offerer.close();
+    answerer.close();
+  });
+
+  exchangeIceCandidates(offerer, answerer);
+  offerer.addTrack(source.track);
+  await negotiate(offerer, answerer);
+  const receiver = answerer.getReceivers()[0];
+  await waitForConnected(answerer);
+  packetTimer = setInterval(() => {
+    if (source.readyState !== "open") return;
+    sequenceNumber = (sequenceNumber + 1) & 0xffff;
+    timestamp = (timestamp + 960) >>> 0;
+    source.send(
+      Uint8Array.from([
+        0x80,
+        111,
+        sequenceNumber >>> 8,
+        sequenceNumber & 0xff,
+        timestamp >>> 24,
+        (timestamp >>> 16) & 0xff,
+        (timestamp >>> 8) & 0xff,
+        timestamp & 0xff,
+        0x53,
+        0x54,
+        0x41,
+        0x54,
+        0,
+      ]),
+    );
+  }, 20);
+  if (receiver.track.muted) await waitFor(receiver.track, "unmute");
+
+  const statsBeforeStop = receiver.getStats();
+  answerer.getTransceivers()[0].stop();
+  const firstReport = await statsBeforeStop;
+  const secondReport = await receiver.getStats();
+  assert.ok([...firstReport.values()].some(({ type }) => type === "inbound-rtp"));
+  assert.ok([...secondReport.values()].every(({ type }) => type !== "inbound-rtp"));
 });

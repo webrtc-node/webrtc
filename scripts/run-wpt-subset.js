@@ -477,6 +477,8 @@ const defaultSpecs = [
   { file: "webrtc/RTCRtpReceiver-getCapabilities.html" },
   { file: "webrtc/RTCRtpReceiver-getParameters.html", search: "?interop-2026" },
   { file: "webrtc/RTCRtpReceiver-getParameters.html", search: "?rest" },
+  { file: "webrtc/RTCRtpTransceiver-setCodecPreferences.html", search: "?interop-2026" },
+  { file: "webrtc/RTCRtpTransceiver-setCodecPreferences.html", search: "?rest" },
   { file: "webrtc/RTCRtpSender-setParameters.html", search: "?rest" },
   { file: "webrtc/RTCRtpSender-setParameters.html", search: "?interop-2026" },
   { file: "webrtc/RTCRtpParameters-transactionId.html", search: "?rest" },
@@ -899,6 +901,33 @@ async function runFile(spec) {
     }
   }
 
+  function describeTrackedPeerConnections() {
+    const peers = [...trackedPeerConnections].map((pc, index) => {
+      try {
+        return {
+          index,
+          signalingState: pc.signalingState,
+          connectionState: pc.connectionState,
+          iceConnectionState: pc.iceConnectionState,
+          iceGatheringState: pc.iceGatheringState,
+          transceivers: pc.getTransceivers().map((transceiver) => ({
+            mid: transceiver.mid,
+            direction: transceiver.direction,
+            currentDirection: transceiver.currentDirection,
+            stopping: transceiver.stopping,
+            stopped: transceiver.stopped,
+            senderTrackState: transceiver.sender.track?.readyState ?? null,
+            receiverTrackState: transceiver.receiver.track.readyState,
+            receiverMuted: transceiver.receiver.track.muted,
+          })),
+        };
+      } catch (error) {
+        return { index, diagnosticError: error?.message || String(error) };
+      }
+    });
+    return peers.length > 0 ? `peer states: ${JSON.stringify(peers)}` : "";
+  }
+
   async function cleanupAfterTest(cleanups) {
     for (const cleanup of cleanups.splice(0).reverse()) {
       try {
@@ -1198,6 +1227,7 @@ async function runFile(spec) {
           Promise.race([Promise.resolve().then(() => fn(t)), stepFailure]),
           testTimeoutMs,
           name,
+          describeTrackedPeerConnections,
         );
         results.push({ file: resultPath, name, status: "PASS" });
       } catch (error) {
@@ -1234,7 +1264,7 @@ async function runFile(spec) {
     pending.push(async () => {
       try {
         if (body) body(t);
-        await withTimeout(donePromise, testTimeoutMs, testName);
+        await withTimeout(donePromise, testTimeoutMs, testName, describeTrackedPeerConnections);
         results.push({ file: resultPath, name: testName, status: "PASS" });
       } catch (error) {
         results.push({ file: resultPath, name: testName, status: "FAIL", message: error.message });
@@ -1264,12 +1294,20 @@ async function runFile(spec) {
   return selectedTests;
 }
 
-function withTimeout(promise, timeout, name) {
+function withTimeout(promise, timeout, name, describeState = null) {
   let timer;
   return Promise.race([
     promise,
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Timed out waiting for ${name}`)), timeout);
+      timer = setTimeout(() => {
+        let diagnostics = "";
+        try {
+          diagnostics = describeState?.() || "";
+        } catch (error) {
+          diagnostics = `diagnostics failed: ${error?.message || String(error)}`;
+        }
+        reject(new Error(`Timed out waiting for ${name}${diagnostics ? `; ${diagnostics}` : ""}`));
+      }, timeout);
     }),
   ]).finally(() => clearTimeout(timer));
 }

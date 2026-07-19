@@ -150,7 +150,16 @@ test("RTP capabilities report fresh packet-transport codec dictionaries", () => 
     );
     assert.deepEqual(
       video.codecs.map((codec) => codec.mimeType),
-      ["video/H264", "video/H265", "video/VP8", "video/VP9", "video/AV1"],
+      [
+        "video/H264",
+        "video/H265",
+        "video/VP8",
+        "video/VP9",
+        "video/AV1",
+        "video/rtx",
+        "video/red",
+        "video/ulpfec",
+      ],
     );
     assert.deepEqual(audio.headerExtensions, [{ uri: "urn:ietf:params:rtp-hdrext:sdes:mid" }]);
     audio.codecs[0].mimeType = "modified";
@@ -165,7 +174,9 @@ test("RTP capabilities report fresh packet-transport codec dictionaries", () => 
 
 test("reported RTP codecs materialize matching native media descriptions", async () => {
   for (const kind of ["audio", "video"]) {
-    for (const codec of RTCRtpSender.getCapabilities(kind).codecs) {
+    for (const codec of RTCRtpSender.getCapabilities(kind).codecs.filter(
+      (entry) => !["video/rtx", "video/red", "video/ulpfec"].includes(entry.mimeType),
+    )) {
       const peer = new RTCPeerConnection();
       const source = new nonstandard.EncodedMediaSource({
         kind,
@@ -185,6 +196,214 @@ test("reported RTP codecs materialize matching native media descriptions", async
         peer.close();
       }
     }
+  }
+});
+
+test("video offers associate negotiated RTX and expose removable FEC formats", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    peer.addTransceiver("video");
+    const offer = await peer.createOffer();
+    const section = offer.sdp.split(/(?=^m=)/m).find((entry) => /^m=video\b/m.test(entry));
+    const names = codecNames(offer);
+    assert.ok(names.includes("rtx"));
+    assert.ok(names.includes("red"));
+    assert.ok(names.includes("ulpfec"));
+    const rtxMappings = [...section.matchAll(/^a=fmtp:(\d+) apt=(\d+)$/gm)];
+    assert.equal(rtxMappings.length, 5);
+    for (const match of rtxMappings) {
+      assert.match(section, new RegExp(`^a=rtpmap:${match[1]} rtx/90000$`, "mi"));
+      assert.match(section, new RegExp(`^a=rtpmap:${match[2]} (?!rtx/)[^/]+/90000$`, "mi"));
+    }
+  } finally {
+    peer.close();
+  }
+});
+
+function codecNames(description) {
+  const section = description.sdp
+    .split(/(?=^m=)/m)
+    .find((entry) => /^m=(?:audio|video)\b/m.test(entry));
+  const payloadTypes = section
+    .match(/^m=\S+\s+\d+\s+\S+\s+(.+)$/m)[1]
+    .trim()
+    .split(/\s+/);
+  return payloadTypes.map((payloadType) => {
+    const match = new RegExp(`^a=rtpmap:${payloadType} ([^/]+)/`, "mi").exec(section);
+    return match?.[1];
+  });
+}
+
+function remapVideoPayloadType(description, from, to) {
+  const sdp = description.sdp
+    .split("\r\n")
+    .map((line) => {
+      if (line.startsWith("m=video ")) {
+        const fields = line.split(" ");
+        return fields
+          .map((field, index) => (index >= 3 && field === String(from) ? to : field))
+          .join(" ");
+      }
+      return line.replace(
+        new RegExp(`^(a=(?:rtpmap|rtcp-fb|fmtp):)${from}(?=\\s)`),
+        (_match, prefix) => `${prefix}${to}`,
+      );
+    })
+    .join("\r\n");
+  return { type: description.type, sdp };
+}
+
+test("codec preferences validate, persist, and update native offer order", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const transceiver = peer.addTransceiver("video");
+    assert.equal(transceiver.setCodecPreferences.length, 1);
+    const capabilities = RTCRtpReceiver.getCapabilities("video").codecs;
+    const vp8 = capabilities.find((codec) => codec.mimeType === "video/VP8");
+    const h264 = capabilities.find((codec) => codec.mimeType === "video/H264");
+
+    transceiver.setCodecPreferences([vp8, vp8, h264]);
+    const preferred = await peer.createOffer();
+    assert.deepEqual(codecNames(preferred), ["VP8", "H264"]);
+    await peer.setLocalDescription(preferred);
+    await peer.setLocalDescription({ type: "rollback" });
+    assert.deepEqual(codecNames(await peer.createOffer()), ["VP8", "H264"]);
+
+    assert.throws(() => transceiver.setCodecPreferences([{ ...vp8, clockRate: 45_000 }]), {
+      name: "InvalidModificationError",
+    });
+    assert.throws(
+      () => transceiver.setCodecPreferences([{ mimeType: "video/rtx", clockRate: 90_000 }]),
+      { name: "InvalidModificationError" },
+    );
+
+    transceiver.setCodecPreferences([]);
+    assert.equal(codecNames(await peer.createOffer())[0], "H264");
+  } finally {
+    peer.close();
+  }
+});
+
+test("explicit local offers retain their generated codec mapping", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const transceiver = peer.addTransceiver("video");
+    const capabilities = RTCRtpReceiver.getCapabilities("video").codecs;
+    const vp8 = capabilities.find((codec) => codec.mimeType === "video/VP8");
+    const h264 = capabilities.find((codec) => codec.mimeType === "video/H264");
+    transceiver.setCodecPreferences([vp8, h264]);
+    const offer = await peer.createOffer();
+
+    transceiver.setCodecPreferences([h264]);
+    await peer.setLocalDescription(offer);
+    assert.deepEqual(codecNames(peer.localDescription), ["VP8", "H264"]);
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    assert.deepEqual(codecNames(peer.localDescription), ["VP8", "H264"]);
+
+    await peer.setLocalDescription({ type: "rollback" });
+    assert.deepEqual(codecNames(await peer.createOffer()), ["H264"]);
+  } finally {
+    peer.close();
+  }
+});
+
+test("answer codec preferences intersect the offer in answerer order", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const offererTransceiver = offerer.addTransceiver("video");
+    const capabilities = RTCRtpReceiver.getCapabilities("video").codecs;
+    const vp8 = capabilities.find((codec) => codec.mimeType === "video/VP8");
+    const h264 = capabilities.find((codec) => codec.mimeType === "video/H264");
+    const av1 = capabilities.find((codec) => codec.mimeType === "video/AV1");
+    offererTransceiver.setCodecPreferences([vp8, av1]);
+    await offerer.setLocalDescription(await offerer.createOffer());
+    await answerer.setRemoteDescription(offerer.localDescription);
+
+    const answererTransceiver = answerer.getTransceivers()[0];
+    answererTransceiver.setCodecPreferences([h264, av1, vp8]);
+    const answer = await answerer.createAnswer();
+    assert.deepEqual(codecNames(answer), ["AV1", "VP8"]);
+    answererTransceiver.setCodecPreferences([vp8]);
+    await answerer.setLocalDescription(answer);
+    assert.deepEqual(codecNames(answerer.localDescription), ["AV1", "VP8"]);
+    await offerer.setRemoteDescription(answerer.localDescription);
+    assert.deepEqual(
+      answererTransceiver.receiver
+        .getParameters()
+        .codecs.map((codec) => codec.mimeType.slice("video/".length)),
+      ["AV1", "VP8"],
+    );
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("encoded sources reject codec preferences that exclude their packet codec", async () => {
+  const peer = new RTCPeerConnection();
+  const source = new nonstandard.EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+  });
+  try {
+    const transceiver = peer.addTransceiver(source.track);
+    const h264 = RTCRtpSender.getCapabilities("video").codecs.find(
+      (codec) => codec.mimeType === "video/H264",
+    );
+    transceiver.setCodecPreferences([h264]);
+    await assert.rejects(peer.createOffer(), { name: "OperationError" });
+  } finally {
+    source.close();
+    peer.close();
+  }
+});
+
+test("encoded answer sources reject conflicting offered payload mappings", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const source = new nonstandard.EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+  });
+  try {
+    const transceiver = offerer.addTransceiver("video", { direction: "recvonly" });
+    const vp8 = RTCRtpSender.getCapabilities("video").codecs.find(
+      (codec) => codec.mimeType === "video/VP8",
+    );
+    transceiver.setCodecPreferences([vp8]);
+    const offer = remapVideoPayloadType(await offerer.createOffer(), 96, 120);
+
+    answerer.addTrack(source.track);
+    await answerer.setRemoteDescription(offer);
+    await assert.rejects(answerer.createAnswer(), { name: "OperationError" });
+  } finally {
+    source.close();
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("answerers preserve offered payload mappings when they later create offers", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const transceiver = offerer.addTransceiver("video", { direction: "recvonly" });
+    const vp8 = RTCRtpSender.getCapabilities("video").codecs.find(
+      (codec) => codec.mimeType === "video/VP8",
+    );
+    transceiver.setCodecPreferences([vp8]);
+    const offer = remapVideoPayloadType(await offerer.createOffer(), 96, 120);
+
+    await answerer.setRemoteDescription(offer);
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    assert.match(answerer.localDescription.sdp, /^a=rtpmap:120 VP8\/90000$/im);
+    const reoffer = await answerer.createOffer();
+    assert.match(reoffer.sdp, /^a=rtpmap:120 VP8\/90000$/im);
+    assert.doesNotMatch(reoffer.sdp, /^a=rtpmap:96 VP8\/90000$/im);
+  } finally {
+    offerer.close();
+    answerer.close();
   }
 });
 

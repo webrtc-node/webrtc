@@ -228,7 +228,21 @@ connection setup remains outside the selected scope.
 the audio and video formats that the application-supplied packet transport can
 describe and carry. They do not imply built-in encoding, decoding, capture, or
 rendering. Each call returns fresh dictionaries, and unsupported media kinds
-return `null`.
+return `null`. Video capabilities include RTX, RED, and ULPFEC because the raw
+transport can negotiate and carry those application-produced packets; this
+does not imply retransmission buffering or FEC generation/recovery.
+
+`RTCRtpTransceiver.setCodecPreferences()` performs WebIDL dictionary
+conversion, removes duplicates, validates against sender/receiver
+capabilities, rejects resilience-only lists, and persists preferences across
+offer/answer generations. Offers use preference order; answers intersect the
+remote offer and use the answerer's order while preserving offered payload
+types and RTX `apt` associations. With no explicit preference, an attached
+encoded source's configured primary codec is placed first. Payload bytes and
+payload-type bits are never rewritten. Offer or answer generation rejects an
+attached encoded source when its declared codec and payload type cannot be
+represented by the media section; applications remain responsible for every
+other RTP/RTCP packet field.
 
 `RTCRtpReceiver.getParameters()` is empty before an answer is applied and then
 derives codecs, header extensions, and reduced-size RTCP state from the
@@ -264,8 +278,10 @@ reported or inserted.
 Impact: focused WPT covers sender transactions, immutable RTCP and header
 extension fields, operation timing, one-encoding normalization, active state
 changes, static sender/receiver capabilities, and receiver parameter timing.
-Node-to-Node tests additionally prove that inactive RTP is suppressed and
-resumes without renegotiation.
+Focused WPT also covers the complete codec-preference file, including
+offer/answer order and resilience-format removal. Node-to-Node tests
+additionally prove that inactive RTP is suppressed and resumes without
+renegotiation.
 
 ## ICE candidate errors
 

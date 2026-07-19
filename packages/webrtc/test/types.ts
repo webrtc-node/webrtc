@@ -107,6 +107,7 @@ const senderParameters = pc.addTransceiver("audio").sender.getParameters();
 const senderCapabilities = RTCRtpSender.getCapabilities("audio");
 const receiverCapabilities = RTCRtpReceiver.getCapabilities("video");
 const receiverParameters = pc.getReceivers()[0].getParameters();
+pc.getTransceivers()[0].setCodecPreferences(receiverCapabilities?.codecs ?? []);
 const encodingActive: boolean | undefined = senderParameters.encodings[0]?.active;
 const setParametersResult: Promise<void> = pc.getSenders()[0].setParameters(senderParameters, {});
 const maybeSctp: RTCSctpTransport | null = pc.sctp;

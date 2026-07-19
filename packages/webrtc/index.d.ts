@@ -409,6 +409,7 @@ export class RTCRtpTransceiver {
   set direction(value: RTCRtpTransceiverDirection);
   readonly currentDirection: RTCRtpTransceiverDirection | "stopped" | null;
   stop(): void;
+  setCodecPreferences(codecs: Iterable<RTCRtpCodec>): void;
 }
 
 export interface RTCRtpTransceiverInit {

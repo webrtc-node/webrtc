@@ -43,6 +43,7 @@ The named WPT files are from pinned WPT commit
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
+| Codec-preference-consistent RTP-map serialization | `confirmed-absent` | None found |
 
 ### Evaluated integration constraint: late media transport initialization
 
@@ -143,13 +144,15 @@ candidate.
 
 - **Requirement and WPT.** WebRTC-PC requires static sender/receiver
   capabilities and receiver parameters derived from the negotiated codecs,
-  RTP header extensions, and RTCP mode. Applicable WPT:
+  RTP header extensions, and RTCP mode. It also requires transceiver codec
+  preferences to control offer/answer codec filtering and order. Applicable WPT:
   `webrtc/RTCRtpSender-getCapabilities.html`,
   `webrtc/RTCRtpReceiver-getCapabilities.html`, and
-  `webrtc/RTCRtpReceiver-getParameters.html`.
+  `webrtc/RTCRtpReceiver-getParameters.html`, and
+  `webrtc/RTCRtpTransceiver-setCodecPreferences.html`.
 - **Source inspected.** `include/rtc/description.hpp`, `src/description.cpp`,
   `include/rtc/rtp.hpp`, `src/rtp.cpp`, `src/impl/track.cpp`, and
-  `src/impl/dtlssrtptransport.cpp`.
+  `src/impl/peerconnection.cpp`, and `src/impl/dtlssrtptransport.cpp`.
 - **Evidence.** `Description::Entry::ExtMap` parses, stores, serializes, and
   reciprocates extension direction. Audio/video descriptions expose the exact
   RTP maps used by the addon. With no media handler, `impl::Track` accepts a
@@ -158,11 +161,55 @@ candidate.
 - **Binding action.** Static JavaScript capabilities report only codecs the raw
   packet adapter can describe and transport. New native media descriptions add
   the standardized MID extension through `addExtMap()`; receiver parameters are
-  reconstructed from the committed answer. The binding does not claim an
-  encoder, decoder, packetizer, or any extension it does not negotiate. Native
-  build coverage, SDP assertions, Node-to-Node flow, and the focused WPT files
-  exercise the contract. Existing upstream primitives are sufficient, so no
-  issue is warranted.
+  reconstructed from the committed answer. Codec preferences are converted and
+  validated in JavaScript, then applied as complete RTP maps through
+  `Track::setDescription()` before native offer/answer generation. The binding
+  does not claim an encoder, decoder, packetizer, or any extension it does not
+  negotiate. Native build coverage, SDP assertions, Node-to-Node flow, and the
+  focused WPT files exercise the contract. Existing upstream primitives are
+  sufficient for this ownership split, so no capability issue is warranted.
+
+## Codec-preference-consistent RTP-map serialization
+
+**Status:** `confirmed-absent`
+
+1. **Requirement and WPT.** WebRTC-PC and JSEP use m-line payload order as codec
+   preference order. WPT additionally checks that generated RTP-map lines expose
+   the selected first codec in `webrtc/RTCRtpTransceiver-setCodecPreferences.html`.
+2. **Source inspected.** `include/rtc/description.hpp` and
+   `src/description.cpp`, especially `Media::description()`, `addRtpMap()`,
+   `removeRtpMap()`, and `generateSdpLines()`.
+3. **Absence evidence.** `Media::description()` emits payload types from
+   `mOrderedPayloadTypes`, but `generateSdpLines()` emits `a=rtpmap`,
+   payload-specific `a=rtcp-fb`, and `a=fmtp` attributes by iterating the
+   numerically ordered `mRtpMaps` map. A preference such as H264 payload 102
+   before VP8 payload 96 is therefore represented correctly in the m-line but
+   serialized with the VP8 RTP-map first. An independent minimal C++
+   reproduction has not yet been retained, so this item is not
+   `upstream-ready`.
+4. **Current workaround.** `packages/webrtc/lib/index.js` groups codec
+   attributes by payload type and reorders those groups to match each generated
+   audio/video m-line before exposing a session description. The native media
+   description remains authoritative for mappings and preference order.
+5. **Why insufficient.** The facade duplicates SDP serialization policy, and
+   non-Node libdatachannel consumers still observe contradictory textual order.
+   The workaround must run again after candidate-driven local-description
+   refreshes.
+6. **Proposed upstream behavior.** Make `Media::generateSdpLines()` iterate
+   `mOrderedPayloadTypes`, look up each immutable `RtpMap`, and emit each codec's
+   RTP-map/feedback/fmtp group in that order. This changes no API, ownership, or
+   callback contract and runs under the description owner's existing thread
+   synchronization.
+7. **Required native tests.** Construct media with numerically non-monotonic
+   payload types, assert m-line and attribute-group order, remove/re-add a map,
+   verify RTX `apt` groups remain adjacent to their ordered primary, and
+   parse/serialize a remote description without changing preference order.
+8. **Compatibility/build options.** Preserve existing SDP content and payload
+   mappings; only attribute order changes. Exercise media enabled/disabled,
+   bundled/system dependencies, and all supported compilers because this is
+   core description code independent of TLS, ICE, and SCTP backends.
+9. **Upstream links.** No matching issue, pull request, or released fix found as
+   of 2026-07-19.
 
 ## Existing-track description and msid notifications
 

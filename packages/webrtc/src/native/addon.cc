@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -131,6 +132,102 @@ void AddSupportedRtpHeaderExtensions(rtc::Description::Media &media) {
 	                                                MID_HEADER_EXTENSION_URI));
 }
 
+struct RtpCodecDescription {
+	int payloadType;
+	std::string codec;
+	int clockRate;
+	std::optional<int> channels;
+	std::optional<std::string> profile;
+	std::vector<std::string> rtcpFeedback;
+};
+
+std::vector<RtpCodecDescription> ParseRtpCodecs(const Napi::Value &value) {
+	if (!value.IsArray())
+		throw std::invalid_argument("codecs must be an array");
+	Napi::Array input = value.As<Napi::Array>();
+	if (input.Length() == 0)
+		throw std::invalid_argument("codecs must not be empty");
+
+	std::vector<RtpCodecDescription> codecs;
+	std::set<int> payloadTypes;
+	codecs.reserve(input.Length());
+	for (uint32_t i = 0; i < input.Length(); ++i) {
+		if (!input.Get(i).IsObject())
+			throw std::invalid_argument("codec entries must be objects");
+		auto entry = input.Get(i).As<Napi::Object>();
+		int payloadType = entry.Get("payloadType").ToNumber().Int32Value();
+		std::string codec = entry.Get("codec").ToString().Utf8Value();
+		int clockRate = entry.Get("clockRate").ToNumber().Int32Value();
+		if (payloadType < 0 || payloadType > 127)
+			throw std::invalid_argument("codec payloadType must be between 0 and 127");
+		if (!payloadTypes.insert(payloadType).second)
+			throw std::invalid_argument("codec payloadTypes must be unique");
+		if (codec.empty() || std::any_of(codec.begin(), codec.end(), [](unsigned char c) {
+			    return !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			             (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.');
+		    }))
+			throw std::invalid_argument("codec must be a non-empty SDP token");
+		if (clockRate <= 0)
+			throw std::invalid_argument("codec clockRate must be positive");
+
+		std::optional<int> channels;
+		if (entry.Has("channels") && !entry.Get("channels").IsNull() &&
+		    !entry.Get("channels").IsUndefined()) {
+			channels = entry.Get("channels").ToNumber().Int32Value();
+			if (*channels <= 0 || *channels > 65535)
+				throw std::invalid_argument("codec channels must be between 1 and 65535");
+		}
+		std::optional<std::string> profile;
+		if (entry.Has("profile") && !entry.Get("profile").IsNull() &&
+		    !entry.Get("profile").IsUndefined()) {
+			profile = entry.Get("profile").ToString().Utf8Value();
+			if (profile->empty() || profile->find_first_of("\r\n") != std::string::npos)
+				throw std::invalid_argument("codec profile must be non-empty and contain no lines");
+		}
+		std::vector<std::string> rtcpFeedback;
+		if (entry.Has("rtcpFeedback") && !entry.Get("rtcpFeedback").IsNull() &&
+		    !entry.Get("rtcpFeedback").IsUndefined()) {
+			auto feedbackValue = entry.Get("rtcpFeedback");
+			if (!feedbackValue.IsArray())
+				throw std::invalid_argument("codec rtcpFeedback must be an array");
+			auto feedback = feedbackValue.As<Napi::Array>();
+			for (uint32_t feedbackIndex = 0; feedbackIndex < feedback.Length(); ++feedbackIndex) {
+				if (!feedback.Get(feedbackIndex).IsString())
+					throw std::invalid_argument("codec rtcpFeedback entries must be strings");
+				auto item = feedback.Get(feedbackIndex).ToString().Utf8Value();
+				if (item.empty() || item.find_first_of("\r\n") != std::string::npos)
+					throw std::invalid_argument(
+					    "codec rtcpFeedback entries must be non-empty and contain no lines");
+				rtcpFeedback.push_back(std::move(item));
+			}
+		}
+		codecs.push_back({payloadType, std::move(codec), clockRate, channels,
+		                  std::move(profile), std::move(rtcpFeedback)});
+	}
+	return codecs;
+}
+
+void AddRtpCodec(rtc::Description::Media &media, const RtpCodecDescription &codec) {
+	std::string description = std::to_string(codec.payloadType) + " " + codec.codec + "/" +
+	                          std::to_string(codec.clockRate);
+	if (codec.channels)
+		description += "/" + std::to_string(*codec.channels);
+	rtc::Description::Media::RtpMap map(description);
+	if (codec.profile)
+		map.addParameter(*codec.profile);
+	for (const auto &feedback : codec.rtcpFeedback)
+		map.addFeedback(feedback);
+	media.addRtpMap(std::move(map));
+}
+
+void ReplaceRtpCodecs(rtc::Description::Media &media,
+	                  const std::vector<RtpCodecDescription> &codecs) {
+	for (int payloadType : media.payloadTypes())
+		media.removeRtpMap(payloadType);
+	for (const auto &codec : codecs)
+		AddRtpCodec(media, codec);
+}
+
 rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (!value.IsObject())
 		throw std::invalid_argument("track options must be an object");
@@ -138,12 +235,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	std::string kind = options.Get("kind").ToString().Utf8Value();
 	std::string mid = options.Get("mid").ToString().Utf8Value();
 	std::string direction = options.Get("direction").ToString().Utf8Value();
-	int payloadType = options.Get("payloadType").ToNumber().Int32Value();
-	std::string codec = options.Get("codec").ToString().Utf8Value();
-	std::optional<std::string> profile;
-	if (options.Has("profile") && !options.Get("profile").IsNull() &&
-	    !options.Get("profile").IsUndefined())
-		profile = options.Get("profile").ToString().Utf8Value();
+	auto codecs = ParseRtpCodecs(options.Get("codecs"));
 	std::optional<std::string> trackId;
 	if (options.Has("trackId") && !options.Get("trackId").IsNull() &&
 	    !options.Get("trackId").IsUndefined())
@@ -158,15 +250,6 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 		throw std::invalid_argument("mid must not be empty");
 	if (std::any_of(mid.begin(), mid.end(), [](unsigned char c) { return c <= 0x20 || c == 0x7f; }))
 		throw std::invalid_argument("mid must be an SDP token without whitespace or controls");
-	if (payloadType < 0 || payloadType > 127)
-		throw std::invalid_argument("payloadType must be between 0 and 127");
-	if (codec.empty() || std::any_of(codec.begin(), codec.end(), [](unsigned char c) {
-		    return !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-		             (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.');
-	    }))
-		throw std::invalid_argument("codec must be a non-empty SDP token");
-	if (profile && profile->find_first_of("\r\n") != std::string::npos)
-		throw std::invalid_argument("profile must not contain line breaks");
 	if (trackId && (trackId->empty() || trackId->find_first_of(" \t\r\n") != std::string::npos))
 		throw std::invalid_argument("trackId must be a non-empty SDP token");
 	if (cname && (cname->empty() || cname->find_first_of(" \t\r\n") != std::string::npos))
@@ -175,7 +258,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	rtc::Description::Direction parsedDirection = ParseMediaDirection(direction);
 	if (kind == "audio") {
 		rtc::Description::Audio media(mid, parsedDirection);
-		media.addAudioCodec(payloadType, codec, profile);
+		ReplaceRtpCodecs(media, codecs);
 		AddSupportedRtpHeaderExtensions(media);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
@@ -185,7 +268,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	}
 	if (kind == "video") {
 		rtc::Description::Video media(mid, parsedDirection);
-		media.addVideoCodec(payloadType, codec, profile);
+		ReplaceRtpCodecs(media, codecs);
 		AddSupportedRtpHeaderExtensions(media);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
@@ -1285,9 +1368,10 @@ private:
 
 	Napi::Value UpdateDescription(const Napi::CallbackInfo &info) {
 		try {
-			if (info.Length() < 5)
+			if (info.Length() < 7)
 				throw std::invalid_argument("updateDescription requires complete media state");
 			auto streamIds = ParseStringArray(info[3], "streamIds");
+			auto codecs = ParseRtpCodecs(info[6]);
 			std::optional<std::string> trackId;
 			if (!info[4].IsNull() && !info[4].IsUndefined())
 				trackId = info[4].ToString().Utf8Value();
@@ -1315,6 +1399,7 @@ private:
 				description.addSSRC(ssrc, cname.value_or(description.mid()));
 			}
 			SetMediaStreamIds(description, streamIds, trackId);
+			ReplaceRtpCodecs(description, codecs);
 			binding_->track->setDescription(std::move(description));
 		} catch (const std::exception &e) {
 			Napi::Error::New(info.Env(), e.what()).ThrowAsJavaScriptException();
