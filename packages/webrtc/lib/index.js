@@ -3201,6 +3201,7 @@ class EncodedMediaSource extends SimpleEventTarget {
     this.onopen = null;
     this.onclose = null;
     this.onerror = null;
+    this._closed = false;
     this._source = {
       codec: {
         codec: normalized.codec,
@@ -3208,16 +3209,17 @@ class EncodedMediaSource extends SimpleEventTarget {
         profile: normalized.profile,
       },
       ssrc: normalized.ssrc,
+      nativeTracks: new Set(),
       _attachNativeTrack: (nativeTrack) => {
-        this._source.nativeTrack = nativeTrack;
-        this.readyState = nativeTrack.isOpen ? "open" : "connecting";
+        if (this._closed) return;
+        this._source.nativeTracks.add(nativeTrack);
+        this._refreshReadyState();
       },
       _detachNativeTrack: (nativeTrack) => {
-        if (this._source.nativeTrack !== nativeTrack) return;
-        this._source.nativeTrack = null;
-        if (this.readyState !== "closed") this.readyState = "new";
+        if (!this._source.nativeTracks.delete(nativeTrack)) return;
+        this._refreshReadyState();
       },
-      _handleNativeEvent: (event) => this._handleNativeEvent(event),
+      _handleNativeEvent: (event, nativeTrack) => this._handleNativeEvent(event, nativeTrack),
       stop: () => this.close(),
     };
     this.track = new MediaStreamTrack(kInternalConstruct, {
@@ -3227,31 +3229,79 @@ class EncodedMediaSource extends SimpleEventTarget {
     });
   }
 
-  _handleNativeEvent(event) {
-    if (event.type === "open") this.readyState = "open";
-    if (event.type === "close") this.readyState = "closed";
+  _refreshReadyState() {
+    if (this._closed) {
+      this.readyState = "closed";
+      return;
+    }
+    let hasBinding = false;
+    let hasOpenBinding = false;
+    for (const nativeTrack of this._source.nativeTracks) {
+      if (nativeTrack.isClosed) {
+        this._source.nativeTracks.delete(nativeTrack);
+        continue;
+      }
+      hasBinding = true;
+      if (nativeTrack.isOpen) hasOpenBinding = true;
+    }
+    this.readyState = hasOpenBinding ? "open" : hasBinding ? "connecting" : "new";
+  }
+
+  _handleNativeEvent(event, nativeTrack) {
+    if (this._closed || !this._source.nativeTracks.has(nativeTrack)) return;
+    if (event.type === "close") {
+      this._source.nativeTracks.delete(nativeTrack);
+      this._refreshReadyState();
+      return;
+    }
+    const wasOpen = this.readyState === "open";
+    if (event.type === "open") this._refreshReadyState();
+    if (event.type === "open" && (wasOpen || this.readyState !== "open")) return;
     const dispatched = new SimpleEvent(event.type);
     if (event.type === "error") dispatched.message = event.error || "Media track error";
     this.dispatchEvent(dispatched);
   }
 
   send(packet) {
-    if (this.readyState === "closed") throw new Error("EncodedMediaSource is closed");
-    const nativeTrack = this._source.nativeTrack;
-    if (!nativeTrack) {
+    if (this._closed) throw new Error("EncodedMediaSource is closed");
+    const nativeTracks = [...this._source.nativeTracks];
+    if (nativeTracks.length === 0) {
       throw makeDOMException("Track is not attached to an RTP sender", "InvalidStateError");
     }
-    return nativeTrack.send(toUint8Array(packet));
+    const bytes = toUint8Array(packet);
+    let sent = false;
+    for (const nativeTrack of nativeTracks) {
+      if (nativeTrack.isClosed) {
+        this._source.nativeTracks.delete(nativeTrack);
+        continue;
+      }
+      if (!nativeTrack.isOpen) continue;
+      try {
+        sent = nativeTrack.send(bytes) || sent;
+      } catch (error) {
+        if (!/^Track is (?:not open|closed)$/u.test(String(error?.message))) throw error;
+        if (nativeTrack.isClosed) this._source.nativeTracks.delete(nativeTrack);
+      }
+    }
+    this._refreshReadyState();
+    return sent;
   }
 
   close() {
-    if (this.readyState === "closed") return;
+    if (this._closed) return;
+    this._closed = true;
+    this._source.nativeTracks.clear();
     this.readyState = "closed";
     this._source._endTracks?.();
+    this.dispatchEvent(new SimpleEvent("close"));
   }
 
   get maxPacketSize() {
-    return this._source.nativeTrack?.maxMessageSize ?? null;
+    const limits = [...this._source.nativeTracks]
+      .filter((nativeTrack) => !nativeTrack.isClosed)
+      .map((nativeTrack) => nativeTrack.maxMessageSize)
+      .filter((limit) => Number.isFinite(limit));
+    return limits.length === 0 ? null : Math.min(...limits);
   }
 }
 
@@ -3471,6 +3521,7 @@ class RTCRtpTransceiver {
   }
   stop() {
     if (this._stopping || this._stopped) return;
+    this._peerConnection._detachSenderSource(this._sender);
     this._stopping = true;
     this._peerConnection._queueReceiverTrackEnded(this);
     this._peerConnection._markNegotiationNeeded();
@@ -3937,7 +3988,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         existingNativeTrack.setActive(
           transceiver._sendEncodings.some((encoding) => encoding.active),
         );
-        source?._attachNativeTrack?.(existingNativeTrack);
+        if (!transceiver.stopping) source?._attachNativeTrack?.(existingNativeTrack);
         continue;
       }
       if (transceiver.stopping) {
@@ -3970,9 +4021,14 @@ class RTCPeerConnection extends SimpleEventTarget {
         },
         (events) => {
           for (const event of Array.isArray(events) ? events : [events]) {
-            source?._handleNativeEvent?.(event, nativeTrack);
+            const senderSource = mediaTrackSources.get(transceiver.sender.track);
+            if (event.type !== "message") {
+              senderSource?._handleNativeEvent?.(event, nativeTrack);
+            }
             const receiverSource = mediaTrackSources.get(transceiver.receiver.track);
-            if (receiverSource !== source) receiverSource?._handleNativeEvent?.(event, nativeTrack);
+            if (receiverSource !== senderSource || event.type === "message") {
+              receiverSource?._handleNativeEvent?.(event, nativeTrack);
+            }
           }
         },
       );
@@ -5322,6 +5378,9 @@ class RTCPeerConnection extends SimpleEventTarget {
   close() {
     if (this._closed) return;
     this._closed = true;
+    for (const transceiver of this._transceivers) {
+      this._detachSenderSource(transceiver.sender);
+    }
     const pairedPeer = this._pairedPeer;
     this._unregisterLocalDescriptionsForPairing();
     const nativePeer = this._native;
@@ -6166,6 +6225,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     for (const transceiver of this._transceivers) {
       if (transceiver._stopped) continue;
       if (transceiver._stopping) {
+        this._detachSenderSource(transceiver.sender);
         transceiver._stopping = false;
         transceiver._stopped = true;
         transceiver._currentDirection = "stopped";
@@ -6192,6 +6252,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         transceiver._stopped = true;
         transceiver._currentDirection = "stopped";
         transceiver._mid = null;
+        this._detachSenderSource(transceiver.sender);
         transceiver._nativeSendTrack?.close();
         transceiver._nativeReceiveTrack?.close();
         transceiver._nativeAnnouncedReceiveTrack?.close();
@@ -6728,11 +6789,19 @@ class RTCPeerConnection extends SimpleEventTarget {
 
     if (event.target === "track") {
       const transceiver = this._nativeMediaTracks.get(event.trackId);
+      const nativeTrack = transceiver
+        ? [
+            transceiver._nativeSendTrack,
+            transceiver._nativeReceiveTrack,
+            transceiver._nativeAnnouncedReceiveTrack,
+            ...transceiver._nativeReceiveTracks,
+          ].find((track) => track?.bindingId === event.trackId)
+        : null;
       const senderSource = transceiver && mediaTrackSources.get(transceiver.sender.track);
       const receiverSource = transceiver && mediaTrackSources.get(transceiver.receiver.track);
-      if (event.type !== "message") senderSource?._handleNativeEvent?.(event);
+      if (event.type !== "message") senderSource?._handleNativeEvent?.(event, nativeTrack);
       if (receiverSource !== senderSource || event.type === "message") {
-        receiverSource?._handleNativeEvent?.(event);
+        receiverSource?._handleNativeEvent?.(event, nativeTrack);
       }
       return;
     }

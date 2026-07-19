@@ -128,6 +128,11 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   Packet callbacks route to the stable receiver source, and inbound stats select the retained
   receive view with authoritative packet counters without summing duplicate views. Focused package
   flow and `RTCRtpReceiver-getStats.https.html` cover answerer-started RTP, teardown, and filtering.
+- One application-supplied encoded source may back tracks sent by multiple peer connections.
+  Because each libdatachannel `Track` belongs to one peer connection and one DTLS-SRTP transport,
+  the Node adapter retains a binding set and fans each packet out to every open sender. Sender
+  replacement, removal, transceiver stopping, and peer close detach only their own binding; late
+  callbacks are matched by binding identity and cannot close or retarget the shared source.
 - Negotiation-needed state is revision-based: an applied local offer suppresses changes it
   represents, rollback restores unrepresented changes, and mutations made after offer creation are
   queued until signaling returns to stable.

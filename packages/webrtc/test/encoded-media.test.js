@@ -265,12 +265,87 @@ test("replaceTrack transfers native encoded source ownership", async () => {
   }
 });
 
+test("one encoded source fans RTP out to senders on multiple peer connections", async () => {
+  const offererA = new RTCPeerConnection();
+  const answererA = new RTCPeerConnection();
+  const offererB = new RTCPeerConnection();
+  const answererB = new RTCPeerConnection();
+  const source = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+    ssrc: 45,
+  });
+  let sinkA;
+  let sinkB;
+  try {
+    const remoteTrackA = waitFor(answererA, "track");
+    offererA.addTrack(source.track);
+    await negotiate(offererA, answererA);
+    sinkA = new EncodedMediaSink((await remoteTrackA).track);
+
+    const remoteTrackB = waitFor(answererB, "track");
+    offererB.addTrack(source.track);
+    await negotiate(offererB, answererB);
+    sinkB = new EncodedMediaSink((await remoteTrackB).track);
+
+    let receivedA = false;
+    let receivedB = false;
+    const packetA = waitFor(sinkA, "packet").then((event) => {
+      receivedA = true;
+      return event;
+    });
+    const packetB = waitFor(sinkB, "packet").then((event) => {
+      receivedB = true;
+      return event;
+    });
+    for (let sequenceNumber = 1; sequenceNumber <= 200; sequenceNumber += 1) {
+      source.send(rtpPacket(sequenceNumber, 96, 45));
+      if (receivedA && receivedB) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const [receivedPacketA, receivedPacketB] = await Promise.all([packetA, packetB]);
+    assert.equal(new Uint8Array(receivedPacketA.data)[1], 96);
+    assert.equal(new Uint8Array(receivedPacketB.data)[1], 96);
+
+    offererA.close();
+    answererA.close();
+    assert.notEqual(source.readyState, "closed");
+
+    const remainingPacket = waitFor(sinkB, "packet");
+    let remainingReceived = false;
+    remainingPacket.then(
+      () => {
+        remainingReceived = true;
+      },
+      () => {},
+    );
+    for (let sequenceNumber = 201; sequenceNumber <= 400; sequenceNumber += 1) {
+      assert.equal(source.send(rtpPacket(sequenceNumber, 96, 45)), true);
+      if (remainingReceived) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(new Uint8Array((await remainingPacket).data)[1], 96);
+  } finally {
+    sinkA?.close();
+    sinkB?.close();
+    source.close();
+    offererA.close();
+    answererA.close();
+    offererB.close();
+    answererB.close();
+  }
+});
+
 test("encoded source remains usable until its last track clone ends", async () => {
   const source = new EncodedMediaSource({
     kind: "audio",
     codec: { mimeType: "audio/opus", payloadType: 111 },
   });
   const peer = new RTCPeerConnection();
+  let closeEvents = 0;
+  source.addEventListener("close", () => {
+    closeEvents += 1;
+  });
   try {
     const clone = source.track.clone();
     source.track.stop();
@@ -286,6 +361,8 @@ test("encoded source remains usable until its last track clone ends", async () =
     await ended;
     assert.equal(clone.readyState, "ended");
     assert.equal(source.readyState, "closed");
+    source.close();
+    assert.equal(closeEvents, 1);
   } finally {
     source.close();
     peer.close();

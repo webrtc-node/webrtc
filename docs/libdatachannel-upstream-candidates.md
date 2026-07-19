@@ -107,6 +107,35 @@ an upstream candidate.
   flow and SDP tests cover suppression, resumption, RTCP metadata, close, and
   asynchronous completion. No upstream issue is warranted.
 
+### Evaluated integration constraint: encoded sources shared across peer connections
+
+**Disposition:** Node adapter ownership; not an upstream candidate.
+
+- **Requirement and WPT.** WebRTC-PC restricts duplicate use of one track only
+  within a single peer connection; the same `MediaStreamTrack` may be sent by
+  separate peer connections. The applicable
+  `webrtc/RTCPeerConnection-mandatory-getStats.https.html` fixture attaches
+  each synthetic audio and video track to both peers while validating reports.
+- **Source inspected.** `include/rtc/track.hpp`, `src/track.cpp`,
+  `src/impl/track.hpp`, `src/impl/track.cpp`,
+  `src/impl/peerconnection.cpp`, and `src/impl/dtlssrtptransport.cpp`.
+- **Evidence.** Each `rtc::Track` is created and retained by one
+  `PeerConnection`, and `impl::Track` holds a weak reference to that peer's
+  `DtlsSrtpTransport`. `Track::send()` synchronously locks and uses that one
+  transport, throwing when it is no longer open. libdatachannel intentionally
+  has no application media-source object spanning independent peer
+  connections.
+- **Binding action.** One JavaScript encoded source owns a set of native track
+  bindings and sends each packet through every currently open binding. Close,
+  replace, remove, and stop paths detach by binding identity; callback routing
+  resolves the sender's current source instead of retaining the source present
+  when the native track was created. The source remains usable until explicitly
+  closed or its final JavaScript track ends. Focused Node-to-Node coverage sends
+  one source to two independent peers, closes one, and verifies the other keeps
+  receiving. This is a Node-specific producer-adapter contract and would not be
+  useful in libdatachannel's per-peer `Track` API, so no upstream issue is
+  warranted.
+
 ## Existing-track description and msid notifications
 
 **Status:** `confirmed-absent`

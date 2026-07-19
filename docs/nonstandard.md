@@ -40,10 +40,19 @@ pc.addEventListener("track", ({ track }) => {
 });
 ```
 
-`source.send(packet)` returns the native send result. It returns `false` for
-RTP while the associated sender's sole encoding has `active: false`; RTCP is
-not suppressed. The encoded adapter does not pace, transcode, scale, generate
-key frames, or implement multiple sending encodings.
+The same source track may be attached to senders on multiple peer connections.
+`source.send(packet)` fans one packet out to every attached, open sender and
+returns `true` when at least one sender accepts it. It returns `false` while
+attached senders are still connecting, cannot send in their negotiated
+direction, or have their sole RTP encoding set to `active: false`; RTCP is not
+suppressed by the encoding gate. Sending without any attached sender throws
+`InvalidStateError`. `maxPacketSize` is the smallest limit across the attached
+senders.
+
+Removing, replacing, stopping, or closing one sender detaches only that native
+transport binding. It does not close a source still used by another peer
+connection. The encoded adapter does not pace, transcode, scale, generate key
+frames, or implement multiple sending encodings.
 
 The adapters do not capture devices, encode or decode media, render media,
 generate RTP headers, or pace packets. Packet validity, sequence numbers,
@@ -52,7 +61,8 @@ responsibilities. Supported audio codecs are Opus, PCMA, PCMU, G722, and AAC;
 supported video codecs are H264, H265, VP8, VP9, and AV1.
 
 Cloned tracks share their encoded source. Stopping one clone does not close the
-source while another clone remains live; `source.close()` ends every live clone.
+source while another clone remains live; `source.close()` ends every live clone
+and dispatches one `close` event.
 Incoming packets are dispatched on the Node event loop, and the native pending
 queue is bounded at 1024 packets.
 
