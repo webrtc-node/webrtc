@@ -39,6 +39,8 @@ std::atomic<uint32_t> nextChannelId{1};
 std::atomic<uint32_t> nextTrackId{1};
 constexpr auto PEER_CLOSE_TIMEOUT = std::chrono::seconds(5);
 constexpr size_t MAX_PENDING_TRACK_PACKETS = 1024;
+constexpr int MID_HEADER_EXTENSION_ID = 1;
+constexpr auto MID_HEADER_EXTENSION_URI = "urn:ietf:params:rtp-hdrext:sdes:mid";
 
 bool IsRtpPacket(const rtc::byte *data, size_t size) {
 	if (size < 2 || (static_cast<uint8_t>(data[0]) >> 6) != 2)
@@ -124,6 +126,11 @@ void SetMediaStreamIds(rtc::Description::Media &media,
 	}
 }
 
+void AddSupportedRtpHeaderExtensions(rtc::Description::Media &media) {
+	media.addExtMap(rtc::Description::Media::ExtMap(MID_HEADER_EXTENSION_ID,
+	                                                MID_HEADER_EXTENSION_URI));
+}
+
 rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (!value.IsObject())
 		throw std::invalid_argument("track options must be an object");
@@ -169,6 +176,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (kind == "audio") {
 		rtc::Description::Audio media(mid, parsedDirection);
 		media.addAudioCodec(payloadType, codec, profile);
+		AddSupportedRtpHeaderExtensions(media);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
 			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), cname.value_or(mid));
@@ -178,6 +186,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (kind == "video") {
 		rtc::Description::Video media(mid, parsedDirection);
 		media.addVideoCodec(payloadType, codec, profile);
+		AddSupportedRtpHeaderExtensions(media);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
 			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), cname.value_or(mid));

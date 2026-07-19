@@ -57,6 +57,24 @@ function rtpPacket(sequenceNumber = 1, payloadType = 96, ssrc = 42) {
   ]);
 }
 
+function rtpPacketWithMid(mid, sequenceNumber = 1, payloadType = 96, ssrc = 42) {
+  const midBytes = Buffer.from(mid, "utf8");
+  if (midBytes.length < 1 || midBytes.length > 16)
+    throw new RangeError("mid must fit one-byte RTP");
+  const base = rtpPacket(sequenceNumber, payloadType, ssrc);
+  const extensionSize = Math.ceil((1 + midBytes.length) / 4) * 4;
+  const packet = new Uint8Array(16 + extensionSize + base.length - 12);
+  packet.set(base.subarray(0, 12));
+  packet[0] |= 0x10;
+  const view = new DataView(packet.buffer);
+  view.setUint16(12, 0xbede);
+  view.setUint16(14, extensionSize / 4);
+  packet[16] = 0x10 | (midBytes.length - 1);
+  packet.set(midBytes, 17);
+  packet.set(base.subarray(12), 16 + extensionSize);
+  return packet;
+}
+
 function rtcpReceiverReport(ssrc = 42) {
   return Uint8Array.from([
     0x80,
@@ -132,6 +150,43 @@ test("answerer-supplied encoded RTP reaches the offerer receiver", async () => {
     );
     assert.ok(inbound);
     assert.ok(inbound.packetsReceived > 0);
+  } finally {
+    sink?.close();
+    source.close();
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("negotiated MID RTP header extensions pass through unchanged", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const source = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+    ssrc: 46,
+  });
+  let sink;
+  try {
+    const remoteTrack = waitFor(answerer, "track");
+    const transceiver = offerer.addTransceiver(source.track, { direction: "sendonly" });
+    await negotiate(offerer, answerer);
+    sink = new EncodedMediaSink((await remoteTrack).track);
+    assert.match(offerer.localDescription.sdp, /^a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid$/m);
+    assert.deepEqual(transceiver.sender.getParameters().headerExtensions, [
+      {
+        uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
+        id: 1,
+        encrypted: false,
+      },
+    ]);
+
+    const opened = source.readyState === "open" ? null : waitFor(source, "open");
+    if (opened) await opened;
+    const packet = rtpPacketWithMid(transceiver.mid, 1, 96, 46);
+    const packetEvent = waitFor(sink, "packet");
+    assert.equal(source.send(packet), true);
+    assert.deepEqual(new Uint8Array((await packetEvent).data), packet);
   } finally {
     sink?.close();
     source.close();

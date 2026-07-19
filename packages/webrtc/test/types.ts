@@ -16,6 +16,8 @@ import {
   type RTCIceTransport,
   RTCPeerConnection,
   RTCPeerConnectionIceErrorEvent,
+  RTCRtpReceiver,
+  RTCRtpSender,
   type RTCSctpTransport,
   RTCSessionDescription,
   type RTCTransportStats,
@@ -102,6 +104,9 @@ const iceError = new RTCPeerConnectionIceErrorEvent("icecandidateerror", {
 const iceErrorCode: number = iceError.errorCode;
 const channel = pc.createDataChannel("typed");
 const senderParameters = pc.addTransceiver("audio").sender.getParameters();
+const senderCapabilities = RTCRtpSender.getCapabilities("audio");
+const receiverCapabilities = RTCRtpReceiver.getCapabilities("video");
+const receiverParameters = pc.getReceivers()[0].getParameters();
 const encodingActive: boolean | undefined = senderParameters.encodings[0]?.active;
 const setParametersResult: Promise<void> = pc.getSenders()[0].setParameters(senderParameters, {});
 const maybeSctp: RTCSctpTransport | null = pc.sctp;
@@ -109,6 +114,9 @@ const maybeDtls: RTCDtlsTransport | undefined = maybeSctp?.transport;
 const maybeIce: RTCIceTransport | undefined = maybeDtls?.iceTransport;
 const maybePair: RTCIceCandidatePair | null | undefined = maybeIce?.getSelectedCandidatePair();
 const remoteCertificates: ArrayBuffer[] | undefined = maybeDtls?.getRemoteCertificates();
+void senderCapabilities;
+void receiverCapabilities;
+void receiverParameters;
 
 pc.ondatachannel = (received: RTCDataChannelEvent) => {
   received.channel.binaryType = "blob";

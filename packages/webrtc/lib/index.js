@@ -1009,7 +1009,7 @@ function effectiveTransceiverMid(transceiver) {
   return transceiver._mid ?? transceiver._nativeMid;
 }
 
-function senderRtpParameters(transceiver, transactionId) {
+function negotiatedRtpParameters(transceiver) {
   const peer = transceiver._peerConnection;
   const answer =
     peer._currentLocalDescription?.type === "answer"
@@ -1050,14 +1050,60 @@ function senderRtpParameters(transceiver, transactionId) {
     }
   }
   return {
+    headerExtensions,
+    reducedSize: Boolean(section?.lines.includes("a=rtcp-rsize")),
+    codecs,
+  };
+}
+
+function senderRtpParameters(transceiver, transactionId) {
+  const negotiated = negotiatedRtpParameters(transceiver);
+  return {
     transactionId,
     encodings: transceiver._sendEncodings.map((encoding) => ({ ...encoding })),
-    headerExtensions,
+    headerExtensions: negotiated.headerExtensions,
     rtcp: {
-      cname: peer._rtcpCname,
-      reducedSize: Boolean(section?.lines.includes("a=rtcp-rsize")),
+      cname: transceiver._peerConnection._rtcpCname,
+      reducedSize: negotiated.reducedSize,
     },
-    codecs,
+    codecs: negotiated.codecs,
+  };
+}
+
+function receiverRtpParameters(transceiver) {
+  const negotiated = negotiatedRtpParameters(transceiver);
+  return {
+    headerExtensions: negotiated.headerExtensions,
+    rtcp: { reducedSize: negotiated.reducedSize },
+    codecs: negotiated.codecs,
+  };
+}
+
+const rtpCodecCapabilities = {
+  audio: [
+    { mimeType: "audio/opus", clockRate: 48000, channels: 2 },
+    { mimeType: "audio/PCMA", clockRate: 8000, channels: 1 },
+    { mimeType: "audio/PCMU", clockRate: 8000, channels: 1 },
+    { mimeType: "audio/G722", clockRate: 8000, channels: 1 },
+    { mimeType: "audio/AAC", clockRate: 48000, channels: 2 },
+  ],
+  video: [
+    { mimeType: "video/H264", clockRate: 90000 },
+    { mimeType: "video/H265", clockRate: 90000 },
+    { mimeType: "video/VP8", clockRate: 90000 },
+    { mimeType: "video/VP9", clockRate: 90000 },
+    { mimeType: "video/AV1", clockRate: 90000 },
+  ],
+};
+
+const rtpHeaderExtensionCapabilities = [{ uri: "urn:ietf:params:rtp-hdrext:sdes:mid" }];
+
+function getRtpCapabilities(kind) {
+  const codecs = rtpCodecCapabilities[String(kind)];
+  if (!codecs) return null;
+  return {
+    codecs: codecs.map((codec) => ({ ...codec })),
+    headerExtensions: rtpHeaderExtensionCapabilities.map((extension) => ({ ...extension })),
   };
 }
 
@@ -3331,6 +3377,10 @@ class EncodedMediaSink extends SimpleEventTarget {
 }
 
 class RTCRtpSender {
+  static getCapabilities(kind) {
+    return getRtpCapabilities(kind);
+  }
+
   constructor(token, peerConnection, track, streams) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     this._peerConnection = peerConnection;
@@ -3438,6 +3488,10 @@ class RTCRtpSender {
 }
 
 class RTCRtpReceiver {
+  static getCapabilities(kind) {
+    return getRtpCapabilities(kind);
+  }
+
   constructor(token, peerConnection, kind) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     this._peerConnection = peerConnection;
@@ -3454,6 +3508,9 @@ class RTCRtpReceiver {
     return this._transceiver._nativeReceiveTrack || this._transceiver._nativeSendTrack
       ? this._peerConnection._dtlsTransport
       : null;
+  }
+  getParameters() {
+    return receiverRtpParameters(this._transceiver);
   }
   getStats() {
     return this._peerConnection.getStats(this);

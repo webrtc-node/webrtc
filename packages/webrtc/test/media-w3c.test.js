@@ -135,6 +135,108 @@ test("addTransceiver reports its single pre-encoded RTP encoding envelope", () =
   }
 });
 
+test("RTP capabilities report fresh packet-transport codec dictionaries", () => {
+  assert.equal(RTCRtpSender.getCapabilities.length, 1);
+  assert.equal(RTCRtpReceiver.getCapabilities.length, 1);
+  assert.equal(RTCRtpSender.getCapabilities("dummy"), null);
+  assert.equal(RTCRtpReceiver.getCapabilities("dummy"), null);
+
+  for (const endpointClass of [RTCRtpSender, RTCRtpReceiver]) {
+    const audio = endpointClass.getCapabilities("audio");
+    const video = endpointClass.getCapabilities("video");
+    assert.deepEqual(
+      audio.codecs.map((codec) => codec.mimeType),
+      ["audio/opus", "audio/PCMA", "audio/PCMU", "audio/G722", "audio/AAC"],
+    );
+    assert.deepEqual(
+      video.codecs.map((codec) => codec.mimeType),
+      ["video/H264", "video/H265", "video/VP8", "video/VP9", "video/AV1"],
+    );
+    assert.deepEqual(audio.headerExtensions, [{ uri: "urn:ietf:params:rtp-hdrext:sdes:mid" }]);
+    audio.codecs[0].mimeType = "modified";
+    audio.headerExtensions[0].uri = "modified";
+    assert.equal(endpointClass.getCapabilities("audio").codecs[0].mimeType, "audio/opus");
+    assert.equal(
+      endpointClass.getCapabilities("audio").headerExtensions[0].uri,
+      "urn:ietf:params:rtp-hdrext:sdes:mid",
+    );
+  }
+});
+
+test("reported RTP codecs materialize matching native media descriptions", async () => {
+  for (const kind of ["audio", "video"]) {
+    for (const codec of RTCRtpSender.getCapabilities(kind).codecs) {
+      const peer = new RTCPeerConnection();
+      const source = new nonstandard.EncodedMediaSource({
+        kind,
+        codec: { mimeType: codec.mimeType, payloadType: 96 },
+      });
+      try {
+        peer.addTrack(source.track);
+        const offer = await peer.createOffer();
+        const encodingName = codec.mimeType.slice(codec.mimeType.indexOf("/") + 1);
+        const channels = codec.channels === undefined ? "" : `/${codec.channels}`;
+        assert.match(
+          offer.sdp,
+          new RegExp(`^a=rtpmap:96 ${encodingName}/${codec.clockRate}${channels}$`, "mi"),
+        );
+      } finally {
+        source.close();
+        peer.close();
+      }
+    }
+  }
+});
+
+test("receiver parameters populate from the committed answer", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const offererReceiver = offerer.addTransceiver("audio").receiver;
+    assert.deepEqual(offererReceiver.getParameters(), {
+      headerExtensions: [],
+      rtcp: { reducedSize: false },
+      codecs: [],
+    });
+
+    await offerer.setLocalDescription(await offerer.createOffer());
+    await answerer.setRemoteDescription(offerer.localDescription);
+    const answererReceiver = answerer.getReceivers()[0];
+    assert.deepEqual(answererReceiver.getParameters().codecs, []);
+    assert.deepEqual(answererReceiver.getParameters().headerExtensions, []);
+
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    const answererParameters = answererReceiver.getParameters();
+    assert.equal(answererParameters.codecs[0].mimeType, "audio/opus");
+    assert.deepEqual(answererParameters.headerExtensions, [
+      {
+        uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
+        id: 1,
+        encrypted: false,
+      },
+    ]);
+    assert.deepEqual(answererParameters.rtcp, { reducedSize: false });
+    assert.equal(answererParameters.transactionId, undefined);
+    assert.equal(answererParameters.encodings, undefined);
+
+    await offerer.setRemoteDescription(answerer.localDescription);
+    const offererParameters = offererReceiver.getParameters();
+    assert.equal(offererParameters.codecs[0].mimeType, "audio/opus");
+    assert.deepEqual(offererParameters.headerExtensions, answererParameters.headerExtensions);
+
+    answererParameters.codecs[0].mimeType = "modified";
+    answererParameters.headerExtensions[0].uri = "modified";
+    assert.equal(answererReceiver.getParameters().codecs[0].mimeType, "audio/opus");
+    assert.equal(
+      answererReceiver.getParameters().headerExtensions[0].uri,
+      "urn:ietf:params:rtp-hdrext:sdes:mid",
+    );
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 test("closing a peer moves transceivers to their terminal state", () => {
   const peer = new RTCPeerConnection();
   const transceiver = peer.addTransceiver("audio");
@@ -511,7 +613,13 @@ test("sender parameters preserve encodings and expose negotiated SDP facts", asy
     const negotiated = sender.getParameters();
     assert.ok(negotiated.codecs.length > 0);
     assert.match(negotiated.codecs[0].mimeType, /^audio\//);
-    assert.deepEqual(negotiated.headerExtensions, []);
+    assert.deepEqual(negotiated.headerExtensions, [
+      {
+        uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
+        id: 1,
+        encrypted: false,
+      },
+    ]);
     assert.equal(negotiated.transactionId, sender.getParameters().transactionId);
     assert.equal(typeof negotiated.rtcp.cname, "string");
     assert.ok(negotiated.rtcp.cname.length > 0);

@@ -222,7 +222,17 @@ operations-chain/event-ordering coverage in
 `RTCPeerConnection-addIceCandidate-timing.https.html`. Media-transceiver
 connection setup remains outside the selected scope.
 
-## RTP sender parameters
+## RTP parameters and capabilities
+
+`RTCRtpSender.getCapabilities()` and `RTCRtpReceiver.getCapabilities()` report
+the audio and video formats that the application-supplied packet transport can
+describe and carry. They do not imply built-in encoding, decoding, capture, or
+rendering. Each call returns fresh dictionaries, and unsupported media kinds
+return `null`.
+
+`RTCRtpReceiver.getParameters()` is empty before an answer is applied and then
+derives codecs, header extensions, and reduced-size RTCP state from the
+committed answer. It omits sender-only transaction, encoding, and CNAME state.
 
 `RTCRtpSender.getParameters()` preserves the sender's initialized encoding
 state and derives codec, header-extension, and reduced-size RTCP fields from the
@@ -245,16 +255,17 @@ does not perform. Initial codec, bitrate, frame-rate, and scaling requests that
 remain after kind-specific normalization throw `NotSupportedError`; runtime
 requests reject with `OperationError` (or the normative validation error
 first). The WebRTC Extensions key-frame-generation member is not exposed.
-libdatachannel's generated media SDP currently has no `extmap` lines, so
-`headerExtensions` is empty rather than populated with invented browser
-defaults.
+The binding uses libdatachannel's `Description::Entry::ExtMap` support to
+negotiate the RTP MID header extension. Complete RTP packets pass unchanged
+through the raw track API, so applications may supply or consume that extension
+without a facade-side packet rewrite. No other header-extension capability is
+reported or inserted.
 
 Impact: focused WPT covers sender transactions, immutable RTCP and header
-extension fields, operation timing, one-encoding normalization, and active
-state changes. Node-to-Node tests additionally prove that inactive RTP is
-suppressed and resumes without renegotiation. The broader
-`RTCRtpSender-getParameters.html` case remains outside expected-pass because it
-requires at least one negotiated RTP header extension.
+extension fields, operation timing, one-encoding normalization, active state
+changes, static sender/receiver capabilities, and receiver parameter timing.
+Node-to-Node tests additionally prove that inactive RTP is suppressed and
+resumes without renegotiation.
 
 ## ICE candidate errors
 

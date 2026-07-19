@@ -31,6 +31,7 @@ listeners before libdatachannel global cleanup.
 - `DOMException`-style errors
 - data-channel message, open, close, and buffered amount semantics
 - media stream, track, sender, receiver, and transceiver identity and lifecycle
+- RTP capability and negotiated parameter dictionary shaping
 - negotiation-needed and `track` event task timing
 - read-only `RTCStatsReport` filtering and standardized dictionary shaping
 

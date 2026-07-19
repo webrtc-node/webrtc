@@ -326,6 +326,7 @@ export class MediaStreamTrackEvent extends Event {
 
 export class RTCRtpSender {
   private constructor();
+  static getCapabilities(kind: string): RTCRtpCapabilities | null;
   readonly track: MediaStreamTrack | null;
   readonly transport: RTCDtlsTransport | null;
   getParameters(): RTCRtpSendParameters;
@@ -355,6 +356,15 @@ export interface RTCRtpHeaderExtensionParameters {
   encrypted: boolean;
 }
 
+export interface RTCRtpHeaderExtensionCapability {
+  uri: string;
+}
+
+export interface RTCRtpCapabilities {
+  codecs: RTCRtpCodec[];
+  headerExtensions: RTCRtpHeaderExtensionCapability[];
+}
+
 export interface RTCRtpEncodingParameters {
   rid?: string;
   active?: boolean;
@@ -366,18 +376,25 @@ export interface RTCRtpEncodingParameters {
 
 export type RTCSetParameterOptions = object;
 
-export interface RTCRtpSendParameters {
-  transactionId: string;
-  encodings: RTCRtpEncodingParameters[];
+export interface RTCRtpParameters {
   headerExtensions: RTCRtpHeaderExtensionParameters[];
   rtcp: { reducedSize: boolean; cname?: string };
   codecs: RTCRtpCodecParameters[];
 }
 
+export interface RTCRtpSendParameters extends RTCRtpParameters {
+  transactionId: string;
+  encodings: RTCRtpEncodingParameters[];
+}
+
+export type RTCRtpReceiveParameters = RTCRtpParameters;
+
 export class RTCRtpReceiver {
   private constructor();
+  static getCapabilities(kind: string): RTCRtpCapabilities | null;
   readonly track: MediaStreamTrack;
   readonly transport: RTCDtlsTransport | null;
+  getParameters(): RTCRtpReceiveParameters;
   getStats(): Promise<RTCStatsReport>;
 }
 

@@ -18,6 +18,12 @@ application-supplied encoded packet I/O so native track lifecycle does not cross
   asynchronous and independent of the operations chain, validates all read-only native/SDP facts,
   and applies `encodings[0].active` through an atomic outbound-RTP gate. RTCP remains enabled, so
   activation does not synthesize BYE or renegotiation.
+- Static sender and receiver capabilities describe every encoded RTP codec that the backend can
+  carry through its raw packet track API. They do not claim codec processing. The only advertised
+  RTP header extension is MID, which is represented natively in SDP and transported unchanged.
+- `RTCRtpReceiver.getParameters()` derives fresh codec, MID-extension, and RTCP dictionaries from
+  the committed answer. It stays empty before answer application and has no sender transaction,
+  encoding, or CNAME fields.
 - The application-supplied encoded backend has one real sending encoding. It trims excess initial
   encodings to that capacity and does not expose a RID for the lone encoding. Encoder and pacing
   controls are rejected rather than stored as ineffective state: codec selection, bitrate,
@@ -46,15 +52,20 @@ uses synthetic encoded tracks only to exercise W3C object and lifecycle semantic
   treats RTCP control independently from RTP direction checks; there is no per-encoding active
   state, browser transceiver, or remove-track object.
 - `include/rtc/description.hpp` and `src/description.cpp`: media entries carry mid, direction,
-  codecs, SSRCs, arbitrary media-level attributes, and a removed state. Answer generation
-  reciprocates direction. `addSSRC()` accepts an explicit CNAME plus one optional media-stream
-  association, while
+  codecs, SSRCs, arbitrary media-level attributes, RTP `ExtMap` values, and a removed state.
+  Answer generation reciprocates media and extension direction. `addSSRC()` accepts an explicit
+  CNAME plus one optional media-stream association, while
   `addAttribute()` and `removeAttribute()` allow multiple `a=msid` lines without duplicating SSRC
   ownership.
 - `include/rtc/rtppacketizer.hpp`, `src/rtppacketizer.cpp`,
   `include/rtc/rtpdepacketizer.hpp`, and `src/rtpdepacketizer.cpp`: optional handlers packetize or
   reassemble codec frames. The current public adapter intentionally transports complete RTP/RTCP
   and does not imply codec processing.
+- `include/rtc/rtp.hpp`, `src/rtp.cpp`, `src/impl/track.cpp`, and
+  `src/impl/dtlssrtptransport.cpp`: the backend can parse RTP extension headers when a packetizer
+  requests it, while the raw track path preserves the caller's complete RTP header through SRTP
+  protection and unprotection. The addon therefore negotiates MID but does not synthesize it in
+  application packets.
 - `src/impl/transport.hpp`, `src/impl/transport.cpp`, `src/impl/dtlssrtptransport.hpp`,
   `src/impl/dtlssrtptransport.cpp`, `src/impl/dtlstransport.cpp`, `src/impl/icetransport.cpp`, and
   `src/impl/sctptransport.cpp`: media uses DTLS-SRTP while data channels use SCTP. The

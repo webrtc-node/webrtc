@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 913,
-  "selectedSubtestsSha256": "f6ec3d3fe81df779b5520067ab6935e3059964812eb992b4a30738e67f0c88c7",
+  "expectedSelectedSubtests": 923,
+  "selectedSubtestsSha256": "6417e3df1e8f9d5215241369beb2b4a9a437369ef6c81c4297c4bd4e9bdb6375",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -84,6 +84,10 @@
     "webrtc/RTCPeerConnection-ondatachannel.html",
     "webrtc/RTCPeerConnection-onnegotiationneeded.html#datachannel-and-setStreams-subset",
     "webrtc/RTCRtpSender-setStreams.https.html",
+    "webrtc/RTCRtpSender-getCapabilities.html",
+    "webrtc/RTCRtpReceiver-getCapabilities.html",
+    "webrtc/RTCRtpReceiver-getParameters.html?interop-2026",
+    "webrtc/RTCRtpReceiver-getParameters.html?rest",
     "webrtc/RTCRtpSender-setParameters.html?rest",
     "webrtc/RTCRtpSender-setParameters.html?interop-2026",
     "webrtc/RTCRtpParameters-transactionId.html?rest",
@@ -153,7 +157,7 @@
     "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
     "webrtc/RTCPeerConnection-getStats.https.html#remaining-detailed-backend-stats-cases",
     "webrtc/RTCPeerConnection-mandatory-getStats.https.html#loss-jitter-remote-report-decoded-source-and-pair-metric-cases",
-    "webrtc/RTCRtp*.html#remaining-receiver-parameters-capabilities-codec-and-simulcast-cases"
+    "webrtc/RTCRtp*.html#remaining-codec-preference-source-report-jitter-buffer-and-simulcast-cases"
   ],
   "expectedFail": [
     "webrtc/RTCPeerConnection-setLocalDescription*.html#arbitrary-local-sdp-munging",
