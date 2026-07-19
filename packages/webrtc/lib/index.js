@@ -84,7 +84,7 @@ function mediaDirectionByMid(description, mid) {
 function mediaStreamIdsByMid(description, mid) {
   const section = mediaSectionByMid(description, mid);
   if (!section) return { streamIds: [], trackId: null };
-  const associations = [...section.matchAll(/(?:^|\r?\n)a=msid:([^\s]+)(?:\s+([^\s]+))?/g)];
+  const associations = [...section.matchAll(/(?:^|\r?\n)a=msid:([^\s]+)(?:[ \t]+([^\s]+))?/g)];
   const trackId = associations.find((match) => match[2])?.[2] || null;
   return {
     streamIds: [...new Set(associations.map((match) => match[1]).filter((id) => id !== "-"))],

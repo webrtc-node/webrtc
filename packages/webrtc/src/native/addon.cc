@@ -111,14 +111,17 @@ void SetMediaStreamIds(rtc::Description::Media &media,
 		    (attribute.rfind("ssrc:", 0) == 0 && attribute.find(" msid:") != std::string::npos))
 			media.removeAttribute(attribute);
 	}
-	if (!trackId)
-		return;
 	if (streamIds.empty()) {
-		media.addAttribute("msid:- " + *trackId);
+		if (trackId)
+			media.addAttribute("msid:- " + *trackId);
 		return;
 	}
-	for (const auto &streamId : streamIds)
-		media.addAttribute("msid:" + streamId + " " + *trackId);
+	for (const auto &streamId : streamIds) {
+		auto attribute = "msid:" + streamId;
+		if (trackId)
+			attribute += " " + *trackId;
+		media.addAttribute(std::move(attribute));
+	}
 }
 
 rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {

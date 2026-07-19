@@ -93,7 +93,9 @@ The named WPT files are from pinned WPT commit
 4. **Current workaround.** `packages/webrtc/lib/index.js` diffs SDP, owns stream
    associations, and synthesizes repeated `track` events.
    `NativeTrack::UpdateDescription`/`UpdateStreams` in the addon mutate copied
-   media descriptions before offer/answer generation.
+   media descriptions before offer/answer generation. The addon uses
+   libdatachannel's arbitrary media attributes to retain stream-only `a=msid`
+   lines when a sender has associations but no attached track.
 5. **Why insufficient.** Native and JavaScript description state can diverge,
    backend changes have no authoritative revision signal, and candidate-driven
    local SDP refresh requires direction realignment. The SDP diff is removable.

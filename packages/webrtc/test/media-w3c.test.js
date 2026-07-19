@@ -247,6 +247,56 @@ test("setStreams renegotiates only when the stream identity set changes", async 
   }
 });
 
+test("setStreams associates trackless senders with remote streams", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const transceiver = offerer.addTransceiver("audio");
+    const initialTrackEvent = waitFor(answerer, "track");
+    await negotiate(offerer, answerer);
+    const initial = await initialTrackEvent;
+    assert.deepEqual(initial.streams, []);
+
+    const first = new MediaStream();
+    const second = new MediaStream();
+    const updatedTrackEvent = waitFor(answerer, "track");
+    transceiver.sender.setStreams(first, second);
+    await negotiate(offerer, answerer);
+    const updated = await updatedTrackEvent;
+    assert.equal(updated.track, initial.track);
+    assert.deepEqual(
+      updated.streams.map((stream) => stream.id),
+      [first.id, second.id],
+    );
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("setStreams applies when a trackless transceiver becomes active", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const transceiver = offerer.addTransceiver("audio", { direction: "inactive" });
+    await negotiate(offerer, answerer);
+
+    const first = new MediaStream();
+    const second = new MediaStream();
+    const trackEvent = waitFor(answerer, "track");
+    transceiver.direction = "sendrecv";
+    transceiver.sender.setStreams(first, second);
+    await negotiate(offerer, answerer);
+    assert.deepEqual(
+      (await trackEvent).streams.map((stream) => stream.id),
+      [first.id, second.id],
+    );
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 test("media changes after a local offer renegotiate when signaling becomes stable", async () => {
   const peer = new RTCPeerConnection();
   const remote = new RTCPeerConnection();

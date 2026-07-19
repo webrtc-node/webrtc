@@ -99,6 +99,10 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
 - Sender stream and track IDs are written as media-level `a=msid` attributes. The facade parses
   those attributes from remote SDP, preserves remote `MediaStream` identity by ID, and dispatches
   `track` only after the remote-description operation resolves.
+- A trackless sender can still have stream associations through `setStreams()`. The addon writes
+  RFC 9429 stream-only `a=msid:<stream-id>` attributes when no sender track ID exists; it does not
+  invent an encoded source, SSRC, or track ID. libdatachannel retains these arbitrary media
+  attributes when `Track::setDescription()` produces the next offer.
 - libdatachannel does not invoke `onTrack()` again when renegotiation only changes `a=msid` on an
   existing track. The facade detects changed remote associations from SDP, updates stream
   membership, preserves the encoded packet listener source, and queues the W3C-required repeated
