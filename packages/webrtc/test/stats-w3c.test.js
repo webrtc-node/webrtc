@@ -42,6 +42,28 @@ test("RTCPeerConnection.getStats returns a read-only RTCStatsReport", async () =
   }
 });
 
+test("peer, sender, and receiver stats collection stays asynchronous", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const { sender, receiver } = peer.addTransceiver("audio");
+    const settled = [false, false, false];
+    const promises = [peer.getStats(), sender.getStats(), receiver.getStats()].map(
+      (promise, index) =>
+        promise.then((report) => {
+          settled[index] = true;
+          return report;
+        }),
+    );
+
+    for (let iteration = 0; iteration < 20; iteration += 1) await Promise.resolve();
+    assert.deepEqual(settled, [false, false, false]);
+    const reports = await Promise.all(promises);
+    assert.ok(reports.every((report) => report instanceof RTCStatsReport));
+  } finally {
+    peer.close();
+  }
+});
+
 test("standard data-channel stats count accepted and received messages", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();

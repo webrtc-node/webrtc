@@ -790,10 +790,6 @@ const DEFAULT_SCTP_MAX_MESSAGE_SIZE = 262144;
 const LIBDATACHANNEL_SCTP_MAX_CHANNELS = 1024;
 let nextUnsupportedDataChannelBindingId = -1;
 
-async function delayInvalidStateIfOperationPending(peer) {
-  if (peer._operationsPending > 0) await nextTask();
-}
-
 const ICE_CREDENTIAL_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 function randomIceCredential(length) {
@@ -3042,12 +3038,7 @@ class RTCRtpSender {
     if (track && track.kind !== this._transceiver._kind) {
       return Promise.reject(new TypeError("track kind does not match the sender"));
     }
-    try {
-      this._peerConnection._replaceSenderTrack(this, track);
-      return Promise.resolve();
-    } catch (error) {
-      return Promise.reject(error);
-    }
+    return this._peerConnection._replaceSenderTrackOnOperationsChain(this, track);
   }
   setStreams(...streams) {
     if (this._peerConnection._closed) {
@@ -3112,6 +3103,7 @@ class RTCRtpTransceiver {
     this._nativeReceiveTrack = null;
     this._nativeAnnouncedReceiveTrack = null;
     this._nativeReceiveTracks = new Set();
+    this._createdByAddTrack = false;
     this._sendEncodings = sendEncodings.length > 0 ? sendEncodings : [{ active: true }];
     this._senderTrackId = track?.id || crypto.randomUUID();
     this._sender = new RTCRtpSender(kInternalConstruct, peerConnection, track, streams);
@@ -3259,6 +3251,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._pendingIceRestartCredentials = null;
     this._jsOnlyIceRestartOfferPending = false;
     this._jsOnlyIceRestartRemoteOffer = false;
+    this._operationTail = Promise.resolve();
     this._operationsPending = 0;
     this._operationIdleCallbacks = [];
     this._explicitIceCandidateExchange = false;
@@ -3407,6 +3400,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       else if (transceiver.direction === "inactive") transceiver._direction = "sendonly";
     } else {
       transceiver = this._createTransceiver(track.kind, track, "sendrecv", streams);
+      transceiver._createdByAddTrack = true;
     }
     this._markNegotiationNeeded();
     return transceiver.sender;
@@ -3567,17 +3561,33 @@ class RTCPeerConnection extends SimpleEventTarget {
     mediaTrackSources.get(sender.track)?._detachNativeTrack?.(sender._transceiver._nativeSendTrack);
   }
 
-  _replaceSenderTrack(sender, track) {
+  _assertSenderTrackReplacement(sender, track) {
     const transceiver = sender._transceiver;
     if (this._closed) throw makeDOMException("RTCPeerConnection is closed", "InvalidStateError");
     if (transceiver.stopped || transceiver.stopping) {
       throw makeDOMException("Transceiver is stopping", "InvalidStateError");
     }
     if (track) this._assertTrackCompatibleWithTransceiver(transceiver, track);
+  }
+
+  _replaceSenderTrack(sender, track) {
+    const transceiver = sender._transceiver;
+    this._assertSenderTrackReplacement(sender, track);
     this._detachSenderSource(sender);
     sender._track = track;
     if (track && transceiver._nativeSendTrack) {
       mediaTrackSources.get(track)?._attachNativeTrack?.(transceiver._nativeSendTrack);
+    }
+  }
+
+  async _replaceSenderTrackOnOperationsChain(sender, track) {
+    if (this._operationsPending === 0) this._assertSenderTrackReplacement(sender, track);
+    const finishOperation = await this._beginPendingOperation();
+    try {
+      await nextTask();
+      this._replaceSenderTrack(sender, track);
+    } finally {
+      finishOperation();
     }
   }
 
@@ -3587,6 +3597,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       const transceiver = this._transceivers[index];
       if (transceiver.stopped) continue;
       if (transceiver._remoteStopping) continue;
+      if (this._signalingState === "have-remote-offer" && transceiver.mid === null) continue;
       const nativeDirection = this._answerDirectionFor(transceiver) || transceiver.direction;
       const nativeSends = nativeDirection === "sendrecv" || nativeDirection === "sendonly";
       const source = mediaTrackSources.get(transceiver.sender.track);
@@ -3679,6 +3690,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         transceiver = this._transceivers.find(
           (entry) =>
             entry.mid === null &&
+            entry._createdByAddTrack &&
             entry._kind === media[1].toLowerCase() &&
             !entry.stopped &&
             !entry.stopping &&
@@ -3756,6 +3768,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver = this._transceivers.find(
         (entry) =>
           entry.mid === null &&
+          entry._createdByAddTrack &&
           entry._kind === nativeTrack.kind &&
           !entry.stopped &&
           !entry.stopping &&
@@ -3942,6 +3955,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       }
     }
     if (!this._native || this._closed) {
+      await nextTask();
       return report;
     }
     const selectedPair = this._dtlsTransport?.iceTransport.getSelectedCandidatePair();
@@ -4087,6 +4101,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         nominated: true,
       });
     }
+    await nextTask();
     return report;
   }
 
@@ -4188,13 +4203,23 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._assertNotClosed();
     const optionsObject = options !== null && typeof options === "object" ? options : {};
     const iceRestartRequested = optionsObject.iceRestart === true;
-    if (this._signalingState !== "stable" && this._signalingState !== "have-local-offer") {
-      await delayInvalidStateIfOperationPending(this);
+    if (
+      this._operationsPending === 0 &&
+      this._signalingState !== "stable" &&
+      this._signalingState !== "have-local-offer"
+    ) {
       throw makeDOMException("Cannot create offer in current signaling state", "InvalidStateError");
     }
-    this._operationsPending += 1;
+    const finishOperation = await this._beginPendingOperation();
     try {
       await nextTask();
+      if (this._closed) return new Promise(() => {});
+      if (this._signalingState !== "stable" && this._signalingState !== "have-local-offer") {
+        throw makeDOMException(
+          "Cannot create offer in current signaling state",
+          "InvalidStateError",
+        );
+      }
       this._materializeTransceivers();
       if (iceRestartRequested && !this._nonstandardLocalIceCredentials) {
         this._iceRestartPending = true;
@@ -4218,7 +4243,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     } catch (error) {
       throw mapNativeError(error, "InvalidStateError");
     } finally {
-      this._finishPendingOperation();
+      finishOperation();
     }
   }
 
@@ -4240,13 +4265,16 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   async createAnswer() {
     this._assertNotClosed();
-    if (!this.remoteDescription) {
-      await delayInvalidStateIfOperationPending(this);
+    if (!this.remoteDescription && this._operationsPending === 0) {
       throw makeDOMException("Remote description is not set", "InvalidStateError");
     }
-    this._operationsPending += 1;
+    const finishOperation = await this._beginPendingOperation();
     try {
       await nextTask();
+      if (this._closed) return new Promise(() => {});
+      if (!this.remoteDescription) {
+        throw makeDOMException("Remote description is not set", "InvalidStateError");
+      }
       this._materializeTransceivers();
       if (this._jsOnlyIceRestartRemoteOffer) {
         const answer = markJsOnlyIceRestart(
@@ -4282,7 +4310,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     } catch (error) {
       throw mapNativeError(error, "InvalidStateError");
     } finally {
-      this._finishPendingOperation();
+      finishOperation();
     }
   }
 
@@ -4290,7 +4318,6 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._assertNotClosed();
     const jsOnlyIceRestartDescription = Boolean(description?._webrtcNodeJsOnlyIceRestart);
     let normalized = description === undefined ? null : normalizeDescription(description);
-    const type = normalized ? normalized.type : this._implicitLocalDescriptionType();
     if (
       normalized?.type === "rollback" &&
       this._signalingState !== "have-local-offer" &&
@@ -4301,10 +4328,11 @@ class RTCPeerConnection extends SimpleEventTarget {
         "InvalidStateError",
       );
     }
-    this._operationsPending += 1;
+    const finishOperation = await this._beginPendingOperation();
     try {
       await nextTask();
       if (this._closed) return new Promise(() => {});
+      const type = normalized ? normalized.type : this._implicitLocalDescriptionType();
       if (normalized?.type === "offer") {
         if (this._signalingState !== "stable" && this._signalingState !== "have-local-offer") {
           throw makeDOMException(
@@ -4415,7 +4443,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._localDescriptionSetByApi = hasDataMediaSection(this._localDescription);
         this._syncStatesFromNative();
         this._refreshIceRole();
-        for (const candidate of this._pendingIce.splice(0)) await this.addIceCandidate(candidate);
+        for (const candidate of this._pendingIce.splice(0)) {
+          await this._addIceCandidateWithoutChain(candidate);
+        }
         this._flushPendingRemoteCandidatesForNative();
         return;
       }
@@ -4539,7 +4569,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._commitRemoteDescription();
         this._commitLocalDescription(this._localDescription);
         this._syncSignalingStateFromDescriptions();
-        for (const candidate of this._pendingIce.splice(0)) await this.addIceCandidate(candidate);
+        for (const candidate of this._pendingIce.splice(0)) {
+          await this._addIceCandidateWithoutChain(candidate);
+        }
         this._flushPendingRemoteCandidatesForNative();
       }
       this._localDescriptionSetByApi = hasDataMediaSection(this._localDescription);
@@ -4561,7 +4593,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     } catch (error) {
       throw mapNativeError(error, "InvalidStateError");
     } finally {
-      this._finishPendingOperation();
+      finishOperation();
     }
   }
 
@@ -4602,7 +4634,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         "InvalidStateError",
       );
     }
-    this._operationsPending += 1;
+    const finishOperation = await this._beginPendingOperation();
     try {
       await nextTask();
       if (this._closed) return new Promise(() => {});
@@ -4852,7 +4884,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._dispatchSignalingStateChange();
       }
       if (normalized.type !== "offer") {
-        for (const candidate of this._pendingIce.splice(0)) await this.addIceCandidate(candidate);
+        for (const candidate of this._pendingIce.splice(0)) {
+          await this._addIceCandidateWithoutChain(candidate);
+        }
         this._flushPendingRemoteCandidatesForNative();
       }
       await nextTask();
@@ -4866,7 +4900,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     } catch (error) {
       throw mapNativeError(error, "InvalidStateError");
     } finally {
-      this._finishPendingOperation();
+      finishOperation();
     }
   }
 
@@ -4877,55 +4911,60 @@ class RTCPeerConnection extends SimpleEventTarget {
       throw makeDOMException("Remote description is not set", "InvalidStateError");
     }
     if (candidate === null && hasArgument && !this.remoteDescription) return;
+    const normalized = normalizeAddIceCandidateInput(candidate);
+    if (!this.remoteDescription && this._operationsPending === 0) {
+      throw makeDOMException("Remote description is not set", "InvalidStateError");
+    }
+    const finishOperation = await this._beginPendingOperation();
+    try {
+      await nextTask();
+      await this._addIceCandidateWithoutChain(normalized);
+    } catch (error) {
+      throw mapNativeError(error, "OperationError");
+    } finally {
+      finishOperation();
+    }
+  }
+
+  async _addIceCandidateWithoutChain(candidate) {
     if (candidate instanceof RTCIceCandidate && candidate._webrtcNodeLocalCandidate) {
       await this._addExchangedLocalCandidate(candidate);
       return;
     }
     const normalized = normalizeAddIceCandidateInput(candidate);
     if (!this.remoteDescription) {
-      await delayInvalidStateIfOperationPending(this);
-      if (!this.remoteDescription) {
-        throw makeDOMException("Remote description is not set", "InvalidStateError");
-      }
+      throw makeDOMException("Remote description is not set", "InvalidStateError");
     }
-    this._operationsPending += 1;
-    try {
-      await nextTask();
-      const remoteDescription = appendRemoteCandidateToDescription(
-        this._remoteDescription,
-        normalized,
-      );
-      if (normalized.candidate === "") {
-        this._refreshCurrentOrPendingRemoteDescription(remoteDescription);
-        return;
-      }
-      const nativeCandidate = normalized.toJSON();
-      if (nativeCandidate.sdpMid === null) {
-        nativeCandidate.sdpMid = resolveCandidateMid(this._remoteDescription, normalized);
-      }
-      if (nativeCandidate.candidate) {
-        this._rememberRemoteIceCandidate(
-          new RTCIceCandidate({
-            candidate: nativeCandidate.candidate,
-            sdpMid: nativeCandidate.sdpMid,
-            sdpMLineIndex: nativeCandidate.sdpMLineIndex,
-            usernameFragment: nativeCandidate.usernameFragment,
-          }),
-        );
-        this._markExplicitIceCandidateExchange();
-      }
-      if (this._shouldDeferRemoteCandidateUntilLocalAnswer()) {
-        this._queuePendingRemoteCandidatesForNative([normalized]);
-        this._refreshCurrentOrPendingRemoteDescription(remoteDescription);
-        return;
-      }
-      this._ensureNativePeerConnection().addRemoteCandidate(nativeCandidate);
+    const remoteDescription = appendRemoteCandidateToDescription(
+      this._remoteDescription,
+      normalized,
+    );
+    if (normalized.candidate === "") {
       this._refreshCurrentOrPendingRemoteDescription(remoteDescription);
-    } catch (error) {
-      throw mapNativeError(error, "OperationError");
-    } finally {
-      this._finishPendingOperation();
+      return;
     }
+    const nativeCandidate = normalized.toJSON();
+    if (nativeCandidate.sdpMid === null) {
+      nativeCandidate.sdpMid = resolveCandidateMid(this._remoteDescription, normalized);
+    }
+    if (nativeCandidate.candidate) {
+      this._rememberRemoteIceCandidate(
+        new RTCIceCandidate({
+          candidate: nativeCandidate.candidate,
+          sdpMid: nativeCandidate.sdpMid,
+          sdpMLineIndex: nativeCandidate.sdpMLineIndex,
+          usernameFragment: nativeCandidate.usernameFragment,
+        }),
+      );
+      this._markExplicitIceCandidateExchange();
+    }
+    if (this._shouldDeferRemoteCandidateUntilLocalAnswer()) {
+      this._queuePendingRemoteCandidatesForNative([normalized]);
+      this._refreshCurrentOrPendingRemoteDescription(remoteDescription);
+      return;
+    }
+    this._ensureNativePeerConnection().addRemoteCandidate(nativeCandidate);
+    this._refreshCurrentOrPendingRemoteDescription(remoteDescription);
   }
 
   async _addExchangedLocalCandidate(candidate) {
@@ -5013,7 +5052,6 @@ class RTCPeerConnection extends SimpleEventTarget {
         }
       }
     }
-    this._dispatchSignalingStateChange();
     this.dispatchEvent(makeEvent("iceconnectionstatechange"));
     this.dispatchEvent(makeEvent("connectionstatechange"));
   }
@@ -5335,10 +5373,28 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
+  async _beginPendingOperation() {
+    this._operationsPending += 1;
+    const predecessor = this._operationTail;
+    let release;
+    this._operationTail = new Promise((resolve) => {
+      release = resolve;
+    });
+    await predecessor;
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      release();
+      this._finishPendingOperation();
+    };
+  }
+
   _finishPendingOperation() {
     this._operationsPending = Math.max(0, this._operationsPending - 1);
     if (this._operationsPending === 0) {
       this._scheduleSctpTransportUpdate();
+      this._scheduleNegotiationNeededEvent();
       if (this._pairedPeer && !this._pairedPeer._closed) {
         this._pairedPeer._scheduleSctpTransportUpdate();
       }
@@ -5866,7 +5922,10 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._pendingLocalNegotiationRevision ?? this._revisionForLocalDescription(description),
       );
       this._pendingLocalNegotiationRevision = null;
-    } else if (description?.type === "answer") {
+    } else if (
+      description?.type === "answer" &&
+      this._answerRepresentsPendingNegotiation(description)
+    ) {
       this._negotiatedRevision = Math.max(
         this._negotiatedRevision,
         this._revisionForLocalDescription(description),
@@ -5878,6 +5937,23 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver._midAssignedByPendingLocalOffer = false;
     }
     this._recomputeNegotiationNeeded();
+  }
+
+  _answerRepresentsPendingNegotiation(description) {
+    if (
+      this._localDataChannelCount > 0 &&
+      !parseSdpMediaSections(description.sdp).mediaSections.some((section) =>
+        /^m=application\s+(?!0(?:\s|$))/i.test(section.startLine),
+      )
+    ) {
+      return false;
+    }
+    return this._transceivers.every((transceiver) => {
+      if (transceiver.stopped) return true;
+      if (transceiver.stopping || transceiver.mid === null) return false;
+      const section = mediaSectionByMid(description, transceiver.mid);
+      return Boolean(section && !/^m=\S+\s+0\s/m.test(section));
+    });
   }
 
   _rollbackLocalDescription() {
@@ -6182,7 +6258,9 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._commitLocalDescription(this._localDescription);
     this._syncSignalingStateFromDescriptions();
     this._scheduleNativeCandidateGathering();
-    for (const candidate of this._pendingIce.splice(0)) await this.addIceCandidate(candidate);
+    for (const candidate of this._pendingIce.splice(0)) {
+      await this._addIceCandidateWithoutChain(candidate);
+    }
     this._flushPendingRemoteCandidatesForNative();
     await nextTask();
     await this._refreshLocalDescriptionAfterGatheringWindow();
@@ -6589,12 +6667,26 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _scheduleNegotiationNeededEvent() {
-    if (this._closed || this._signalingState !== "stable" || !this._negotiationNeeded) return;
+    if (
+      this._closed ||
+      this._operationsPending > 0 ||
+      this._signalingState !== "stable" ||
+      !this._negotiationNeeded
+    ) {
+      return;
+    }
     if (this._negotiationNeededScheduled) return;
     this._negotiationNeededScheduled = true;
     setTimeout(() => {
       this._negotiationNeededScheduled = false;
-      if (this._closed || this._signalingState !== "stable" || !this._negotiationNeeded) return;
+      if (
+        this._closed ||
+        this._operationsPending > 0 ||
+        this._signalingState !== "stable" ||
+        !this._negotiationNeeded
+      ) {
+        return;
+      }
       this.dispatchEvent(makeEvent("negotiationneeded"));
     }, 0);
   }

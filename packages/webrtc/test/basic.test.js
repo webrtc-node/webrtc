@@ -316,6 +316,59 @@ test("setLocalDescription emits repeated offer states across renegotiation", asy
   assert.deepEqual(states, ["have-local-offer", "stable", "have-local-offer"]);
 });
 
+test("close changes signalingState without firing signalingstatechange", async () => {
+  const peerConnection = new RTCPeerConnection();
+  let eventCount = 0;
+  peerConnection.addEventListener("signalingstatechange", () => {
+    eventCount += 1;
+  });
+
+  peerConnection.close();
+  assert.equal(peerConnection.signalingState, "closed");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(eventCount, 0);
+});
+
+test("close leaves an already-started createOffer operation unsettled", async () => {
+  const peerConnection = new RTCPeerConnection();
+  const offer = peerConnection.createOffer();
+  let settled = false;
+  offer.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+
+  peerConnection.close();
+  await delay(20);
+  assert.equal(settled, false);
+});
+
+test("signaling operations execute in FIFO order with implicit descriptions", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    offerer.addTransceiver("video");
+    await Promise.all([offerer.createOffer(), offerer.setLocalDescription({ type: "offer" })]);
+    assert.equal(offerer.signalingState, "have-local-offer");
+
+    await Promise.all([
+      answerer.setRemoteDescription(offerer.localDescription),
+      answerer.createAnswer(),
+      answerer.setLocalDescription({ type: "answer" }),
+    ]);
+    assert.equal(answerer.signalingState, "stable");
+    await offerer.setRemoteDescription(answerer.localDescription);
+    assert.equal(offerer.signalingState, "stable");
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 test("once event listeners are removed before invocation", () => {
   const target = new EventTarget();
   let calls = 0;

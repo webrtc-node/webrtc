@@ -278,6 +278,15 @@ const defaultSpecs = [
       "createAnswer uses operations chain",
       "setLocalDescription uses operations chain",
       "setRemoteDescription uses operations chain",
+      "pc.getStats must detect InvalidAccessError synchronously",
+      "addIceCandidate uses operations chain",
+      "Firing of negotiationneeded does NOT use operations chain",
+      "replaceTrack uses operations chain",
+      "pc.getStats does NOT use the operations chain",
+      "sender.getStats does NOT use the operations chain",
+      "receiver.getStats does NOT use the operations chain",
+      "Pack operations queue with implicit offer and answer",
+      "Negotiate solely by operations queue and signaling state",
     ],
   },
   {
@@ -285,9 +294,14 @@ const defaultSpecs = [
     include: [
       "SLD(rollback) must detect InvalidStateError synchronously",
       "addIceCandidate must detect InvalidStateError synchronously",
+      "replaceTrack must detect InvalidStateError synchronously",
       "createOffer uses operations chain",
+      "Negotiationneeded only fires once operations chain is empty",
+      "addIceCandidate chains onto SRD, fails before",
+      "Operations queue not vulnerable to recursion by chained negotiationneeded",
     ],
   },
+  { file: "webrtc/RTCPeerConnection-addIceCandidate-timing.https.html" },
   { file: "webrtc/RTCPeerConnection-createAnswer.html" },
   {
     file: "webrtc/RTCPeerConnection-setLocalDescription.html",
@@ -390,6 +404,7 @@ const defaultSpecs = [
       "setRemoteDescription(rollback) should ignore invalid sdp content and succeed",
     ],
   },
+  { file: "webrtc/RTCPeerConnection-onsignalingstatechanged.https.html" },
   { file: "webrtc/RTCPeerConnection-addIceCandidate.html" },
   {
     file: "webrtc/RTCPeerConnection-addIceCandidate.html",

@@ -11,6 +11,9 @@ application-supplied encoded packet I/O so native track lifecycle does not cross
   events are JavaScript facade behavior.
 - `RTCRtpSender`, `RTCRtpReceiver`, and `RTCRtpTransceiver` identity, sender reuse, requested and
   current direction, stopping, and negotiation-needed state are JavaScript facade behavior.
+- Signaling methods and `replaceTrack()` share the W3C FIFO operations chain. Successful stats
+  collection is asynchronous but does not join that chain; selector validation still rejects in
+  the initiating task.
 - SDP media sections and DTLS-SRTP packet transport are native libdatachannel behavior.
 - `RTCStatsReport` is a read-only JavaScript maplike object. Only measurements produced reliably by
   the backend are included.
@@ -109,6 +112,11 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
 - Negotiation-needed state is revision-based: an applied local offer suppresses changes it
   represents, rollback restores unrepresented changes, and mutations made after offer creation are
   queued until signaling returns to stable.
+- The facade retains the otherwise-unobservable creation origin of each transceiver. Per WebRTC-PC
+  and RFC 9429, a remote offer may associate a disassociated transceiver created by `addTrack()`,
+  but never one created explicitly by `addTransceiver()`. Explicit transceivers that are not
+  represented by the remote offer stay unassociated, are omitted from the answer, and keep
+  `negotiationneeded` pending for a follow-up local offer.
 
 ## Validation Scope
 

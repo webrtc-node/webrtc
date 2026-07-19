@@ -7,7 +7,7 @@ This experimental branch targets the WebRTC peer-connection, data-channel,
 encoded-media, and reliable-statistics surfaces exposed through
 `@webrtc-node/webrtc`.
 
-The current selected suite contains **848 expected-passing WPT subtests**. CI
+The current selected suite contains **868 expected-passing WPT subtests**. CI
 validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
 smoke check.
@@ -17,7 +17,7 @@ smoke check.
 Expected-pass coverage currently includes:
 
 - `RTCPeerConnection` construction, descriptions, signaling state, ICE state,
-  ICE candidates, and data-channel negotiation
+  ICE candidates, FIFO operations-chain timing, and data-channel negotiation
 - `RTCDataChannel` construction, id assignment, negotiated channels, ready
   state, open/message/close/error behavior, send variants, binary type, and
   buffered amount behavior
@@ -26,7 +26,8 @@ Expected-pass coverage currently includes:
 - media stream and track identity, sender/receiver/transceiver construction,
   direction and stopping semantics, and media negotiation lifecycle
 - `RTCStatsReport` maplike behavior and reliable peer, data-channel,
-  transport, and encoded RTP counters
+  transport, and encoded RTP counters, including asynchronous collection
+  timing outside the operations chain
 
 Out-of-scope WPT areas are grouped in the manifest as `notApplicable`,
 `needsShim`, or `expectedFail`. Browser device capture, rendering, media
@@ -65,5 +66,5 @@ weighted shards running concurrently inside each OS/Node job. Ordinary WPT
 files stay within one process so file-level setup and ordering are preserved;
 files already marked for per-test isolation distribute those isolated tests
 individually. The shard outputs are merged into the same complete
-`wpt-results.json`; the strict checker still requires all 848 unique subtests
+`wpt-results.json`; the strict checker still requires all 868 unique subtests
 with no failures or retries.

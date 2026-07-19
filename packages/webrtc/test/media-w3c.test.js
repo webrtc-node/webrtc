@@ -335,6 +335,44 @@ test("addTrack reuses a same-kind transceiver while a remote offer is pending", 
   }
 });
 
+test("remote offers do not associate addTransceiver-created transceivers", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    offerer.addTransceiver("audio");
+    offerer.addTransceiver("video");
+    await offerer.setLocalDescription(await offerer.createOffer());
+
+    const explicit = answerer.addTransceiver("video");
+    const negotiationNeeded = new Promise((resolve) =>
+      answerer.addEventListener("negotiationneeded", resolve, { once: true }),
+    );
+    await Promise.all([
+      answerer.setRemoteDescription(offerer.localDescription),
+      answerer.setLocalDescription(),
+    ]);
+    await negotiationNeeded;
+
+    assert.equal(explicit.mid, null);
+    assert.equal(explicit.currentDirection, null);
+    assert.equal(answerer.getTransceivers().length, 3);
+    assert.deepEqual(
+      answerer
+        .getTransceivers()
+        .slice(1)
+        .map((transceiver) => [transceiver.receiver.track.kind, transceiver.mid]),
+      [
+        ["audio", "media-0"],
+        ["video", "media-1"],
+      ],
+    );
+    assert.equal((answerer.localDescription.sdp.match(/^m=/gm) || []).length, 2);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 test("remote offer track events complete in media-section order", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();

@@ -216,9 +216,11 @@ final `icecandidate` event with `candidate === null` when gathering reaches
 `complete`.
 
 Impact: the selected WPT suite now covers candidate target validation, SDP
-candidate insertion, and end-of-candidates mutation in
-`RTCPeerConnection-addIceCandidate.html`. Operations-chain timing and
-media-transceiver connection setup remain outside the selected scope.
+candidate insertion, end-of-candidates mutation, and the complete focused
+operations-chain/event-ordering coverage in
+`RTCPeerConnection-addIceCandidate.html` and
+`RTCPeerConnection-addIceCandidate-timing.https.html`. Media-transceiver
+connection setup remains outside the selected scope.
 
 ## RTP sender parameters
 
