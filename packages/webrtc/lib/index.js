@@ -3589,15 +3589,23 @@ class RTCPeerConnection extends SimpleEventTarget {
       if (transceiver._remoteStopping) continue;
       const nativeDirection = this._answerDirectionFor(transceiver) || transceiver.direction;
       const nativeSends = nativeDirection === "sendrecv" || nativeDirection === "sendonly";
+      const source = mediaTrackSources.get(transceiver.sender.track);
+      const nativeHasSource = nativeSends && transceiver.sender.track !== null;
+      const ssrc = nativeHasSource
+        ? (source?.ssrc ?? transceiver._ssrc ?? crypto.randomInt(1, 0x100000000))
+        : null;
+      if (ssrc !== null) transceiver._ssrc = ssrc;
       const existingNativeTrack = transceiver._nativeSendTrack || transceiver._nativeReceiveTrack;
       if (existingNativeTrack) {
         transceiver._nativeSendTrack = existingNativeTrack;
-        existingNativeTrack.updateDescription(nativeDirection, transceiver.stopping);
-        existingNativeTrack.updateStreams(
+        existingNativeTrack.updateDescription(
+          nativeDirection,
+          transceiver.stopping,
+          ssrc,
           transceiver.sender._streams.map((stream) => stream.id),
-          nativeSends ? transceiver._senderTrackId : null,
+          nativeHasSource ? transceiver._senderTrackId : null,
         );
-        mediaTrackSources.get(transceiver.sender.track)?._attachNativeTrack?.(existingNativeTrack);
+        source?._attachNativeTrack?.(existingNativeTrack);
         continue;
       }
       if (transceiver.stopping) {
@@ -3608,7 +3616,6 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._queueReceiverTrackEnded(transceiver);
         continue;
       }
-      const source = mediaTrackSources.get(transceiver.sender.track);
       const codec =
         source?.codec ||
         (transceiver._kind === "audio"
@@ -3616,8 +3623,6 @@ class RTCPeerConnection extends SimpleEventTarget {
           : { codec: "VP8", payloadType: 96 });
       transceiver._codec = codec;
       const mid = source?.mid || `media-${index}`;
-      const ssrc = source?.ssrc ?? transceiver._ssrc ?? crypto.randomInt(1, 0x100000000);
-      transceiver._ssrc = ssrc;
       const nativeTrack = nativePeer.createTrack(
         {
           kind: transceiver._kind,
@@ -3628,7 +3633,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           profile: codec.profile,
           ssrc,
           streamIds: transceiver.sender._streams.map((stream) => stream.id),
-          trackId: nativeSends ? transceiver._senderTrackId : null,
+          trackId: nativeHasSource ? transceiver._senderTrackId : null,
         },
         (events) => {
           for (const event of Array.isArray(events) ? events : [events]) {
@@ -6322,8 +6327,12 @@ class RTCPeerConnection extends SimpleEventTarget {
 
     if (event.target === "track") {
       const transceiver = this._nativeMediaTracks.get(event.trackId);
-      const source = transceiver && mediaTrackSources.get(transceiver.receiver.track);
-      source?._handleNativeEvent?.(event);
+      const senderSource = transceiver && mediaTrackSources.get(transceiver.sender.track);
+      const receiverSource = transceiver && mediaTrackSources.get(transceiver.receiver.track);
+      if (event.type !== "message") senderSource?._handleNativeEvent?.(event);
+      if (receiverSource !== senderSource || event.type === "message") {
+        receiverSource?._handleNativeEvent?.(event);
+      }
       return;
     }
 

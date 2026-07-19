@@ -41,6 +41,7 @@ forbidMatch("direct addon OpenSSL include", addon, /#include\s+[<"]openssl\//);
 requireMatch("ThreadSafeFunction creation", addon, /Napi::ThreadSafeFunction::New/);
 requireMatch("nonblocking callback dispatch", addon, /\.NonBlockingCall\s*\(/);
 requireMatch("dispatcher release", addon, /\.Release\s*\(/);
+requireMatch("media-capable DTLS transport", addon, /config\.forceMediaTransport\s*=\s*true/);
 
 const cmakePinMatch = /set\s*\(\s*LIBDATACHANNEL_PINNED_COMMIT\s+"([0-9a-f]{40})"/i.exec(cmake);
 if (!cmakePinMatch) fail("CMake libdatachannel pin is missing");

@@ -1183,7 +1183,6 @@ public:
 		        InstanceMethod("close", &NativeTrack::Close),
 		        InstanceMethod("stats", &NativeTrack::Stats),
 		        InstanceMethod("updateDescription", &NativeTrack::UpdateDescription),
-		        InstanceMethod("updateStreams", &NativeTrack::UpdateStreams),
 		        InstanceAccessor("bindingId", &NativeTrack::GetBindingId, nullptr),
 		        InstanceAccessor("mid", &NativeTrack::GetMid, nullptr),
 		        InstanceAccessor("kind", &NativeTrack::GetKind, nullptr),
@@ -1258,29 +1257,29 @@ private:
 
 	Napi::Value UpdateDescription(const Napi::CallbackInfo &info) {
 		try {
+			if (info.Length() < 5)
+				throw std::invalid_argument("updateDescription requires complete media state");
+			auto streamIds = ParseStringArray(info[3], "streamIds");
+			std::optional<std::string> trackId;
+			if (!info[4].IsNull() && !info[4].IsUndefined())
+				trackId = info[4].ToString().Utf8Value();
+			if (trackId &&
+			    (trackId->empty() || trackId->find_first_of(" \t\r\n") != std::string::npos))
+				throw std::invalid_argument("trackId must be a non-empty SDP token");
+
 			auto description = binding_->track->description();
 			if (info.Length() > 1 && info[1].ToBoolean().Value()) {
 				description.setDirection(rtc::Description::Direction::Inactive);
 				description.markRemoved();
 			} else
 				description.setDirection(ParseMediaDirection(info[0].ToString().Utf8Value()));
-			binding_->track->setDescription(std::move(description));
-		} catch (const std::exception &e) {
-			Napi::Error::New(info.Env(), e.what()).ThrowAsJavaScriptException();
-		}
-		return info.Env().Undefined();
-	}
-
-	Napi::Value UpdateStreams(const Napi::CallbackInfo &info) {
-		try {
-			auto streamIds = ParseStringArray(info[0], "streamIds");
-			std::optional<std::string> trackId;
-			if (!info[1].IsNull() && !info[1].IsUndefined())
-				trackId = info[1].ToString().Utf8Value();
-			if (trackId &&
-			    (trackId->empty() || trackId->find_first_of(" \t\r\n") != std::string::npos))
-				throw std::invalid_argument("trackId must be a non-empty SDP token");
-			auto description = binding_->track->description();
+			description.clearSSRCs();
+			if (!info[2].IsNull() && !info[2].IsUndefined()) {
+				auto ssrc = info[2].ToNumber().Uint32Value();
+				if (ssrc == 0)
+					throw std::invalid_argument("ssrc must be between 1 and 4294967295");
+				description.addSSRC(ssrc, description.mid());
+			}
 			SetMediaStreamIds(description, streamIds, trackId);
 			binding_->track->setDescription(std::move(description));
 		} catch (const std::exception &e) {
@@ -1385,6 +1384,7 @@ rtc::Configuration ParseConfiguration(const Napi::CallbackInfo &info) {
 	rtc::Configuration config;
 	config.disableAutoNegotiation = true;
 	config.disableAutoGathering = true;
+	config.forceMediaTransport = true;
 
 	if (info.Length() == 0 || !info[0].IsObject())
 		return config;

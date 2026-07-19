@@ -561,6 +561,7 @@ const defaultSpecs = [
       "addTransceiver(track) multiple times should create multiple transceivers",
     ],
   },
+  { file: "webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html" },
   {
     file: "webrtc/RTCPeerConnection-getStats.https.html",
     search: "?rest",

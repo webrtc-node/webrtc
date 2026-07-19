@@ -24,9 +24,10 @@ uses synthetic encoded tracks only to exercise W3C object and lifecycle semantic
 
 ## Libdatachannel Sources Read
 
-- `include/rtc/peerconnection.hpp`, `src/peerconnection.cpp`, and
+- `include/rtc/configuration.hpp`, `include/rtc/peerconnection.hpp`, `src/peerconnection.cpp`, and
   `src/impl/peerconnection.cpp`: `addTrack()` owns one track per media description, `onTrack()`
-  delivers remote media, and ICE creates DTLS followed by DTLS-SRTP and SCTP transports.
+  delivers remote media, and `initDtlsTransport()` chooses the media-capable DTLS-SRTP transport
+  only when the local description already contains media or `forceMediaTransport` is enabled.
 - `include/rtc/track.hpp`, `src/track.cpp`, and `src/impl/track.cpp`: tracks expose their media
   description, permit `setDescription()`, enforce send/receive direction, and route callbacks from
   transport threads. There is no browser transceiver or remove-track object.
@@ -39,10 +40,12 @@ uses synthetic encoded tracks only to exercise W3C object and lifecycle semantic
   `include/rtc/rtpdepacketizer.hpp`, and `src/rtpdepacketizer.cpp`: optional handlers packetize or
   reassemble codec frames. The current public adapter intentionally transports complete RTP/RTCP
   and does not imply codec processing.
-- `src/impl/dtlssrtptransport.cpp`, `src/impl/dtlstransport.cpp`,
-  `src/impl/icetransport.cpp`, and `src/impl/sctptransport.cpp`: media uses DTLS-SRTP while data
-  channels use SCTP. Aggregate bytes and RTT exposed by `PeerConnection` come from SCTP, not a
-  complete per-ICE or per-RTP stats implementation.
+- `src/impl/transport.hpp`, `src/impl/transport.cpp`, `src/impl/dtlssrtptransport.hpp`,
+  `src/impl/dtlssrtptransport.cpp`, `src/impl/dtlstransport.cpp`, `src/impl/icetransport.cpp`, and
+  `src/impl/sctptransport.cpp`: media uses DTLS-SRTP while data channels use SCTP. The
+  DTLS-SRTP transport forwards DTLS records to its base transport, so forcing it from peer
+  construction remains compatible with SCTP-only sessions. Aggregate bytes and RTT exposed by
+  `PeerConnection` come from SCTP, not a complete per-ICE or per-RTP stats implementation.
 - `include/rtc/channel.hpp`, `src/channel.cpp`, and `src/impl/channel.cpp`: callbacks may arrive from
   backend threads and ownership uses shared/weak handles. JavaScript delivery must continue through
   a Node-API thread-safe dispatcher.
@@ -64,6 +67,16 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   MID timing, rollback, removal, and rejected-answer direction.
 - Native callbacks are reset before teardown. Track events and packet callbacks are dispatched by
   `Napi::ThreadSafeFunction`; no libdatachannel callback invokes JavaScript directly.
+- The addon enables `Configuration::forceMediaTransport` at peer construction. Without it, ICE can
+  initialize a plain DTLS transport before an answerer adds media during renegotiation, and
+  `openTracks()` cannot upgrade that transport to DTLS-SRTP. An independent C++ reproduction against
+  the pinned backend failed all four late-track runs with the default and passed all four when the
+  option was enabled. This is a required binding configuration, not a missing upstream capability.
+- When an answerer turns a remote-created track into a local sender, the addon atomically replaces
+  direction, SSRC, and `msid` on one copied media description before generating the answer. Native
+  track events are routed to both sender and receiver packet adapters attached to that binding.
+  This preserves one backend description revision and lets libdatachannel populate its multi-track
+  SSRC demultiplexing cache from the answer.
 - libdatachannel exposes one bundled DTLS-SRTP transport for media. The facade presents that as a
   stable `RTCDtlsTransport`/`RTCIceTransport` shared by RTP endpoints and SCTP when both media and
   data are negotiated.
@@ -105,4 +118,6 @@ dry run, and remote full conformance. The full WPT suite is not run locally. The
 WPT coverage declares the stable identities of 37 backend-supported checks because that upstream
 file registers its field tests dynamically after media negotiation. Execution still runs the
 upstream parent test and each selected field assertion; only list-mode discovery uses the declared
-identities so selection integrity and sharding do not require executing the test.
+identities so selection integrity and sharding do not require executing the test. The selected
+renegotiation coverage also sends synthetic encoded audio and video through a second m-line after
+the initial offer/answer exchange.

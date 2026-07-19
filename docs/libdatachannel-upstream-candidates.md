@@ -44,6 +44,35 @@ The named WPT files are from pinned WPT commit
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
 
+### Evaluated integration constraint: late media transport initialization
+
+**Disposition:** existing upstream configuration; not an upstream candidate.
+
+- **Requirement and WPT.** A second audio or video transceiver added by
+  renegotiation must carry RTP whether the first m-line sends or is inactive.
+  Applicable WPT:
+  `webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html`.
+- **Source inspected.** `include/rtc/configuration.hpp`,
+  `include/rtc/peerconnection.hpp`, `src/peerconnection.cpp`,
+  `src/impl/peerconnection.hpp`, `src/impl/peerconnection.cpp`,
+  `src/impl/transport.hpp`, `src/impl/transport.cpp`,
+  `src/impl/dtlstransport.cpp`, `src/impl/dtlssrtptransport.hpp`,
+  `src/impl/dtlssrtptransport.cpp`, `src/impl/track.hpp`,
+  `src/impl/track.cpp`, and `test/track.cpp`.
+- **Evidence and reproduction.** `initDtlsTransport()` selects
+  `DtlsSrtpTransport` only when the current local description has audio/video or
+  `Configuration::forceMediaTransport` is true. `openTracks()` reports an error
+  when later media reaches a plain `DtlsTransport`; there is no in-place
+  upgrade. A standalone C++ two-peer reproduction against the pinned checkout
+  failed 4/4 late-track runs with the default configuration and passed 4/4 with
+  `forceMediaTransport`.
+- **Binding action.** The addon enables `forceMediaTransport` before peer
+  construction. `DtlsSrtpTransport::demuxMessage()` consumes SRTP/SRTCP and
+  forwards DTLS records to the base transport, preserving SCTP/data-channel
+  setup. This uses the backend's intended public option and needs no upstream
+  issue. Native integration checks pin the option, while Node and selected WPT
+  tests cover late media and ordinary data-channel behavior.
+
 ## Existing-track description and msid notifications
 
 **Status:** `confirmed-absent`

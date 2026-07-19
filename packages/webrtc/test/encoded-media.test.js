@@ -350,3 +350,59 @@ test("standard track event exposes encoded RTP through an optional sink", async 
     answerer.close();
   }
 });
+
+test("encoded RTP flows on a second transceiver added during initial transport setup", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const source = new EncodedMediaSource({
+    kind: "video",
+    codec: { mimeType: "video/VP8", payloadType: 96 },
+    ssrc: 42,
+  });
+  try {
+    offerer.onicecandidate = ({ candidate }) =>
+      candidate && answerer.addIceCandidate(candidate).catch(() => {});
+    answerer.onicecandidate = ({ candidate }) =>
+      candidate && offerer.addIceCandidate(candidate).catch(() => {});
+
+    offerer.addTransceiver("video", { direction: "recvonly" });
+    await offerer.setLocalDescription();
+    await answerer.setRemoteDescription(offerer.localDescription);
+    answerer.getTransceivers()[0].direction = "inactive";
+    await answerer.setLocalDescription();
+    await offerer.setRemoteDescription(answerer.localDescription);
+
+    offerer.addTransceiver("video", { direction: "recvonly" });
+    await offerer.setLocalDescription();
+    await answerer.setRemoteDescription(offerer.localDescription);
+    const sendTransceiver = answerer.getTransceivers()[1];
+    sendTransceiver.direction = "sendonly";
+    await sendTransceiver.sender.replaceTrack(source.track);
+    await answerer.setLocalDescription();
+    assert.equal(answerer.localDescription.sdp.match(/^a=ssrc:/gm)?.length, 1);
+    assert.match(answerer.localDescription.sdp, /^a=ssrc:42 cname:/m);
+    await offerer.setRemoteDescription(answerer.localDescription);
+
+    const opened = source.readyState === "open" ? null : waitFor(source, "open");
+    if (opened) await opened;
+    for (let sequenceNumber = 1; sequenceNumber <= 12; sequenceNumber += 1) {
+      assert.equal(source.send(rtpPacket(sequenceNumber)), true);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    const receiver = offerer.getTransceivers()[1].receiver;
+    let inbound;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      inbound = [...(await receiver.getStats()).values()].find(
+        (entry) => entry.type === "inbound-rtp",
+      );
+      if (inbound?.packetsReceived >= 12) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(inbound?.packetsReceived, 12);
+  } finally {
+    source.close();
+    offerer.close();
+    answerer.close();
+  }
+});
