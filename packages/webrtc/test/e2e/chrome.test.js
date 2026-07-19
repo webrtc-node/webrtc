@@ -19,6 +19,7 @@ const {
   waitFor,
   waitForMessage,
   waitForOpen,
+  withErrorContext,
 } = require("./chrome-harness");
 
 let context;
@@ -656,8 +657,7 @@ test("20 alternating offerer negotiations remain stable", async () => {
         await page.evaluate((value) => window.chromeE2E.sendString(value), expected);
         await messagePromise;
       } catch (error) {
-        error.message = `Cycle ${index + 1}/20 (${offerer} offerer): ${error.message}`;
-        throw error;
+        throw withErrorContext(error, `Cycle ${index + 1}/20 (${offerer} offerer)`);
       } finally {
         if (pair) {
           await closeChannelGracefully(page, pair.channel);
