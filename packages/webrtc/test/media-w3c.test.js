@@ -464,6 +464,36 @@ test("negotiated direction and stopping follow answer state", async () => {
   }
 });
 
+test("locally stopped transceivers disassociate only after answer application", async () => {
+  for (const kind of ["audio", "video"]) {
+    const offerer = new RTCPeerConnection();
+    const answerer = new RTCPeerConnection();
+    try {
+      const transceiver = offerer.addTransceiver(kind);
+      await negotiate(offerer, answerer);
+      const associatedMid = transceiver.mid;
+      assert.notEqual(associatedMid, null);
+
+      transceiver.stop();
+      await offerer.setLocalDescription();
+      assert.equal(transceiver.stopping, true);
+      assert.equal(transceiver.stopped, false);
+      assert.equal(transceiver.mid, associatedMid);
+
+      await answerer.setRemoteDescription(offerer.localDescription);
+      await answerer.setLocalDescription();
+      await offerer.setRemoteDescription(answerer.localDescription);
+      assert.equal(transceiver.stopping, false);
+      assert.equal(transceiver.stopped, true);
+      assert.equal(transceiver.currentDirection, "stopped");
+      assert.equal(transceiver.mid, null);
+    } finally {
+      offerer.close();
+      answerer.close();
+    }
+  }
+});
+
 test("local offer MID assignment rolls back only the current negotiation round", async () => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();

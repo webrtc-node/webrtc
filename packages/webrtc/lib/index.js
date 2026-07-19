@@ -4467,6 +4467,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       let appliedIceRestart = false;
       let manuallyUpdatedSignalingState = false;
       let usedJsOnlyIceRestart = false;
+      let pendingLocalOfferApplied = false;
       if (
         this._localDescription?.type === type &&
         type !== "offer" &&
@@ -4478,6 +4479,10 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._preparedLocalDescription = null;
         this._nonstandardPreparedLocalDescriptionType = null;
         this._nonstandardLocalIceCredentials = null;
+        if (type === "offer") {
+          this._setPendingLocalDescription(this._localDescription);
+          pendingLocalOfferApplied = true;
+        }
         this._syncStatesFromNative();
         this._scheduleNativeCandidateGathering();
         manuallyUpdatedSignalingState = true;
@@ -4514,12 +4519,16 @@ class RTCPeerConnection extends SimpleEventTarget {
             alignMediaDirections(generatedDescription, directionTemplate),
             directionTemplate,
           );
+          if (type === "offer") {
+            this._setPendingLocalDescription(this._localDescription);
+            pendingLocalOfferApplied = true;
+          }
           this._syncStatesFromNative();
           this._scheduleNativeCandidateGathering();
         }
       }
       if (type === "offer") {
-        this._setPendingLocalDescription(this._localDescription);
+        if (!pendingLocalOfferApplied) this._setPendingLocalDescription(this._localDescription);
         this._syncSignalingStateFromDescriptions();
       } else if (type === "answer") {
         this._commitRemoteDescription();
