@@ -56,9 +56,11 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
 
 - Direction changes and stopping are applied by replacing a track's media description before the
   next offer. JavaScript keeps stable transceiver/sender/receiver identity.
-- A stopped media description can be marked removed, but libdatachannel does not expose the full
-  JSEP transceiver recycling algorithm. Reuse and rollback behavior require focused conformance
-  coverage before promotion.
+- A stopped media description can be marked removed, but libdatachannel does not retain rejected
+  sections after their weak track entries expire. The facade separates native MID allocation from
+  W3C-visible MID assignment, restores newly assigned MIDs on rollback, and reconciles rejected
+  section history into later offers. Complete focused WPT covers local and remote m-line recycling,
+  MID timing, rollback, removal, and rejected-answer direction.
 - Native callbacks are reset before teardown. Track events and packet callbacks are dispatched by
   `Napi::ThreadSafeFunction`; no libdatachannel callback invokes JavaScript directly.
 - libdatachannel exposes one bundled DTLS-SRTP transport for media. The facade presents that as a

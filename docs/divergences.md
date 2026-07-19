@@ -40,9 +40,10 @@ simulcast, or DTMF implementation.
 
 libdatachannel models one track per SDP media section and has no native browser
 transceiver or remove-track abstraction. JavaScript therefore owns object
-identity, direction state, stopping, replacement, rollback, and negotiation
-timing. Selected WPT covers these lifecycle behaviors, but m-line recycling and
-browser media-source integration remain experimental.
+identity, direction state, stopping, replacement, rollback, MID assignment
+timing, and negotiation timing. It also retains rejected SDP sections after the
+backend drops their weak track entries so later offers can preserve or recycle
+the original m-line index. Selected WPT covers these lifecycle behaviors.
 
 Statistics include only backend measurements that can be attributed reliably:
 encoded RTP packet/byte counters, aggregate transport bytes, negotiated codec

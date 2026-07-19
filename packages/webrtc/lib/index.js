@@ -1009,6 +1009,10 @@ function parseSdpMediaSections(sdp) {
   return { sessionLines, mediaSections };
 }
 
+function effectiveTransceiverMid(transceiver) {
+  return transceiver._mid ?? transceiver._nativeMid;
+}
+
 function senderRtpParameters(transceiver) {
   const peer = transceiver._peerConnection;
   const answer =
@@ -1018,7 +1022,7 @@ function senderRtpParameters(transceiver) {
         ? peer._currentRemoteDescription
         : null;
   const section = parseSdpMediaSections(answer?.sdp || "").mediaSections.find(
-    (entry) => entry.mid === transceiver.mid,
+    (entry) => entry.mid === effectiveTransceiverMid(transceiver),
   );
   const codecs = [];
   const headerExtensions = [];
@@ -1087,6 +1091,49 @@ function alignMediaDirections(description, template) {
   return new RTCSessionDescription({
     type: description.type,
     sdp: serializeSdp(parsed.sessionLines, parsed.mediaSections),
+  });
+}
+
+function rejectMediaSection(section) {
+  const lines = [...section.lines];
+  lines[0] = lines[0].replace(/^(m=\S+)\s+\d+\s/i, "$1 0 ");
+  return { ...section, startLine: lines[0], lines };
+}
+
+function reconcileRejectedMediaSections(description, history) {
+  if (!description?.sdp || !history?.sdp) return description;
+  const parsed = parseSdpMediaSections(description.sdp);
+  const historical = parseSdpMediaSections(history.sdp);
+  if (!historical.mediaSections.some((section) => /^m=\S+\s+0\s/i.test(section.startLine))) {
+    return description;
+  }
+
+  const output = new Array(historical.mediaSections.length);
+  const used = new Set();
+  for (let index = 0; index < historical.mediaSections.length; index += 1) {
+    const previous = historical.mediaSections[index];
+    if (previous.mid === null) continue;
+    const generatedIndex = parsed.mediaSections.findIndex(
+      (section, candidateIndex) => !used.has(candidateIndex) && section.mid === previous.mid,
+    );
+    if (generatedIndex === -1) continue;
+    output[index] = parsed.mediaSections[generatedIndex];
+    used.add(generatedIndex);
+  }
+
+  const remaining = parsed.mediaSections.filter((_, index) => !used.has(index));
+  for (let index = 0; index < historical.mediaSections.length; index += 1) {
+    if (output[index]) continue;
+    const previous = historical.mediaSections[index];
+    output[index] = /^m=\S+\s+0\s/i.test(previous.startLine)
+      ? remaining.shift() || previous
+      : rejectMediaSection(previous);
+  }
+  output.push(...remaining);
+
+  return new RTCSessionDescription({
+    type: description.type,
+    sdp: serializeSdp(parsed.sessionLines, output.filter(Boolean)),
   });
 }
 
@@ -2923,6 +2970,8 @@ class RTCRtpTransceiver {
     this._peerConnection = peerConnection;
     this._kind = kind;
     this._mid = null;
+    this._nativeMid = null;
+    this._midAssignedByPendingLocalOffer = false;
     this._direction = direction;
     this._currentDirection = null;
     this._stopping = false;
@@ -3318,7 +3367,7 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _markRemotelyStoppedTransceivers(description) {
     for (const transceiver of this._transceivers) {
-      const section = mediaSectionByMid(description, transceiver.mid);
+      const section = mediaSectionByMid(description, effectiveTransceiverMid(transceiver));
       if (!section || !/^m=\S+\s+0\s/m.test(section)) continue;
       transceiver._remoteStopping = true;
       transceiver._currentDirection = "stopped";
@@ -3339,6 +3388,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         transceiver._nativeAnnouncedReceiveTrack = null;
         if (nativeTrack) transceiver._nativeReceiveTracks.delete(nativeTrack);
         transceiver._mid = null;
+        transceiver._nativeMid = null;
         transceiver._currentDirection = null;
         if (nativeTrack) setImmediate(() => setImmediate(() => nativeTrack.close()));
         continue;
@@ -3349,6 +3399,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver._stopped = true;
       transceiver._currentDirection = "stopped";
       transceiver._mid = null;
+      transceiver._nativeMid = null;
       const nativeTracks = new Set([
         transceiver._nativeSendTrack,
         transceiver._nativeReceiveTrack,
@@ -3459,7 +3510,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver._nativeSendTrack = nativeTrack;
       transceiver._nativeReceiveTracks.add(nativeTrack);
       this._ensureDtlsTransport();
-      transceiver._mid = mid;
+      transceiver._nativeMid = mid;
       this._nativeMediaTracks.set(nativeTrack.bindingId, transceiver);
       source?._attachNativeTrack?.(nativeTrack);
     }
@@ -3467,7 +3518,10 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _answerDirectionFor(transceiver) {
     if (this._signalingState !== "have-remote-offer") return null;
-    const remoteDirection = mediaDirectionByMid(this.remoteDescription, transceiver.mid);
+    const remoteDirection = mediaDirectionByMid(
+      this.remoteDescription,
+      effectiveTransceiverMid(transceiver),
+    );
     if (!remoteDirection) return null;
     return intersectDirections(transceiver.direction, remoteDirection);
   }
@@ -3484,7 +3538,8 @@ class RTCPeerConnection extends SimpleEventTarget {
           .find((line) => /^a=(sendrecv|sendonly|recvonly|inactive)$/i.test(line))
           ?.slice(2)
           .toLowerCase() || "sendrecv";
-      let transceiver = this._transceivers.find((entry) => entry.mid === mid);
+      let transceiver = this._transceivers.find((entry) => effectiveTransceiverMid(entry) === mid);
+      if (!transceiver && media[2] === "0") continue;
       if (!transceiver) {
         transceiver = this._transceivers.find(
           (entry) =>
@@ -3505,6 +3560,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           transceiver._provisionalRemoteOffer = true;
         }
         transceiver._mid = mid;
+        transceiver._nativeMid = mid;
       }
       if (media[2] === "0") {
         transceiver._remoteStopping = true;
@@ -3552,11 +3608,14 @@ class RTCPeerConnection extends SimpleEventTarget {
   _adoptIncomingNativeTrack(nativeTrack) {
     const appliedRemoteDescription =
       this._pendingRemoteDescription || this._currentRemoteDescription;
-    if (!mediaSectionByMid(appliedRemoteDescription, nativeTrack.mid)) {
+    const remoteSection = mediaSectionByMid(appliedRemoteDescription, nativeTrack.mid);
+    if (!remoteSection || /^m=\S+\s+0\s/m.test(remoteSection)) {
       nativeTrack.close();
       return;
     }
-    let transceiver = this._transceivers.find((entry) => entry.mid === nativeTrack.mid);
+    let transceiver = this._transceivers.find(
+      (entry) => effectiveTransceiverMid(entry) === nativeTrack.mid,
+    );
     let reusedForRemoteOffer = false;
     if (!transceiver) {
       transceiver = this._transceivers.find(
@@ -3580,6 +3639,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       transceiver._provisionalRemoteOffer = true;
     }
     transceiver._mid = nativeTrack.mid;
+    transceiver._nativeMid = nativeTrack.mid;
     transceiver._nativeAnnouncedReceiveTrack = nativeTrack;
     transceiver._nativeReceiveTracks.add(nativeTrack);
     transceiver._nativeReceiveTrack ||= transceiver._nativeSendTrack || nativeTrack;
@@ -4015,6 +4075,7 @@ class RTCPeerConnection extends SimpleEventTarget {
           sdp: rewriteIceCredentials(offer.sdp, this._ensureIceRestartCredentials()),
         };
       }
+      offer = reconcileRejectedMediaSections(offer, this._currentLocalDescription);
       this._lastCreatedOffer = new RTCSessionDescription(offer);
       this._lastCreatedOfferRevision = this._negotiationRevision;
       if (jsOnlyIceRestart) markJsOnlyIceRestart(this._lastCreatedOffer);
@@ -4319,7 +4380,10 @@ class RTCPeerConnection extends SimpleEventTarget {
           const directionTemplate =
             normalized || (type === "offer" ? this._lastCreatedOffer : this._lastCreatedAnswer);
           this._localMediaDirectionTemplate = directionTemplate;
-          this._localDescription = alignMediaDirections(generatedDescription, directionTemplate);
+          this._localDescription = reconcileRejectedMediaSections(
+            alignMediaDirections(generatedDescription, directionTemplate),
+            directionTemplate,
+          );
           this._syncStatesFromNative();
           this._scheduleNativeCandidateGathering();
         }
@@ -5593,6 +5657,13 @@ class RTCPeerConnection extends SimpleEventTarget {
       const answerDirection = mediaDirectionByMid(answer, transceiver.mid);
       const answerSection = mediaSectionByMid(answer, transceiver.mid);
       if (answerSection && /^m=\S+\s+0\s/m.test(answerSection)) {
+        if (!localIsAnswer && !transceiver._provisionalRemoteOffer) {
+          transceiver._remoteStopping = false;
+          transceiver._currentDirection = "inactive";
+          transceiver._provisionalRemoteOffer = false;
+          transceiver._reusedForRemoteOffer = false;
+          continue;
+        }
         transceiver._stopping = false;
         transceiver._remoteStopping = false;
         transceiver._stopped = true;
@@ -5625,6 +5696,16 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _setPendingLocalDescription(description) {
+    if (description?.type === "offer") {
+      const sections = parseSdpMediaSections(description.sdp).mediaSections;
+      for (const transceiver of this._transceivers) {
+        if (transceiver._mid !== null || transceiver._nativeMid === null) continue;
+        const section = sections.find((entry) => entry.mid === transceiver._nativeMid);
+        if (!section) continue;
+        transceiver._mid = section.mid;
+        transceiver._midAssignedByPendingLocalOffer = true;
+      }
+    }
     this._pendingLocalDescription = description;
     this._localDescription = description || this._currentLocalDescription;
     if (description?.type === "offer") {
@@ -5649,10 +5730,18 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     this._pendingLocalDescription = null;
     this._localDescription = this._currentLocalDescription;
+    for (const transceiver of this._transceivers) {
+      transceiver._midAssignedByPendingLocalOffer = false;
+    }
     this._recomputeNegotiationNeeded();
   }
 
   _rollbackLocalDescription() {
+    for (const transceiver of this._transceivers) {
+      if (!transceiver._midAssignedByPendingLocalOffer) continue;
+      transceiver._mid = null;
+      transceiver._midAssignedByPendingLocalOffer = false;
+    }
     this._pendingLocalDescription = null;
     this._localDescription = this._currentLocalDescription;
     this._pendingLocalNegotiationRevision = null;
@@ -5732,6 +5821,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   _refreshCurrentOrPendingLocalDescription(description) {
     if (!description) return;
     description = alignMediaDirections(description, this._localMediaDirectionTemplate);
+    description = reconcileRejectedMediaSections(description, this._localMediaDirectionTemplate);
     this._localDescription = description;
     if (this._pendingLocalDescription?.type === description.type) {
       this._pendingLocalDescription = description;

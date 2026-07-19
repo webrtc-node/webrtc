@@ -537,6 +537,11 @@ const defaultSpecs = [
       "transceiver.direction does not revert to an old state",
     ],
   },
+  { file: "webrtc/RTCPeerConnection-getTransceivers.html" },
+  { file: "webrtc/RTCPeerConnection-removeTrack.https.html" },
+  { file: "webrtc/RTCPeerConnection-setDescription-transceiver.html" },
+  { file: "webrtc/recvonly-transceiver-can-become-sendrecv.https.html" },
+  { file: "webrtc/protocol/transceiver-mline-recycling.html" },
   {
     file: "webrtc/RTCRtpSender-replaceTrack.https.html",
     include: [

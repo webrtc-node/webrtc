@@ -158,8 +158,12 @@ The named WPT files are from pinned WPT commit
 1. **Requirement and WPT.** Unified Plan/JSEP requires ordered m-sections,
    stable `mid`, direction negotiation, rejection, and eligible m-line reuse.
    Applicable WPT: `webrtc/RTCPeerConnection-addTrack.https.html`,
-   `webrtc/RTCPeerConnection-addTransceiver.https.html`, and
-   `webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html`.
+   `webrtc/RTCPeerConnection-addTransceiver.https.html`,
+   `webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html`,
+   `webrtc/RTCPeerConnection-removeTrack.https.html`,
+   `webrtc/RTCPeerConnection-setDescription-transceiver.html`,
+   `webrtc/RTCRtpTransceiver-stop.html`, and
+   `webrtc/protocol/transceiver-mline-recycling.html`.
 2. **Source inspected.** `src/impl/peerconnection.hpp`,
    `src/impl/peerconnection.cpp`, `include/rtc/description.hpp`,
    `src/description.cpp`, `test/track.cpp`.
@@ -169,7 +173,9 @@ The named WPT files are from pinned WPT commit
    reusable rejected-slot query, negotiated direction, or stopping state.
 4. **Current workaround.** The facade owns sender/receiver/transceiver identity,
    direction/currentDirection, stop state, generated `mid`, answer intersection,
-   and reuse policy, then maps each object to a native track.
+   and reuse policy, then maps each object to a native track. It separately tracks
+   native and W3C-visible MID assignment and reconciles rejected historical
+   sections into generated offers after weak native track entries disappear.
 5. **Why insufficient.** SDP and native track state can diverge, requiring
    `alignMediaDirections()` after backend SDP refresh. Native resource release
    for rejected sections is not observable. JavaScript identity remains, but

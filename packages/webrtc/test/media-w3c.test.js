@@ -447,12 +447,105 @@ test("negotiated direction and stopping follow answer state", async () => {
     assert.equal(transceiver.currentDirection, "stopped");
     assert.equal(transceiver.mid, null);
     assert.deepEqual(offerer.getTransceivers(), []);
+    assert.equal(remoteTransceiver.stopping, false);
+    assert.equal(remoteTransceiver.stopped, true);
+    assert.equal(remoteTransceiver.currentDirection, "stopped");
+    assert.deepEqual(answerer.getTransceivers(), []);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(remoteTransceiver.receiver.track.readyState, "ended");
     assert.equal(receiverClone.readyState, "ended");
   } finally {
     offerer.close();
     answerer.close();
+  }
+});
+
+test("local offer MID assignment rolls back only the current negotiation round", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const first = offerer.addTransceiver("audio");
+    const initialOffer = await offerer.createOffer();
+    assert.equal(first.mid, null);
+    await offerer.setLocalDescription(initialOffer);
+    assert.notEqual(first.mid, null);
+    await answerer.setRemoteDescription(offerer.localDescription);
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    await offerer.setRemoteDescription(answerer.localDescription);
+    const committedMid = first.mid;
+
+    const second = offerer.addTransceiver("video");
+    const nextOffer = await offerer.createOffer();
+    assert.equal(second.mid, null);
+    await offerer.setLocalDescription(nextOffer);
+    assert.notEqual(second.mid, null);
+    await offerer.setLocalDescription({ type: "rollback" });
+    assert.equal(first.mid, committedMid);
+    assert.equal(second.mid, null);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("remote answer rejection leaves a non-stopping transceiver inactive", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    const offered = offerer.addTransceiver("audio");
+    await offerer.setLocalDescription(await offerer.createOffer());
+    await answerer.setRemoteDescription(offerer.localDescription);
+    answerer.getTransceivers()[0].stop();
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    await offerer.setRemoteDescription(answerer.localDescription);
+
+    assert.equal(offered.stopped, false);
+    assert.equal(offered.stopping, false);
+    assert.equal(offered.currentDirection, "inactive");
+    assert.deepEqual(offerer.getTransceivers(), [offered]);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("rejected remote media sections remain available for m-line recycling", async () => {
+  const peer = new RTCPeerConnection();
+  const rejectedVideoOffer = {
+    type: "offer",
+    sdp: [
+      "v=0",
+      "o=- 0 3 IN IP4 127.0.0.1",
+      "s=-",
+      "t=0 0",
+      "a=fingerprint:sha-256 A7:24:72:CA:6E:02:55:39:BA:66:DF:6E:CC:4C:D8:B0:1A:BF:1A:56:65:7D:F4:03:AD:7E:77:43:2A:29:EC:93",
+      "m=video 0 UDP/TLS/RTP/SAVPF 100",
+      "c=IN IP4 0.0.0.0",
+      "a=rtcp-mux",
+      "a=sendonly",
+      "a=mid:video",
+      "a=rtpmap:100 VP8/90000",
+      "a=setup:actpass",
+      "a=ice-ufrag:ETEn",
+      "a=ice-pwd:OtSK0WpNtpUjkY4+86js7Z/l",
+      "",
+    ].join("\r\n"),
+  };
+  try {
+    await peer.setRemoteDescription(rejectedVideoOffer);
+    await peer.setLocalDescription();
+    assert.deepEqual(peer.getTransceivers(), []);
+
+    const preserved = await peer.createOffer();
+    assert.equal((preserved.sdp.match(/^m=/gm) || []).length, 1);
+    assert.match(preserved.sdp, /^m=video 0 /m);
+
+    peer.addTransceiver("audio");
+    const recycled = await peer.createOffer();
+    assert.equal((recycled.sdp.match(/^m=/gm) || []).length, 1);
+    assert.match(recycled.sdp, /^m=audio (?!0 )/m);
+  } finally {
+    peer.close();
   }
 });
 
