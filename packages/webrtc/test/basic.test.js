@@ -837,6 +837,7 @@ test("parameterless answer is applied during repeated data-channel renegotiation
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
   t.after(() => closeAllAndWait(offerer, answerer));
+  exchangeIceCandidates(offerer, answerer);
   offerer.createDataChannel("renegotiate");
 
   for (const value of [1, 2, 0, 1]) {
