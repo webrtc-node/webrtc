@@ -5,10 +5,11 @@ const { test } = require("node:test");
 const {
   MediaStream,
   MediaStreamTrack,
+  nonstandard,
   RTCPeerConnection,
   RTCRtpSender,
-} = require("@webrtc-node/webrtc");
-const { EncodedMediaSink, EncodedMediaSource } = require("..");
+} = require("..");
+const { EncodedMediaSink, EncodedMediaSource } = nonstandard;
 
 function waitFor(target, type, timeout = 10000) {
   return new Promise((resolve, reject) => {

@@ -888,28 +888,22 @@ async function runFile(spec) {
     const ssrc = kind === "audio" ? 0x57505401 : 0x57505402;
     let sequenceNumber = 0;
     let timestamp = 0;
-    let timer = null;
-    const source = {
-      codec: { codec: kind === "audio" ? "opus" : "VP8", payloadType },
-      ssrc,
-      _attachNativeTrack(nativeTrack) {
-        this.nativeTrack = nativeTrack;
-      },
-      _detachNativeTrack(nativeTrack) {
-        if (this.nativeTrack === nativeTrack) this.nativeTrack = null;
-      },
-      stop() {
-        clearInterval(timer);
-        timer = null;
-      },
-    };
-    const track = webrtc.nonstandard.createMediaStreamTrack({
+    const source = new webrtc.nonstandard.EncodedMediaSource({
       kind,
+      codec: {
+        mimeType: kind === "audio" ? "audio/opus" : "video/VP8",
+        payloadType,
+      },
+      ssrc,
       label: `WPT ${kind}`,
-      source,
     });
-    timer = setInterval(() => {
-      if (!source.nativeTrack?.isOpen) return;
+    const track = source.track;
+    const timer = setInterval(() => {
+      if (source.readyState === "closed") {
+        clearInterval(timer);
+        return;
+      }
+      if (source.readyState !== "open") return;
       sequenceNumber = (sequenceNumber + 1) & 0xffff;
       timestamp = (timestamp + (kind === "audio" ? 960 : 3000)) >>> 0;
       const packet = Uint8Array.from([
@@ -927,7 +921,7 @@ async function runFile(spec) {
         ssrc & 0xff,
         0,
       ]);
-      source.nativeTrack.send(packet);
+      source.send(packet);
     }, 20);
     timer.unref?.();
     return track;

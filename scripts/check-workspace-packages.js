@@ -7,13 +7,7 @@ const root = path.resolve(__dirname, "..");
 const workspacePattern = "packages/*";
 const rootPackageName = "webrtc-node-workspace";
 const runtimePackageName = "@webrtc-node/webrtc";
-const allowedWorkspacePackages = new Map([
-  ["webrtc", runtimePackageName],
-  ["media", "@webrtc-node/media"],
-  ["stats", "@webrtc-node/stats"],
-  ["native", "@webrtc-node/native"],
-  ["test-utils", "@webrtc-node/test-utils"],
-]);
+const allowedWorkspacePackages = new Map([["webrtc", runtimePackageName]]);
 const requiredRootScripts = [
   "build",
   "check",
@@ -196,14 +190,6 @@ function validateWorkspacePackage(dirname, packageJson) {
       if (/^(?:file:|link:|workspace:)/.test(specifier)) {
         fail(`${expectedName} ${dependencyGroup}.${name} must not use ${specifier}`);
       }
-    }
-  }
-  if (dirname === "media" || dirname === "stats") {
-    if (packageJson.peerDependencies?.[runtimePackageName] !== `^${packageJson.version}`) {
-      fail(`${expectedName} must declare ${runtimePackageName} ^${packageJson.version}`);
-    }
-    if (packageJson.devDependencies?.[runtimePackageName] !== packageJson.version) {
-      fail(`${expectedName} must test against ${runtimePackageName} ${packageJson.version}`);
     }
   }
 }

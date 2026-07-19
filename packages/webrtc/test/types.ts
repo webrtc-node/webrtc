@@ -7,6 +7,7 @@ import {
   nonstandard,
   type RTCCertificate,
   type RTCDataChannelEvent,
+  type RTCDataChannelStats,
   type RTCDtlsTransport,
   RTCError,
   RTCErrorEvent,
@@ -17,6 +18,7 @@ import {
   RTCPeerConnectionIceErrorEvent,
   type RTCSctpTransport,
   RTCSessionDescription,
+  type RTCTransportStats,
 } from "..";
 
 const target = new EventTarget();
@@ -41,7 +43,11 @@ const dispatched: boolean = target.dispatchEvent(event);
 const message = new MessageEvent<string>("message", { data: "hello" });
 const payload: string = message.data;
 
-const mediaTrack = nonstandard.createMediaStreamTrack({ kind: "audio" });
+const encodedMediaSource = new nonstandard.EncodedMediaSource({
+  kind: "audio",
+  codec: { mimeType: "audio/opus", payloadType: 111 },
+});
+const mediaTrack = encodedMediaSource.track;
 const mediaStream = new MediaStream([mediaTrack]);
 const copiedMediaStream = new MediaStream(mediaStream);
 const mediaTrackEvent = new MediaStreamTrackEvent("addtrack", { track: mediaTrack });
@@ -70,6 +76,19 @@ const certificatePromise: Promise<RTCCertificate> = RTCPeerConnection.generateCe
 // @ts-expect-error string-form certificate algorithms are not supported.
 RTCPeerConnection.generateCertificate("ECDSA");
 const pc = new RTCPeerConnection();
+async function inspectStats() {
+  const report = await pc.getStats();
+  for (const entry of report.values()) {
+    if (entry.type === "data-channel") {
+      const dataChannel: RTCDataChannelStats = entry;
+      dataChannel.messagesSent;
+    } else if (entry.type === "transport") {
+      const transport: RTCTransportStats = entry;
+      transport.dtlsState;
+    }
+  }
+}
+void inspectStats();
 pc.setConfiguration({ iceServers: [{ urls: "stun:stun.example.org" }], iceCandidatePoolSize: 0 });
 const configuration = pc.getConfiguration();
 const icePolicy: "all" | "relay" | undefined = configuration.iceTransportPolicy;
@@ -102,6 +121,15 @@ pc.onicecandidate = (received) => {
 pc.onicecandidateerror = (received) => {
   const code: number = received.errorCode;
   void code;
+};
+
+pc.ontrack = (received) => {
+  const sink = new nonstandard.EncodedMediaSink(received.track);
+  sink.onpacket = (packet) => {
+    const bytes: ArrayBuffer = packet.data;
+    void bytes;
+  };
+  sink.close();
 };
 
 channel.onmessage = (received) => {
@@ -168,6 +196,8 @@ void remoteFingerprint;
 void importedCertificate;
 void nativeSurface;
 void encodingActive;
+encodedMediaSource.send(new Uint8Array());
+encodedMediaSource.close();
 udpMux.close();
 udpMux.stop();
 pc.close();

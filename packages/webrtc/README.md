@@ -5,9 +5,9 @@
   <a href="https://www.npmjs.com/package/@webrtc-node/webrtc"><img alt="npm" src="https://img.shields.io/npm/v/@webrtc-node/webrtc"></a>
   <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D20-339933">
   <img alt="API" src="https://img.shields.io/badge/API-W3C--style-0a7">
-  <img alt="Data Channels" src="https://img.shields.io/badge/scope-data%20channels-4c1">
+  <img alt="Scope" src="https://img.shields.io/badge/scope-WebRTC-4c1">
   <img alt="TypeScript" src="https://img.shields.io/badge/types-TypeScript-3178c6">
-  <img alt="WPT" src="https://img.shields.io/badge/WPT-691%20selected%20subtests-4c1">
+  <img alt="WPT" src="https://img.shields.io/badge/WPT-844%20selected%20subtests-4c1">
   <img alt="Native API" src="https://img.shields.io/badge/native-Node--API-blue">
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange">
 </p>
@@ -20,7 +20,7 @@
 <p align="center">
   Backed by
   <a href="https://github.com/paullouisageneau/libdatachannel">libdatachannel</a>,
-  shipped as a Node-API native addon, and validated with 691 selected Web
+  shipped as a Node-API native addon, and validated with 844 selected Web
   Platform Tests subtests.
 </p>
 
@@ -48,6 +48,14 @@ channel.addEventListener("message", (event) => {
 See
 [examples/datachannel.js](https://github.com/webrtc-node/webrtc/blob/main/examples/datachannel.js)
 for a complete local offer/answer exchange.
+
+## Encoded Media and Stats
+
+Standard media negotiation, RTP objects, `getStats()`, and `RTCStatsReport` are
+included in this package. Applications that already produce packetized media
+can use `nonstandard.EncodedMediaSource` and `nonstandard.EncodedMediaSink` with
+standard `MediaStreamTrack` values. These adapters do not capture devices,
+encode, decode, render, construct RTP headers, or pace packets.
 
 ## Supported Platforms
 

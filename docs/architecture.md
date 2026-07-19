@@ -40,6 +40,9 @@ required for correctness.
 The typed `nonstandard` namespace is the boundary for the small set of
 libdatachannel-specific operations exposed for advanced integrations. It does
 not change the standard facade and does not expose the complete native API.
+Application-supplied encoded RTP/RTCP source and sink adapters live here so
+their track, sender, callback, and teardown state stays under the same package
+owner as the native backend.
 
 ## Type Declarations
 
@@ -54,6 +57,7 @@ RTP sender/receiver/transceiver objects, and standards-shaped statistics.
 Capture devices, rendering, codec processing, RTP header generation, and DTMF
 are not implemented.
 
-`@webrtc-node/media` supplies optional encoded packet sources and sinks behind
-standard `MediaStreamTrack` values. `@webrtc-node/stats` samples standard
-`RTCStatsReport` values. Neither replaces the W3C-facing core object model.
+`nonstandard.EncodedMediaSource` and `nonstandard.EncodedMediaSink` exchange
+complete RTP/RTCP packets behind standard `MediaStreamTrack` values. Standard
+stats access is `getStats()` on the peer connection or RTP endpoint; no
+companion package is required for either workflow.

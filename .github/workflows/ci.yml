@@ -159,23 +159,16 @@ jobs:
           tarball="$(npm pack -w @webrtc-node/webrtc --json | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input)[0].filename));")"
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
 
-      - name: Pack companion artifacts
+      - name: Verify packed package API
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ci-artifacts/packages
-          npm pack -w @webrtc-node/media --pack-destination ci-artifacts/packages
-          npm pack -w @webrtc-node/stats --pack-destination ci-artifacts/packages
-
-      - name: Verify workspace tarballs install together
-        shell: bash
-        run: |
-          set -euo pipefail
           cp "${{ steps.pack.outputs.tarball }}" ci-artifacts/packages/
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null
-          npm install --ignore-scripts "$OLDPWD"/ci-artifacts/packages/*.tgz
+          npm install --ignore-scripts "$OLDPWD/ci-artifacts/packages/${{ steps.pack.outputs.tarball }}"
           WEBRTC_NODE_NATIVE_PATH="$OLDPWD/packages/webrtc/build/Release/webrtc_node.node" node "$OLDPWD/scripts/smoke-installed-workspace.js"
 
       - name: Verify packed source build

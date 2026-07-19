@@ -4,9 +4,8 @@ const path = require("node:path");
 const { createRequire } = require("node:module");
 
 const requireInstalled = createRequire(path.join(process.cwd(), "package.json"));
-const { EncodedMediaSource } = requireInstalled("@webrtc-node/media");
-const { RTCStatsSampler } = requireInstalled("@webrtc-node/stats");
-const { RTCPeerConnection } = requireInstalled("@webrtc-node/webrtc");
+const { nonstandard, RTCPeerConnection } = requireInstalled("@webrtc-node/webrtc");
+const { EncodedMediaSource } = nonstandard;
 
 async function main() {
   const peer = new RTCPeerConnection();
@@ -16,12 +15,12 @@ async function main() {
   });
   try {
     const sender = peer.addTrack(source.track);
-    if (sender.track !== source.track) throw new Error("packed media track identity mismatch");
-    const { report } = await new RTCStatsSampler(peer).sample();
+    if (sender.track !== source.track) throw new Error("packed encoded track identity mismatch");
+    const report = await peer.getStats();
     if (!report.has("peer-connection")) {
-      throw new Error("packed stats report is missing peer-connection stats");
+      throw new Error("packed core report is missing peer-connection stats");
     }
-    console.log("Workspace packages loaded and interoperated");
+    console.log("Packed @webrtc-node/webrtc loaded encoded media and standard stats");
   } finally {
     source.close();
     peer.close();

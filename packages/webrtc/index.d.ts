@@ -563,7 +563,7 @@ export class RTCPeerConnection extends EventTarget {
   onconnectionstatechange: ((event: Event) => void) | null;
   onsignalingstatechange: ((event: Event) => void) | null;
   onnegotiationneeded: ((event: Event) => void) | null;
-  ontrack: ((event: Event) => void) | null;
+  ontrack: ((event: RTCTrackEvent) => void) | null;
   createDataChannel(label: string, init?: RTCDataChannelInit): RTCDataChannel;
   addTrack(track: MediaStreamTrack, ...streams: MediaStream[]): RTCRtpSender;
   removeTrack(sender: RTCRtpSender): void;
@@ -589,11 +589,6 @@ export class RTCPeerConnection extends EventTarget {
 }
 
 export namespace nonstandard {
-  interface MediaStreamTrackInit {
-    kind: "audio" | "video";
-    label?: string;
-    source?: { stop?(track: MediaStreamTrack): void };
-  }
   interface IceUdpMuxRequest {
     ufrag: string;
     localUfrag: string;
@@ -674,6 +669,36 @@ export namespace nonstandard {
 
   type EncodedPacket = ArrayBuffer | ArrayBufferView;
 
+  interface EncodedMediaSourceInit {
+    kind: "audio" | "video";
+    codec: { mimeType: string; payloadType: number; profile?: string };
+    label?: string;
+    ssrc?: number;
+  }
+
+  interface EncodedMediaErrorEvent extends Event {
+    readonly message: string;
+  }
+
+  interface EncodedMediaSource extends EventTarget {
+    readonly track: MediaStreamTrack;
+    readonly codec: Readonly<EncodedMediaSourceInit["codec"]>;
+    readonly ssrc: number | null;
+    readonly maxPacketSize: number | null;
+    readonly readyState: "new" | "connecting" | "open" | "closed";
+    onopen: ((event: Event) => void) | null;
+    onclose: ((event: Event) => void) | null;
+    onerror: ((event: EncodedMediaErrorEvent) => void) | null;
+    send(packet: EncodedPacket): boolean;
+    close(): void;
+  }
+
+  interface EncodedMediaSink extends EventTarget {
+    readonly track: MediaStreamTrack;
+    onpacket: ((event: MessageEvent<ArrayBuffer>) => void) | null;
+    close(): void;
+  }
+
   const IceUdpMuxListener: {
     new (port: number, address?: string): IceUdpMuxListener;
   };
@@ -690,11 +715,11 @@ export namespace nonstandard {
   const getNativePeerConnection: (
     peerConnection: RTCPeerConnection,
   ) => NativePeerConnectionExtension;
-  const createMediaStreamTrack: (init: MediaStreamTrackInit) => MediaStreamTrack;
-  const sendEncodedPacket: (track: MediaStreamTrack, packet: EncodedPacket) => boolean;
-  const onEncodedPacket: (
-    track: MediaStreamTrack,
-    callback: (packet: ArrayBuffer) => void,
-  ) => () => void;
+  const EncodedMediaSource: {
+    new (init: EncodedMediaSourceInit): EncodedMediaSource;
+  };
+  const EncodedMediaSink: {
+    new (track: MediaStreamTrack): EncodedMediaSink;
+  };
   const native: unknown;
 }

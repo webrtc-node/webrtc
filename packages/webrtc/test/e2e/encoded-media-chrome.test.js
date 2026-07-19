@@ -4,8 +4,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { after, before, test } = require("node:test");
 const { chromium } = require("playwright-core");
-const { MediaStream, RTCPeerConnection } = require("@webrtc-node/webrtc");
-const { EncodedMediaSink, EncodedMediaSource } = require("../..");
+const { MediaStream, nonstandard, RTCPeerConnection } = require("../..");
+const { EncodedMediaSink, EncodedMediaSource } = nonstandard;
 
 const timeout = Number(process.env.CHROME_E2E_TIMEOUT_MS || 30000);
 let browser;

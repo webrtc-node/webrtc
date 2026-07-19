@@ -2886,6 +2886,137 @@ class MediaStream extends SimpleEventTarget {
   }
 }
 
+const encodedMediaCodecs = new Map([
+  ["audio/opus", "opus"],
+  ["audio/pcma", "PCMA"],
+  ["audio/pcmu", "PCMU"],
+  ["audio/g722", "G722"],
+  ["audio/aac", "AAC"],
+  ["video/h264", "H264"],
+  ["video/h265", "H265"],
+  ["video/vp8", "VP8"],
+  ["video/vp9", "VP9"],
+  ["video/av1", "AV1"],
+]);
+
+function normalizeEncodedMediaInit(init) {
+  if (init == null || typeof init !== "object") throw new TypeError("init must be an object");
+  const kind = String(init.kind || "").toLowerCase();
+  if (kind !== "audio" && kind !== "video") throw new TypeError("kind must be audio or video");
+  const mimeType = String(init.codec?.mimeType || "").toLowerCase();
+  const codec = encodedMediaCodecs.get(mimeType);
+  if (!codec || !mimeType.startsWith(`${kind}/`)) throw new TypeError(`Unsupported ${kind} codec`);
+  const payloadType = Number(init.codec?.payloadType);
+  if (!Number.isInteger(payloadType) || payloadType < 0 || payloadType > 127) {
+    throw new RangeError("payloadType must be an integer between 0 and 127");
+  }
+  const profile = init.codec.profile === undefined ? undefined : String(init.codec.profile);
+  if (profile && /[\r\n]/u.test(profile)) {
+    throw new TypeError("codec profile must not contain lines");
+  }
+  let ssrc;
+  if (init.ssrc !== undefined) {
+    ssrc = Number(init.ssrc);
+    if (!Number.isInteger(ssrc) || ssrc < 1 || ssrc > 0xffffffff) {
+      throw new RangeError("ssrc must be an integer between 1 and 4294967295");
+    }
+  }
+  return { kind, mimeType, codec, payloadType, profile, ssrc };
+}
+
+class EncodedMediaSource extends SimpleEventTarget {
+  constructor(init) {
+    super();
+    const normalized = normalizeEncodedMediaInit(init);
+    this.codec = Object.freeze({
+      mimeType: normalized.mimeType,
+      payloadType: normalized.payloadType,
+      ...(normalized.profile === undefined ? {} : { profile: normalized.profile }),
+    });
+    this.ssrc = normalized.ssrc ?? null;
+    this.readyState = "new";
+    this.onopen = null;
+    this.onclose = null;
+    this.onerror = null;
+    this._source = {
+      codec: {
+        codec: normalized.codec,
+        payloadType: normalized.payloadType,
+        profile: normalized.profile,
+      },
+      ssrc: normalized.ssrc,
+      _attachNativeTrack: (nativeTrack) => {
+        this._source.nativeTrack = nativeTrack;
+        this.readyState = nativeTrack.isOpen ? "open" : "connecting";
+      },
+      _detachNativeTrack: (nativeTrack) => {
+        if (this._source.nativeTrack !== nativeTrack) return;
+        this._source.nativeTrack = null;
+        if (this.readyState !== "closed") this.readyState = "new";
+      },
+      _handleNativeEvent: (event) => this._handleNativeEvent(event),
+      stop: () => this.close(),
+    };
+    this.track = new MediaStreamTrack(kInternalConstruct, {
+      kind: normalized.kind,
+      label: init.label === undefined ? `encoded ${normalized.kind}` : String(init.label),
+      source: this._source,
+    });
+  }
+
+  _handleNativeEvent(event) {
+    if (event.type === "open") this.readyState = "open";
+    if (event.type === "close") this.readyState = "closed";
+    const dispatched = new SimpleEvent(event.type);
+    if (event.type === "error") dispatched.message = event.error || "Media track error";
+    this.dispatchEvent(dispatched);
+  }
+
+  send(packet) {
+    if (this.readyState === "closed") throw new Error("EncodedMediaSource is closed");
+    const nativeTrack = this._source.nativeTrack;
+    if (!nativeTrack) {
+      throw makeDOMException("Track is not attached to an RTP sender", "InvalidStateError");
+    }
+    return nativeTrack.send(toUint8Array(packet));
+  }
+
+  close() {
+    if (this.readyState === "closed") return;
+    this.readyState = "closed";
+    this._source._endTracks?.();
+  }
+
+  get maxPacketSize() {
+    return this._source.nativeTrack?.maxMessageSize ?? null;
+  }
+}
+
+class EncodedMediaSink extends SimpleEventTarget {
+  constructor(track) {
+    super();
+    if (!(track instanceof MediaStreamTrack)) {
+      throw new TypeError("track must be a MediaStreamTrack");
+    }
+    const source = mediaTrackSources.get(track);
+    if (!source?.listeners) {
+      throw makeDOMException("Track is not an encoded RTP receiver", "InvalidStateError");
+    }
+    this.track = track;
+    this.onpacket = null;
+    const listener = (packet) => {
+      this.dispatchEvent(new SimpleMessageEvent("packet", { data: packet }));
+    };
+    source.listeners.add(listener);
+    this._unsubscribe = () => source.listeners.delete(listener);
+  }
+
+  close() {
+    this._unsubscribe?.();
+    this._unsubscribe = null;
+  }
+}
+
 class RTCRtpSender {
   constructor(token, peerConnection, track, streams) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
@@ -3539,7 +3670,6 @@ class RTCPeerConnection extends SimpleEventTarget {
           ?.slice(2)
           .toLowerCase() || "sendrecv";
       let transceiver = this._transceivers.find((entry) => effectiveTransceiverMid(entry) === mid);
-      if (!transceiver && media[2] === "0") continue;
       if (!transceiver) {
         transceiver = this._transceivers.find(
           (entry) =>
@@ -6567,33 +6697,8 @@ module.exports = {
     getRemoteFingerprint,
     importCertificate,
     getNativePeerConnection,
-    createMediaStreamTrack(init = {}) {
-      const kind = String(init.kind);
-      if (kind !== "audio" && kind !== "video") throw new TypeError("kind must be audio or video");
-      return new MediaStreamTrack(kInternalConstruct, {
-        kind,
-        label: init.label === undefined ? "" : String(init.label),
-        source: init.source || null,
-      });
-    },
-    sendEncodedPacket(track, data) {
-      if (!(track instanceof MediaStreamTrack))
-        throw new TypeError("track must be a MediaStreamTrack");
-      const nativeTrack = mediaTrackSources.get(track)?.nativeTrack;
-      if (!nativeTrack)
-        throw makeDOMException("Track is not attached to an RTP sender", "InvalidStateError");
-      return nativeTrack.send(toUint8Array(data));
-    },
-    onEncodedPacket(track, callback) {
-      if (!(track instanceof MediaStreamTrack))
-        throw new TypeError("track must be a MediaStreamTrack");
-      if (typeof callback !== "function") throw new TypeError("callback must be a function");
-      const source = mediaTrackSources.get(track);
-      if (!source?.listeners)
-        throw makeDOMException("Track is not an encoded RTP receiver", "InvalidStateError");
-      source.listeners.add(callback);
-      return () => source.listeners.delete(callback);
-    },
+    EncodedMediaSource,
+    EncodedMediaSink,
     native,
   },
 };

@@ -102,7 +102,7 @@ The named WPT files are from pinned WPT commit
    per-SSRC snapshot. `Track` exposes no RTP counters.
 4. **Current workaround.** `TrackBinding` counts RTP packets/bytes at the addon
    boundary. The facade combines those with SCTP counters and omits loss, jitter,
-   media RTT, and remote reports. `@webrtc-node/stats` only samples/diffs reports.
+   media RTT, and remote reports. Core omits facts the backend cannot support.
 5. **Why insufficient.** Boundary counters miss native handler traffic and
    cannot classify retransmission or padding. They cannot produce remote RTCP
    views, and fabricated zeros would be misleading. Addon counters are removable.

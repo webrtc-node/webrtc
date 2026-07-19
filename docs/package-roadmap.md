@@ -1,103 +1,108 @@
-# Package and Organization Roadmap
+# Package Boundaries and Roadmap
 
-`webrtc-node` is the GitHub and npm organization for WebRTC APIs and tooling
-for Node.js. The organization should support a complete WebRTC stack over time
-without putting low-level media APIs into the browser-compatible core facade.
+`@webrtc-node/webrtc` is the consumer-facing Node.js WebRTC runtime. Package
+boundaries follow independent product and lifecycle ownership, not W3C domain
+names. A standard media or statistics API does not move out of core merely
+because it concerns media or stats.
 
-## Current Packages
+## Current Decision
 
-`@webrtc-node/webrtc` is the W3C-facing runtime package. Its experimental scope
-includes peer connections, data channels, encoded media tracks, RTP
-sender/receiver/transceiver objects, and standards-shaped statistics backed by
-libdatachannel. In the experimental workspace branch its package root is
-`packages/webrtc`; the package name, exports, install behavior, prebuild asset
-names, and WPT conformance scope stay unchanged.
+The intentional workspace contains one public package:
 
-The experimental workspace also contains two implemented companion packages:
+| Package | Decision | Reason |
+| --- | --- | --- |
+| `@webrtc-node/webrtc` | Retain | Owns the native backend and the complete applicable W3C object model. |
+| `@webrtc-node/media` | Fold into core and remove | Its two encoded RTP/RTCP adapters share core track/native ownership, save no runtime dependency, and previously depended on an undocumented source-object contract. |
+| `@webrtc-node/stats` | Remove | Its sampler and delta helper were small generic utilities over public `getStats()` results, not an independent WebRTC implementation or substantial diagnostics product. |
 
-- `@webrtc-node/media` provides optional encoded RTP packet sources and sinks
-  behind standard core `MediaStreamTrack` values. It does not implement browser
-  capture, rendering, codecs, RTP packet construction, or pacing.
-- `@webrtc-node/stats` provides scheduling and delta utilities over standard
-  core `RTCStatsReport` values. It does not define a separate stats model.
+The former media adapter remains available as
+`nonstandard.EncodedMediaSource` and `nonstandard.EncodedMediaSink` from
+`@webrtc-node/webrtc`. These Node-specific adapters produce and consume
+standard `MediaStreamTrack` values; they do not replace the W3C media object
+model. Authoritative stats production, `getStats()`, and `RTCStatsReport` remain
+in core. Generic polling and differencing are application concerns unless a
+future diagnostics package has a broader independently maintainable purpose.
 
-These packages share a coordinated version because both consume a typed
-native companion capability supplied by `@webrtc-node/webrtc`.
+## Decision Criteria
 
-## Package Boundaries
+`@webrtc-node/webrtc` is the only current package that satisfies all package
+criteria:
 
-Packages start only when they have a real implementation and a clear user story.
+- It has a distinct consumer purpose: a complete applicable W3C WebRTC runtime
+  for Node.js.
+- It owns the native addon, prebuild installation, JavaScript state machine,
+  TypeScript declarations, WPT contract, and standardized statistics.
+- Its package identity and release lifecycle already exist independently.
+- Consumers know to install it for peer connections, data channels, media/RTP,
+  transports, and stats.
 
-- `@webrtc-node/webrtc`: stable WebRTC runtime package and default install.
-- `@webrtc-node/media`: optional encoded RTP source/sink adapters.
-- `@webrtc-node/stats`: standard stats report sampling and deltas.
-- `@webrtc-node/native`: shared native/build layer, only if duplication becomes
-  a real maintenance problem.
-- `@webrtc-node/test-utils`: internal or development-only WPT, interop, and
-  peer-pair helpers, only if tests outgrow the main package.
+The encoded packet adapter is real and optional, but a separate package did not
+reduce dependencies: libdatachannel media support and the addon were already in
+core. Its source attachment, replacement, clone, stop, callback, and teardown
+behavior are the same lifecycle as `MediaStreamTrack` and `RTCRtpSender`.
+Consolidation removes a cross-package private contract and keeps that state under
+one owner. The broad `media` name also implied capture, devices, codecs, or
+rendering that the adapter intentionally does not provide.
 
-Media and stats remain companion packages because encoded packet I/O and report
-sampling are optional utilities. Standard negotiation and statistics APIs live
-in `@webrtc-node/webrtc`.
+The former stats package used only public core APIs, which was good isolation,
+but it was not substantial enough to justify the broad `stats` name or a second
+release lifecycle. It owned no authoritative measurements, exporters, storage,
+aggregation model, or diagnostics protocol. Removing it avoids implying that
+ordinary W3C stats access requires another install.
 
-## Repository Layout
+## Core Ownership
 
-Keep separate repositories for different products or independently maintained
-efforts:
+`@webrtc-node/webrtc` owns:
 
-- `webrtc-node/webrtc`: runtime package repository.
-- `webrtc-node/website`: documentation and project site, if the website grows
-  beyond the README and docs in this repo.
-- `webrtc-node/examples`: larger examples, if examples grow beyond small
-  package smoke examples.
-- `webrtc-node/benchmarks`: repeatable benchmarks and historical performance
-  results, if benchmark infrastructure becomes substantial.
+- `RTCPeerConnection`, signaling, ICE, DTLS, SCTP, and data channels;
+- `MediaStream`, `MediaStreamTrack`, RTP senders/receivers/transceivers, and
+  negotiation lifecycle;
+- transport objects, certificates, `getStats()`, `RTCStatsReport`, and every
+  standardized dictionary backed by reliable data;
+- the native addon, libdatachannel integration, prebuilds, and install fallback;
+- Node-specific encoded RTP/RTCP source and sink adapters in the typed
+  `nonstandard` namespace.
 
-Do not create one repository per tightly coupled runtime package by default.
-`webrtc`, `media`, and `stats` will likely share native build logic, WPT
-helpers, interop tests, prebuild workflows, and release checks. Once there is a
-second real runtime package, the `webrtc-node/webrtc` repository can become a
-workspace repository for related runtime packages.
+Browser capture, device selection, rendering, media elements, capture UI,
+encoding, decoding, RTP packet construction, and pacing remain intentional
+non-goals.
 
-## Workspace Migration Trigger
+## Rejected Alternatives
 
-Do not create additional workspace packages just for structure. Add a package
-only when it has real code, stable metadata, tests, documentation, packed
-content validation, and a clear maintenance owner.
+- **Retain `@webrtc-node/media`.** Rejected because separation preserved no
+  dependency boundary and made one native track lifecycle span two packages.
+- **Rename it to `@webrtc-node/encoded-media`.** More accurate, but still only a
+  thin wrapper over core-owned source state. A rename would add migration and
+  release cost without creating independent ownership.
+- **Retain or rename `@webrtc-node/stats`.** Rejected until there is a substantial
+  diagnostics product using only public APIs, such as exporters, aggregation,
+  persistence, or an observability integration with its own compatibility
+  contract.
+- **Create `@webrtc-node/native` or `@webrtc-node/test-utils`.** Rejected because
+  there is no duplicated native consumer or independently reusable test surface
+  that outweighs another package boundary.
 
-A future workspace layout can look like this:
+## Future Package Rule
 
-```text
-packages/
-  webrtc/
-  media/
-  stats/
-  native/
-  test-utils/
-examples/
-docs/
-scripts/
-```
+A new public package requires all of the following before it enters the
+workspace:
 
-Experimental workspace migration branches may add root-level workspace
-metadata and move the existing runtime package under `packages/webrtc`, but
-they must not publish empty package placeholders. See
-[Experimental Workspace Migration](workspace-migration.md) for the current
-guardrails and blockers.
+- a real optional capability and an accurate, narrow name;
+- an explicit stable integration contract using public APIs;
+- meaningful dependency or complexity isolation;
+- enough implementation, tests, and documentation to maintain independently;
+- independent versioning, packaging, release, and published-install validation;
+- no local-path dependency and no placeholder API.
 
-## Release Model
-
-The three runtime packages use lockstep versions while media and stats depend
-on the companion native capability in `@webrtc-node/webrtc`. Release publishes
-the native package first, followed by media and stats, and validates all three
-packed artifacts together before publishing.
-
-Every public package should eventually use trusted publishing, provenance,
-prebuild validation when native artifacts are involved, and package-specific
-published-install smoke tests.
+If those conditions are not met, code stays in core, remains repository-internal,
+or is not added. The package decision can be revisited when implementation facts
+change; the old three-package target shape is not a compatibility requirement.
 
 ## Promotion Rule
 
-Standard APIs belong in `@webrtc-node/webrtc`. Companion packages may expose
-optional backend adapters, but normal media negotiation and stats inspection
-must not require a custom object model.
+The workspace is not ready merely because one package remains. Promotion still
+requires applicable W3C behavior, focused local and strict remote WPT, native
+ownership and teardown safety, reliable backend-supported stats, publish-safe
+contents, prebuild validation, and CI/release compatibility. See
+[Experimental Workspace Migration](workspace-migration.md) and
+[libdatachannel Upstream Candidates](libdatachannel-upstream-candidates.md).

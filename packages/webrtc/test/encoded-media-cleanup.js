@@ -7,8 +7,8 @@ const path = require("node:path");
 const packageRoot = path.resolve(__dirname, "..");
 function verifyCleanup(extraSource) {
   const script = `
-  const { RTCPeerConnection } = require("@webrtc-node/webrtc");
-  const { EncodedMediaSource } = require(${JSON.stringify(packageRoot)});
+  const { nonstandard, RTCPeerConnection } = require(${JSON.stringify(packageRoot)});
+  const { EncodedMediaSource } = nonstandard;
   const peer = new RTCPeerConnection();
   const source = new EncodedMediaSource({
     kind: "video",

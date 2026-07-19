@@ -39,3 +39,21 @@ for (const scenario of scenarios) {
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
+
+console.log("\nChrome E2E scenario: encoded RTP interoperability");
+const encodedMediaResult = spawnSync(
+  process.execPath,
+  [
+    "--test",
+    "--test-force-exit",
+    "--test-timeout=60000",
+    path.join(__dirname, "encoded-media-chrome.test.js"),
+  ],
+  {
+    env: process.env,
+    stdio: "inherit",
+  },
+);
+
+if (encodedMediaResult.error) throw encodedMediaResult.error;
+if (encodedMediaResult.status !== 0) process.exit(encodedMediaResult.status ?? 1);

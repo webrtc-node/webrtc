@@ -19,7 +19,11 @@ const {
 } = require("..");
 
 function track(kind = "audio") {
-  return nonstandard.createMediaStreamTrack({ kind, label: `encoded ${kind}` });
+  const codec =
+    kind === "audio"
+      ? { mimeType: "audio/opus", payloadType: 111 }
+      : { mimeType: "video/VP8", payloadType: 96 };
+  return new nonstandard.EncodedMediaSource({ kind, codec, label: `encoded ${kind}` }).track;
 }
 
 test("media event constructors expose WebIDL arity and required dictionaries", () => {
@@ -511,6 +515,7 @@ test("remote answer rejection leaves a non-stopping transceiver inactive", async
 
 test("rejected remote media sections remain available for m-line recycling", async () => {
   const peer = new RTCPeerConnection();
+  let trackEvents = 0;
   const rejectedVideoOffer = {
     type: "offer",
     sdp: [
@@ -532,7 +537,12 @@ test("rejected remote media sections remain available for m-line recycling", asy
     ].join("\r\n"),
   };
   try {
+    peer.ontrack = () => {
+      trackEvents += 1;
+    };
     await peer.setRemoteDescription(rejectedVideoOffer);
+    assert.equal(peer.getTransceivers().length, 1);
+    assert.equal(trackEvents, 0);
     await peer.setLocalDescription();
     assert.deepEqual(peer.getTransceivers(), []);
 

@@ -2,7 +2,7 @@
   "name": "webrtc-node-workspace",
   "version": "0.2.1",
   "private": true,
-  "description": "Workspace for the @webrtc-node/webrtc runtime and companion packages.",
+  "description": "Workspace for the @webrtc-node/webrtc runtime package.",
   "workspaces": [
     "packages/*"
   ],
@@ -10,7 +10,7 @@
     "build": "npm run build --workspaces --if-present",
     "check": "biome check . && npm run workspace:check",
     "clean": "npm run clean -w @webrtc-node/webrtc",
-    "e2e:chrome": "npm run e2e:chrome -w @webrtc-node/webrtc && npm run e2e:chrome -w @webrtc-node/media",
+    "e2e:chrome": "npm run e2e:chrome -w @webrtc-node/webrtc",
     "example:datachannel": "node examples/datachannel.js",
     "format": "biome format --write .",
     "format:check": "biome format .",

@@ -2,8 +2,8 @@
 
 This document records the experimental mapping from the W3C media and statistics APIs to the
 pinned libdatachannel backend. The consumer-facing object model belongs to
-`@webrtc-node/webrtc`; companion packages only provide optional encoded packet I/O and report
-sampling.
+`@webrtc-node/webrtc`. Its typed `nonstandard` namespace also owns optional
+application-supplied encoded packet I/O so native track lifecycle does not cross a package boundary.
 
 ## Specification Mapping
 
@@ -15,7 +15,8 @@ sampling.
 - `RTCStatsReport` is a read-only JavaScript maplike object. Only measurements produced reliably by
   the backend are included.
 - Capture, rendering, device selection, codec processing, RTP packet construction, and pacing are
-  outside scope. `@webrtc-node/media` accepts already encoded and packetized RTP/RTCP.
+  outside scope. `nonstandard.EncodedMediaSource` and `nonstandard.EncodedMediaSink` accept already
+  encoded and packetized RTP/RTCP.
 
 Applicable WPT is added incrementally. Tests whose subject is browser capture, rendering, media
 elements, devices, or capture UI are non-applicable to this Node transport runtime. The harness
@@ -99,8 +100,8 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
 ## Validation Scope
 
 Required coverage includes facade lifecycle tests, Node-to-Node RTP, browser-to-Node RTP, focused
-media/stats WPT, native close and forced-process teardown, TypeScript/API checks, package dry runs,
-and remote full conformance. The full WPT suite is not run locally. The selected mandatory stats
+media/stats WPT, native close and forced-process teardown, TypeScript/API checks, the core package
+dry run, and remote full conformance. The full WPT suite is not run locally. The selected mandatory stats
 WPT coverage declares the stable identities of 37 backend-supported checks because that upstream
 file registers its field tests dynamically after media negotiation. Execution still runs the
 upstream parent test and each selected field assertion; only list-mode discovery uses the declared

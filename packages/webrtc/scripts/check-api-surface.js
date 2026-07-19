@@ -83,7 +83,11 @@ function createInstances() {
   const sctpTransport = Object.assign(Object.create(api.RTCSctpTransport.prototype), {
     onstatechange: null,
   });
-  const mediaTrack = api.nonstandard.createMediaStreamTrack({ kind: "audio" });
+  const encodedMediaSource = new api.nonstandard.EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+  });
+  const mediaTrack = encodedMediaSource.track;
   const mediaStream = new api.MediaStream([mediaTrack]);
   const transceiver = peerConnection.addTransceiver(mediaTrack);
   const instances = {
@@ -118,7 +122,13 @@ function createInstances() {
     }),
     RTCPeerConnection: peerConnection,
   };
-  return { instances, cleanup: () => peerConnection.close() };
+  return {
+    instances,
+    cleanup: () => {
+      encodedMediaSource.close();
+      peerConnection.close();
+    },
+  };
 }
 
 const declaredClasses = parseDeclaredClasses(declarations);

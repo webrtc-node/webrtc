@@ -2,8 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { RTCPeerConnection, RTCStatsReport } = require("@webrtc-node/webrtc");
-const { RTCStatsSampler, diffStatsReports } = require("..");
+const { RTCPeerConnection, RTCStatsReport } = require("..");
 
 function waitFor(target, type, timeout = 10000) {
   return new Promise((resolve, reject) => {
@@ -38,86 +37,6 @@ test("RTCPeerConnection.getStats returns a read-only RTCStatsReport", async () =
     assert.equal(transport.dtlsState, "new");
     assert.equal(transport.iceState, "new");
     assert.equal(Object.isFrozen(transport), true);
-  } finally {
-    peer.close();
-  }
-});
-
-test("diffStatsReports computes deltas for matching standardized entries", () => {
-  const previous = new Map([
-    [
-      "outbound-rtp-0",
-      {
-        id: "outbound-rtp-0",
-        type: "outbound-rtp",
-        timestamp: 1000,
-        packetsSent: 2,
-        bytesSent: 20,
-        ssrc: 100,
-      },
-    ],
-  ]);
-  const current = new Map([
-    [
-      "outbound-rtp-0",
-      {
-        id: "outbound-rtp-0",
-        type: "outbound-rtp",
-        timestamp: 2000,
-        packetsSent: 5,
-        bytesSent: 50,
-        ssrc: 200,
-      },
-    ],
-  ]);
-  assert.deepEqual(diffStatsReports(previous, current).get("outbound-rtp-0"), {
-    id: "outbound-rtp-0",
-    type: "outbound-rtp",
-    timestamp: 2000,
-    packetsSent: 3,
-    bytesSent: 30,
-  });
-});
-
-test("RTCStatsSampler samples standard reports and validates lifecycle", async () => {
-  const peer = new RTCPeerConnection();
-  try {
-    const sampler = new RTCStatsSampler(peer, { interval: 10 });
-    assert.equal((await sampler.sample()).delta, null);
-    assert.ok((await sampler.sample()).delta instanceof Map);
-    sampler.start(() => {});
-    assert.throws(() => sampler.start(() => {}), /already running/);
-    sampler.stop();
-  } finally {
-    peer.close();
-  }
-});
-
-test("RTCStatsSampler rejects foreign targets", () => {
-  assert.throws(() => new RTCStatsSampler({}), TypeError);
-  const peer = new RTCPeerConnection();
-  try {
-    assert.throws(() => new RTCStatsSampler(peer, { onError: true }), TypeError);
-  } finally {
-    peer.close();
-  }
-});
-
-test("RTCStatsSampler stops and reports asynchronous callback failures", async () => {
-  const peer = new RTCPeerConnection();
-  try {
-    let samples = 0;
-    const reported = new Promise((resolve) => {
-      const sampler = new RTCStatsSampler(peer, { interval: 10, onError: resolve });
-      sampler.start(() => {
-        samples += 1;
-        throw new Error("consumer failed");
-      });
-    });
-    const error = await reported;
-    assert.match(error.message, /consumer failed/);
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    assert.equal(samples, 1);
   } finally {
     peer.close();
   }

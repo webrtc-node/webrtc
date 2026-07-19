@@ -6,11 +6,10 @@ const path = require("node:path");
 const test = require("node:test");
 
 test("media peers tolerate queued callbacks, close, GC, and process teardown", () => {
-  const mediaRoot = path.resolve(__dirname, "..");
-  const webrtcRoot = path.resolve(__dirname, "..", "..", "webrtc");
+  const webrtcRoot = path.resolve(__dirname, "..");
   const script = `
-    const { EncodedMediaSink, EncodedMediaSource } = require(${JSON.stringify(mediaRoot)});
-    const { RTCPeerConnection } = require(${JSON.stringify(webrtcRoot)});
+    const { nonstandard, RTCPeerConnection } = require(${JSON.stringify(webrtcRoot)});
+    const { EncodedMediaSink, EncodedMediaSource } = nonstandard;
 
     function waitFor(target, type) {
       return new Promise((resolve) => target.addEventListener(type, resolve, { once: true }));

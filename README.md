@@ -5,9 +5,9 @@
   <a href="https://www.npmjs.com/package/@webrtc-node/webrtc"><img alt="npm" src="https://img.shields.io/npm/v/@webrtc-node/webrtc"></a>
   <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D20-339933">
   <img alt="API" src="https://img.shields.io/badge/API-W3C--style-0a7">
-  <img alt="Data Channels" src="https://img.shields.io/badge/scope-data%20channels-4c1">
+  <img alt="Scope" src="https://img.shields.io/badge/scope-WebRTC-4c1">
   <img alt="TypeScript" src="https://img.shields.io/badge/types-TypeScript-3178c6">
-  <img alt="WPT" src="https://img.shields.io/badge/WPT-691%20selected%20subtests-4c1">
+  <img alt="WPT" src="https://img.shields.io/badge/WPT-844%20selected%20subtests-4c1">
   <img alt="Native API" src="https://img.shields.io/badge/native-Node--API-blue">
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange">
 </p>
@@ -20,7 +20,7 @@
 <p align="center">
   Backed by
   <a href="https://github.com/paullouisageneau/libdatachannel">libdatachannel</a>,
-  shipped as a Node-API native addon, and validated with 691 selected Web
+  shipped as a Node-API native addon, and validated with 844 selected Web
   Platform Tests subtests.
 </p>
 
@@ -76,11 +76,12 @@ testing your workload.
 | Linux construct+close PC | 53k ops/s | 3.2k ops/s | 200 ops/s |
 | Linux negotiated DC create+close | 2.2k ops/s | 974 ops/s | 173 ops/s |
 
-## Optional Packages
+## Encoded Media and Stats
 
-Standard media negotiation and statistics APIs are exported by `@webrtc-node/webrtc`. Optional
-workspace companions provide [encoded RTP packet sources and sinks](packages/media/README.md) and
-[RTCStatsReport sampling](packages/stats/README.md). The media/stats surface remains experimental.
+Standard media negotiation, RTP objects, `getStats()`, and `RTCStatsReport` are
+part of `@webrtc-node/webrtc`. Application-supplied encoded RTP/RTCP sources and
+sinks are available from its typed `nonstandard` namespace; see
+[Nonstandard libdatachannel Extensions](docs/nonstandard.md).
 
 ## Contributing
 

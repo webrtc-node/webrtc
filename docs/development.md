@@ -110,15 +110,14 @@ is built because the WPT harness loads the public WebRTC facade. Use
 ## Package Artifact
 
 CI has a Linux `Package artifact` job that packs the
-three workspace packages, installs their tarballs together in a clean project,
-then extracts and builds the `@webrtc-node/webrtc` source artifact. This guards
-against missing packed files, unpublished local dependency specifiers, and
-companion/native version mismatches. Run `npm run package:check` for dry-run
-pack validation of every package.
+`@webrtc-node/webrtc` workspace package, installs its tarball in a clean project,
+then extracts and builds the source artifact. This guards against missing packed
+files and install/source-build regressions. Run `npm run package:check` for
+dry-run pack validation.
 
 Use `WEBRTC_NODE_NATIVE_PATH=/absolute/path/to/webrtc_node.node` to test a
 specific local native binary. Set `WEBRTC_NODE_BUILD_FROM_SOURCE=1` during
 installation to force the install script to compile with `cmake-js`.
 
-`npm run e2e:chrome` runs both the data-channel interoperability suite and the
-media package's Chrome-to-Node VP8 receive test.
+`npm run e2e:chrome` runs the data-channel interoperability suite plus
+Chrome-to-Node and Node-to-Chrome encoded-media tests from the core package.

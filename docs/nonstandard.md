@@ -5,11 +5,51 @@ capabilities for advanced integrations. These APIs are
 implementation-specific, may change between minor releases, and are not part of
 this package's W3C compatibility claims.
 
-`getNativePeerConnection()` is the typed integration boundary used by the
-`@webrtc-node/media` and `@webrtc-node/stats` companion packages. Application
-code should use those packages instead of calling the returned native
-capabilities directly. The function validates package identity and closed-peer
-state before exposing track and transport-counter operations.
+`getNativePeerConnection()` validates package identity and closed-peer state
+before exposing a limited native track/transport surface. It is an advanced
+escape hatch, not a cross-package integration contract.
+
+## Encoded RTP and RTCP
+
+Applications that already produce packetized media can create a standard track
+without a browser capture source:
+
+```js
+const { nonstandard, RTCPeerConnection } = require("@webrtc-node/webrtc");
+
+const pc = new RTCPeerConnection();
+const source = new nonstandard.EncodedMediaSource({
+  kind: "video",
+  codec: { mimeType: "video/VP8", payloadType: 96 },
+  ssrc: 42,
+});
+
+pc.addTrack(source.track);
+source.send(rtpPacket);
+```
+
+`EncodedMediaSource.track` is a standard `MediaStreamTrack` accepted by
+`addTrack()`, `addTransceiver()`, and `replaceTrack()`. An
+`EncodedMediaSink` subscribes to complete RTP/RTCP packets from a received
+standard track:
+
+```js
+pc.addEventListener("track", ({ track }) => {
+  const sink = new nonstandard.EncodedMediaSink(track);
+  sink.addEventListener("packet", ({ data }) => consumePacket(data));
+});
+```
+
+The adapters do not capture devices, encode or decode media, render media,
+generate RTP headers, or pace packets. Packet validity, sequence numbers,
+timestamps, SSRC consistency, pacing, and codec compatibility are application
+responsibilities. Supported audio codecs are Opus, PCMA, PCMU, G722, and AAC;
+supported video codecs are H264, H265, VP8, VP9, and AV1.
+
+Cloned tracks share their encoded source. Stopping one clone does not close the
+source while another clone remains live; `source.close()` ends every live clone.
+Incoming packets are dispatched on the Node event loop, and the native pending
+queue is bounded at 1024 packets.
 
 ## UDP mux
 
