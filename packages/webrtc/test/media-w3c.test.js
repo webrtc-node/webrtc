@@ -995,6 +995,14 @@ test("sender parameter transactions validate task lifetime and immutable fields"
     await waitForWebRtcTask();
     await assert.rejects(sender.setParameters(first), { name: "InvalidStateError" });
 
+    const beforeTimer = sender.getParameters();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.notEqual(beforeTimer.transactionId, sender.getParameters().transactionId);
+
+    const beforeImmediate = sender.getParameters();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.notEqual(beforeImmediate.transactionId, sender.getParameters().transactionId);
+
     const modified = sender.getParameters();
     modified.rtcp.cname = `${modified.rtcp.cname}-modified`;
     await assert.rejects(sender.setParameters(modified), { name: "InvalidModificationError" });

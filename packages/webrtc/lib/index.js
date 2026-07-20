@@ -797,6 +797,23 @@ function runNextWebRtcTask() {
   }
 }
 
+function queueTaskBoundary(task) {
+  let completed = false;
+  let timer;
+  let immediate;
+  const run = () => {
+    if (completed) return;
+    completed = true;
+    clearTimeout(timer);
+    clearImmediate(immediate);
+    task();
+  };
+
+  // Node changes timer/immediate ordering by event-loop phase, so race both task queues.
+  timer = setTimeout(run, 0);
+  immediate = setImmediate(run);
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -3997,7 +4014,7 @@ class RTCRtpSender {
     if (this._lastReturnedParameters === null) {
       const parameters = senderRtpParameters(this._transceiver, crypto.randomUUID());
       this._lastReturnedParameters = parameters;
-      setImmediate(() => {
+      queueTaskBoundary(() => {
         if (this._lastReturnedParameters === parameters) this._lastReturnedParameters = null;
       });
     }
