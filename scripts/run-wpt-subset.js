@@ -251,14 +251,21 @@ const defaultSpecs = [
   { file: "webrtc/promises-call.html" },
   {
     file: "webrtc/RTCPeerConnection-restartIce.https.html",
-    include: ["restartIce() has no effect on a closed peer connection"],
+    include: [
+      "restartIce() has no effect on a closed peer connection",
+      "restartIce() does not trigger negotiation ahead of initial negotiation",
+      "restartIce() has no effect on initial negotiation",
+      "restartIce() fires negotiationneeded after initial negotiation",
+    ],
   },
+  { file: "webrtc/RTCPeerConnection-restartIce-onnegotiationneeded.https.html" },
   {
     file: "webrtc/RTCPeerConnection-createOffer.html",
     include: [
       "createOffer() returns RTCSessionDescriptionInit",
       "createOffer() and then setLocalDescription() should succeed",
       "createOffer() after connection is closed",
+      "When media stream is added when createOffer() is running in parallel, the result offer should contain the new media stream",
     ],
   },
   {
@@ -309,6 +316,7 @@ const defaultSpecs = [
     file: "webrtc/RTCPeerConnection-setLocalDescription.html",
     include: [
       "Calling createOffer() and setLocalDescription() again after one round of local-offer/remote-answer should succeed",
+      "Switching role from answerer to offerer after going back to stable state should succeed",
       "onsignalingstatechange fires before setLocalDescription resolves",
     ],
   },
@@ -375,6 +383,7 @@ const defaultSpecs = [
       "invalid type and invalid SDP",
       "invalid SDP and stable state",
       "Negotiation should fire signalingsstate events",
+      "Calling setRemoteDescription() again after one round of remote-offer/local-answer should succeed",
       "Switching role from offerer to answerer after going back to stable state should succeed",
       "Closing on setRemoteDescription() neither resolves nor rejects",
       "Closing on rollback neither resolves nor rejects",
@@ -657,13 +666,30 @@ const defaultSpecs = [
   {
     file: "webrtc/RTCPeerConnection-getStats.https.html",
     search: "?rest",
-    include: ["getStats() with no argument should succeed", "getStats(null) should succeed"],
+    include: [
+      "getStats() with no argument should succeed",
+      "getStats(null) should succeed",
+      "getStats() with track added via addTrack should succeed",
+      "getStats() with track added via addTransceiver should succeed",
+      "RTCStats.timestamp increases with time passing",
+    ],
   },
   {
     file: "webrtc/RTCPeerConnection-getStats.https.html",
     search: "?interop-2026",
     include: [
+      "getStats() with track not added to connection should reject with InvalidAccessError",
+      "getStats() with track associated with both sender and receiver should reject with InvalidAccessError",
       "getStats() with no argument should return stats report containing peer-connection stats on an empty PC",
+      "getStats() track with stream returns peer-connection and outbound-rtp stats",
+      "getStats() track without stream returns peer-connection and outbound-rtp stats",
+      "getStats() audio contains outbound-rtp stats",
+      "getStats() video contains outbound-rtp stats",
+      "getStats() on track associated with RTCRtpSender should return stats report containing outbound-rtp stats",
+      "getStats() on track associated with RTCRtpReceiver should return stats report containing inbound-rtp stats",
+      "getStats() audio contains inbound-rtp stats",
+      "getStats(track) should not work if multiple senders have the same track",
+      "getStats succeeds on a closed peerconnection",
     ],
   },
   { file: "webrtc/getstats.html" },
