@@ -1,0 +1,11 @@
+diff --git a/src/impl/peerconnection.cpp b/src/impl/peerconnection.cpp
+--- a/src/impl/peerconnection.cpp
++++ b/src/impl/peerconnection.cpp
+@@ -174 +174,6 @@ shared_ptr<IceTransport> PeerConnection::initIceTransport() {
+-						    initDtlsTransport();
++						    mProcessor.enqueue([weak_this] {
++							    if (auto locked = weak_this.lock()) {
++								    std::lock_guard signalingLock(locked->signalingMutex);
++								    locked->initDtlsTransport();
++							    }
++						    });

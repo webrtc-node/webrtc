@@ -68,6 +68,9 @@ set(LIBDATACHANNEL_SOURCE_DIR "${WEBRTC_NODE_DEFAULT_LIBDATACHANNEL_SOURCE_DIR}"
 set(LIBDATACHANNEL_VERIFY_PINNED_COMMIT ON CACHE BOOL
     "Verify that a git libdatachannel checkout matches LIBDATACHANNEL_PINNED_COMMIT.")
 
+set(WEBRTC_NODE_LIBDATACHANNEL_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/0001-libdatachannel-serialize-dtls-startup.patch")
+
 function(verify_libdatachannel_pin source_dir)
   if(NOT LIBDATACHANNEL_VERIFY_PINNED_COMMIT)
     return()
@@ -99,6 +102,61 @@ function(verify_libdatachannel_pin source_dir)
   endif()
 endfunction()
 
+function(prepare_patched_libdatachannel_source source_dir output_var)
+  if(NOT EXISTS "${WEBRTC_NODE_LIBDATACHANNEL_PATCH}")
+    message(FATAL_ERROR
+      "Required libdatachannel patch is missing: ${WEBRTC_NODE_LIBDATACHANNEL_PATCH}")
+  endif()
+
+  find_package(Git REQUIRED)
+  set(patched_root "${CMAKE_BINARY_DIR}/ldcp-overlay")
+  set(patched_dir "${patched_root}/src/impl")
+  set(patched_source "${patched_dir}/peerconnection.cpp")
+  file(REMOVE_RECURSE "${patched_root}")
+  file(MAKE_DIRECTORY "${patched_dir}")
+  file(GLOB libdatachannel_impl_headers "${source_dir}/src/impl/*.hpp")
+  file(COPY ${libdatachannel_impl_headers} DESTINATION "${patched_dir}")
+  file(COPY "${source_dir}/src/impl/peerconnection.cpp" DESTINATION "${patched_dir}")
+
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --check --unidiff-zero --whitespace=nowarn
+            "${WEBRTC_NODE_LIBDATACHANNEL_PATCH}"
+    WORKING_DIRECTORY "${patched_root}"
+    RESULT_VARIABLE patch_check_result
+    ERROR_VARIABLE patch_check_error
+  )
+  if(NOT patch_check_result EQUAL 0)
+    message(FATAL_ERROR
+      "libdatachannel patch does not apply to ${LIBDATACHANNEL_PINNED_COMMIT}: "
+      "${patch_check_error}")
+  endif()
+
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --unidiff-zero --whitespace=nowarn
+            "${WEBRTC_NODE_LIBDATACHANNEL_PATCH}"
+    WORKING_DIRECTORY "${patched_root}"
+    RESULT_VARIABLE patch_result
+    ERROR_VARIABLE patch_error
+  )
+  if(NOT patch_result EQUAL 0)
+    message(FATAL_ERROR "Failed to apply libdatachannel patch: ${patch_error}")
+  endif()
+
+  set(${output_var} "${patched_source}" PARENT_SCOPE)
+endfunction()
+
+function(replace_libdatachannel_peerconnection_source target source_dir patched_source)
+  set(original_source "${source_dir}/src/impl/peerconnection.cpp")
+  get_target_property(target_sources "${target}" SOURCES)
+  list(FIND target_sources "${original_source}" source_index)
+  if(source_index EQUAL -1)
+    message(FATAL_ERROR "Could not replace ${original_source} on target ${target}.")
+  endif()
+  list(REMOVE_AT target_sources ${source_index})
+  list(INSERT target_sources ${source_index} "${patched_source}")
+  set_property(TARGET "${target}" PROPERTY SOURCES "${target_sources}")
+endfunction()
+
 if(EXISTS "${LIBDATACHANNEL_SOURCE_DIR}/CMakeLists.txt")
   set(LIBDATACHANNEL_RESOLVED_SOURCE_DIR "${LIBDATACHANNEL_SOURCE_DIR}")
 else()
@@ -125,7 +183,11 @@ else()
   set(LIBDATACHANNEL_RESOLVED_SOURCE_DIR "${ldc_SOURCE_DIR}")
 endif()
 
+file(REAL_PATH "${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}" LIBDATACHANNEL_RESOLVED_SOURCE_DIR)
 verify_libdatachannel_pin("${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}")
+prepare_patched_libdatachannel_source(
+  "${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}"
+  LIBDATACHANNEL_PATCHED_PEERCONNECTION_SOURCE)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_DEPS_LIBS OFF CACHE BOOL "" FORCE)
@@ -140,6 +202,14 @@ if(WEBRTC_NODE_STATIC_OPENSSL)
 endif()
 
 add_subdirectory("${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/libdatachannel" EXCLUDE_FROM_ALL)
+replace_libdatachannel_peerconnection_source(
+  datachannel
+  "${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}"
+  "${LIBDATACHANNEL_PATCHED_PEERCONNECTION_SOURCE}")
+replace_libdatachannel_peerconnection_source(
+  datachannel-static
+  "${LIBDATACHANNEL_RESOLVED_SOURCE_DIR}"
+  "${LIBDATACHANNEL_PATCHED_PEERCONNECTION_SOURCE}")
 
 find_package(OpenSSL REQUIRED)
 

@@ -41,7 +41,7 @@ The named WPT files are from pinned WPT commit
 | Transceiver-like media-section lifecycle and m-line reuse | `confirmed-absent` | None found |
 | Observable media DTLS-SRTP/ICE state and pair statistics | `confirmed-absent` | None found |
 | Per-m-section ICE/DTLS transport topology | `confirmed-absent` | None found |
-| DTLS startup after remote-description commit | `confirmed-absent` | None found |
+| DTLS startup after remote-description commit | `upstream-ready` | Approval required before filing |
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
@@ -496,7 +496,7 @@ candidate.
 
 ## DTLS startup after remote-description commit
 
-**Status:** `confirmed-absent`
+**Status:** `upstream-ready`
 
 1. **Requirement and WPT.** Applying a valid remote answer must commit its ICE
    credentials and DTLS fingerprint before connectivity can start a DTLS
@@ -507,6 +507,7 @@ candidate.
    suite additionally exchanges fully gathered offers and answers.
 2. **Source inspected.** `src/peerconnection.cpp`,
    `src/impl/peerconnection.hpp`, `src/impl/peerconnection.cpp`,
+   `src/impl/processor.hpp`,
    `src/impl/icetransport.cpp`, `src/impl/dtlstransport.cpp`,
    `src/impl/dtlssrtptransport.cpp`, `deps/libjuice/src/agent.c`,
    `test/connectivity.cpp`, and `test/negotiated.cpp`.
@@ -525,50 +526,53 @@ candidate.
    CI run [29751712216](https://github.com/webrtc-node/webrtc/actions/runs/29751712216)
    also produced one empty native `setRemoteDescription(answer)` rejection on
    macOS Node 22 during immediate media-stop renegotiation; the failed job's
-   retry passed, so this is phase-sensitive binding-level evidence rather than
-   the independent C++ reproduction required for upstream filing.
+   retry passed. The public-API-only C++ harness then reproduced the same startup
+   failure independently of the addon: exact-head CI run
+   [29760635264](https://github.com/webrtc-node/webrtc/actions/runs/29760635264)
+   failed 1/500 valid handshakes on Ubuntu Node 24, and exact-head Conformance run
+   [29760637275](https://github.com/webrtc-node/webrtc/actions/runs/29760637275)
+   failed 3/500 on macOS Node 22. Every iteration had already observed answer-side
+   ICE checks before the delayed full answer was applied.
 4. **Current workaround.** There is no correctness-preserving facade workaround.
-   The facade can defer inline candidate insertion, but it cannot prevent buffered
-   connectivity checks from firing when native ICE credentials are installed, and
-   a closed native transport cannot be reconstructed without changing candidates,
-   identity, and object lifetime. Any downstream backend patch must be temporary
-   and removable with this entry.
+   The build therefore applies the removable downstream patch
+   `packages/webrtc/patches/0001-libdatachannel-serialize-dtls-startup.patch`
+   to a build-private copy of the affected compilation unit. The ICE `Connected`
+   callback queues DTLS startup on the peer `Processor`; that task acquires the
+   signaling mutex, so an in-flight remote-description operation commits the
+   fingerprint before DTLS construction. The pinned checkout is not modified.
 5. **Why insufficient.** Catching the candidate exception would report a committed
    JavaScript description over a closed native transport. Omitting gathered offer
    candidates hides the race by changing signaling behavior and does not cover
    ordinary full-SDP exchange. JavaScript cannot make the native ICE credential
    update and remote-fingerprint commit atomic.
-6. **Proposed upstream behavior.** Gate DTLS initialization on a committed remote
-   description containing a fingerprint. After remote-description commit, start
-   DTLS if ICE is already `Connected` or `Completed`; otherwise let the ICE state
-   callback start it. Serialize the two paths so exactly one peer-owned transport
-   is created. Keep ICE and DTLS callbacks on their existing backend threads and
-   retain the existing `Processor` dispatch for peer close and public state
-   callbacks. No new public API is required.
+6. **Proposed upstream behavior.** Queue DTLS initialization from the ICE
+   `Connected` callback onto the peer-owned `Processor`, then acquire the existing
+   signaling mutex before creating the transport. This serializes startup after
+   remote-description commit without blocking a potentially synchronous backend
+   callback or exposing a new public API. The queued task holds only a weak peer
+   reference until execution; the locked peer owns the created transport. Keep
+   public state callbacks on their existing threads and preserve close semantics.
 7. **Required native tests.** The binding now carries the public-API-only
    `packages/webrtc/test/native/dtls-startup-race.cpp` regression, built through
    the opt-in `WEBRTC_NODE_BUILD_NATIVE_TESTS` CMake option. It lets a full
    offer's candidates produce checks before the offerer applies the full answer,
    then asserts a valid fingerprint connects and an invalid fingerprint fails.
-   Stress the commit/connected ordering, multiple inline candidates, trickle ICE,
-   close during the delayed start, and repeated construction and teardown.
+   Failures report both peers' final peer, ICE, gathering, and channel states plus
+   error-level backend logs. Upstream should retain this stress case and add
+   multiple inline candidates, trickle ICE, close during the delayed start, and
+   repeated construction and teardown.
 8. **Compatibility/build options.** Exercise libjuice and libnice, OpenSSL,
    GnuTLS, and Mbed TLS, and media-enabled and media-disabled builds. Preserve
    `forceMediaTransport`, explicit fingerprint-verification policy, candidate
    ordering, and current public ABI. The change should only defer premature DTLS;
    it must not accept an absent or mismatched fingerprint.
 9. **Upstream links.** No matching issue, pull request, or released fix found as
-   of 2026-07-20. An independent C++ reproduction is still required before this
-   item can become `upstream-ready`. Public-API-only Windows and exact-head
-   Ubuntu Node 24 harness runs applied 500 delayed full answers after answer-side
-   ICE checks had started; all valid fingerprints connected, while 10
-   corrupted-fingerprint controls failed authentication. The Ubuntu runs passed
-   in both [CI](https://github.com/webrtc-node/webrtc/actions/runs/29751712216)
-   and [Conformance](https://github.com/webrtc-node/webrtc/actions/runs/29751714459),
-   so they did not reproduce the earlier Ubuntu binding race. CI and Conformance
-   now also exercise the harness on macOS Node 22. A failing native run remains
-   required rather than treating source inspection or the flaky binding failure
-   alone as filing-ready.
+   of 2026-07-20. Earlier exact-head Ubuntu runs passed 500/500, and the same
+   failing head passed 500/500 on CI macOS and local Windows, confirming that the
+   defect is phase-sensitive. The source-backed public C++ reproduction, minimal
+   downstream patch, ownership/threading contract, and native test plan make this
+   item `upstream-ready`. No issue or pull request has been opened; explicit
+   approval is required first.
 
 ## Native ICE restart with fresh credentials
 

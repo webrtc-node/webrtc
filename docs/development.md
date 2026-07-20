@@ -11,9 +11,9 @@ npm run native:check
 npm run build
 ```
 
-`native:check` verifies the pinned `libdatachannel` commit, Node-API usage, and
-thread-safe callback dispatch. The build uses `cmake-js` and links
-`LibDataChannel::LibDataChannelStatic`.
+`native:check` verifies the pinned `libdatachannel` commit, the audited downstream
+patch, Node-API usage, and thread-safe callback dispatch. The build uses
+`cmake-js` and links `LibDataChannel::LibDataChannelStatic`.
 
 The opt-in backend regression executable applies delayed full answers directly
 through libdatachannel's public C++ API, after answer-side ICE checks begin. It
@@ -30,7 +30,13 @@ and from npm package contents.
 
 If a local `libdatachannel/` checkout exists, CMake verifies it against the
 pinned commit. Otherwise it fetches the pinned upstream commit with
-`FetchContent`.
+`FetchContent`. Until the DTLS startup fix is released upstream, CMake copies
+only `src/impl/peerconnection.cpp` and its private headers into the build tree,
+applies
+`patches/0001-libdatachannel-serialize-dtls-startup.patch`, and
+compiles that replacement unit. The local checkout remains unchanged, and the
+patch is included in source packages so install fallback and prebuilds use the
+same backend.
 
 ## Local Checks
 

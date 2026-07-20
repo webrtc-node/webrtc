@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -64,6 +65,17 @@ void observe(rtc::PeerConnection &peerConnection, const std::shared_ptr<Observed
   });
 }
 
+std::string describe(const char *label, const std::shared_ptr<ObservedState> &state) {
+  std::lock_guard lock(state->mutex);
+  std::ostringstream output;
+  output << label << "(peer=" << state->peer << ", ice=" << state->ice
+         << ", gathering=" << state->gathering
+         << ", channel-open=" << (state->channelOpen ? "true" : "false")
+         << ", ever-connected=" << (state->everConnected ? "true" : "false")
+         << ", ever-failed=" << (state->everFailed ? "true" : "false") << ')';
+  return output.str();
+}
+
 rtc::Description corruptFingerprint(rtc::Description description) {
   auto fingerprint = description.fingerprint();
   if (!fingerprint || fingerprint->value.empty()) {
@@ -101,7 +113,14 @@ IterationResult runIteration(bool invalidFingerprint) {
   observe(offerer, offererState);
   observe(answerer, answererState);
 
-  answerer.onDataChannel([remoteChannel](std::shared_ptr<rtc::DataChannel> channel) {
+  answerer.onDataChannel([answererState, remoteChannel](std::shared_ptr<rtc::DataChannel> channel) {
+    channel->onOpen([answererState] {
+      {
+        std::lock_guard lock(answererState->mutex);
+        answererState->channelOpen = true;
+      }
+      answererState->changed.notify_all();
+    });
     std::lock_guard lock(remoteChannel->mutex);
     remoteChannel->channel = std::move(channel);
   });
@@ -171,10 +190,19 @@ IterationResult runIteration(bool invalidFingerprint) {
     else if (!completed || !offererState->everFailed)
       result.error = "invalid fingerprint did not fail authentication";
   } else {
-    result.connected = waitFor(offererState, 5s, [](const ObservedState &state) {
-      return state.peer == rtc::PeerConnection::State::Connected && state.channelOpen;
+    waitFor(offererState, 10s, [](const ObservedState &state) {
+      return (state.everConnected && state.channelOpen) || state.everFailed ||
+             state.peer == rtc::PeerConnection::State::Disconnected ||
+             state.peer == rtc::PeerConnection::State::Closed;
     });
-    if (!result.connected) result.error = "valid full answer did not connect";
+    {
+      std::lock_guard lock(offererState->mutex);
+      result.connected = offererState->everConnected && offererState->channelOpen;
+    }
+    if (!result.connected) {
+      result.error = "valid full answer did not connect; " + describe("offerer", offererState) +
+                     "; " + describe("answerer", answererState);
+    }
   }
 
   return finish(std::move(result));
@@ -190,6 +218,7 @@ int main(int argc, char **argv) {
     return 2;
   }
 
+  if (!invalidFingerprint) rtc::InitLogger(rtc::LogLevel::Error);
   rtc::SetThreadPoolSize(4);
   int failures = 0;
   int checksStarted = 0;

@@ -8,10 +8,16 @@ const root = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(root, "..", "..");
 const addonPath = path.join(root, "src", "native", "addon.cc");
 const cmakePath = path.join(root, "CMakeLists.txt");
+const dtlsPatchPath = path.join(
+  root,
+  "patches",
+  "0001-libdatachannel-serialize-dtls-startup.patch",
+);
 const manifestPath = path.join(repoRoot, "wpt-manifest.json");
 
 const addon = fs.readFileSync(addonPath, "utf8");
 const cmake = fs.readFileSync(cmakePath, "utf8");
+const dtlsPatch = fs.readFileSync(dtlsPatchPath, "utf8");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 
 function fail(message) {
@@ -77,6 +83,21 @@ requireMatch(
   "local checkout pin verification",
   cmake,
   /verify_libdatachannel_pin\s*\(\s*"\$\{LIBDATACHANNEL_RESOLVED_SOURCE_DIR\}"\s*\)/,
+);
+requireMatch(
+  "build-private libdatachannel patch application",
+  cmake,
+  /prepare_patched_libdatachannel_source\s*\([\s\S]*LIBDATACHANNEL_PATCHED_PEERCONNECTION_SOURCE\s*\)/,
+);
+requireMatch(
+  "patched libdatachannel compilation unit replacement",
+  cmake,
+  /replace_libdatachannel_peerconnection_source\s*\([\s\S]*datachannel-static/,
+);
+requireMatch(
+  "serialized DTLS startup patch",
+  dtlsPatch,
+  /mProcessor\.enqueue[\s\S]*signalingMutex[\s\S]*initDtlsTransport/,
 );
 requireMatch(
   "media-enabled build",

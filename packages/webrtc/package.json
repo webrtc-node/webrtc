@@ -45,6 +45,7 @@
     "src/native/addon.cc",
     "src/native/certificate.cc",
     "src/native/certificate.hpp",
+    "patches",
     "CMakeLists.txt",
     "index.d.ts"
   ],
