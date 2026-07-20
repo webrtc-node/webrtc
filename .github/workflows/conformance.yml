@@ -68,7 +68,9 @@ jobs:
       - run: npm run build
 
       - name: Run pinned libdatachannel DTLS startup regression
-        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        if: >-
+          (matrix.os == 'ubuntu-latest' && matrix.node == 24) ||
+          (matrix.os == 'macos-latest' && matrix.node == 22)
         env:
           WEBRTC_NODE_DTLS_RACE_ITERATIONS: 500
           WEBRTC_NODE_DTLS_RACE_INVALID_ITERATIONS: 10

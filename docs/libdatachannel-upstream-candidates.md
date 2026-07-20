@@ -441,7 +441,12 @@ candidate.
    candidate without ICE transport`. The Ubuntu Chrome mixed-channel
    interoperability scenario observed that exact failure while applying a valid
    full answer. The pinned source and upstream master
-   `d5d31c7d794345d7aa536c074a9e17cbec95089d` have the same ordering.
+   `d5d31c7d794345d7aa536c074a9e17cbec95089d` have the same ordering. Exact-head
+   CI run [29751712216](https://github.com/webrtc-node/webrtc/actions/runs/29751712216)
+   also produced one empty native `setRemoteDescription(answer)` rejection on
+   macOS Node 22 during immediate media-stop renegotiation; the failed job's
+   retry passed, so this is phase-sensitive binding-level evidence rather than
+   the independent C++ reproduction required for upstream filing.
 4. **Current workaround.** There is no correctness-preserving facade workaround.
    The facade can defer inline candidate insertion, but it cannot prevent buffered
    connectivity checks from firing when native ICE credentials are installed, and
@@ -474,11 +479,16 @@ candidate.
    it must not accept an absent or mismatched fingerprint.
 9. **Upstream links.** No matching issue, pull request, or released fix found as
    of 2026-07-20. An independent C++ reproduction is still required before this
-   item can become `upstream-ready`. A public-API-only Windows harness applied
-   500 delayed full answers after answer-side ICE checks had started; all 500
-   valid fingerprints connected, while 10 corrupted-fingerprint controls stayed
-   disconnected. This did not reproduce the Ubuntu race, so a Linux reproduction
-   remains required rather than treating source inspection alone as filing-ready.
+   item can become `upstream-ready`. Public-API-only Windows and exact-head
+   Ubuntu Node 24 harness runs applied 500 delayed full answers after answer-side
+   ICE checks had started; all valid fingerprints connected, while 10
+   corrupted-fingerprint controls failed authentication. The Ubuntu runs passed
+   in both [CI](https://github.com/webrtc-node/webrtc/actions/runs/29751712216)
+   and [Conformance](https://github.com/webrtc-node/webrtc/actions/runs/29751714459),
+   so they did not reproduce the earlier Ubuntu binding race. CI and Conformance
+   now also exercise the harness on macOS Node 22. A failing native run remains
+   required rather than treating source inspection or the flaky binding failure
+   alone as filing-ready.
 
 ## Native ICE restart with fresh credentials
 
