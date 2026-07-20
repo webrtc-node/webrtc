@@ -2545,6 +2545,9 @@ class RTCSctpTransport extends SimpleEventTarget {
   }
 
   _setState(state) {
+    if (this._state === "closed" || (this._state === "connected" && state === "connecting")) {
+      return;
+    }
     if (this._state === state) return;
     this._state = state;
     this.dispatchEvent(makeEvent("statechange"));
@@ -2552,7 +2555,7 @@ class RTCSctpTransport extends SimpleEventTarget {
 
   _setLimits({ maxMessageSize, maxChannels }) {
     this._maxMessageSize = maxMessageSize;
-    this._maxChannels = maxChannels;
+    if (this._state !== "connected" || maxChannels !== null) this._maxChannels = maxChannels;
   }
 }
 

@@ -924,6 +924,31 @@ test("data-channel negotiation exposes an SCTP transport facade", async (t) => {
   answerer.close();
 });
 
+test("connected SCTP state and limits survive transient peer state replay", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
+  offerer.createDataChannel("sctp-state-replay");
+
+  await exchangeOfferAnswer(offerer, answerer);
+  await Promise.all([
+    waitForState(offerer.sctp, "connected"),
+    waitForState(answerer.sctp, "connected"),
+  ]);
+  const maxChannels = offerer.sctp.maxChannels;
+  let stateChanges = 0;
+  offerer.sctp.addEventListener("statechange", () => {
+    stateChanges += 1;
+  });
+
+  offerer._applyVisibleConnectionState("connecting");
+  offerer._applyVisibleIceConnectionState("checking");
+
+  assert.equal(offerer.sctp.state, "connected");
+  assert.equal(offerer.sctp.maxChannels, maxChannels);
+  assert.equal(stateChanges, 0);
+});
+
 test("concurrent answer application retains native peer ownership", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
