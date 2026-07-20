@@ -5582,6 +5582,9 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._localDescriptionSetByApi = hasDataMediaSection(this._localDescription);
         return;
       }
+      const representedNegotiationRevision = this._revisionForLocalDescription(
+        normalized || (type === "offer" ? this._lastCreatedOffer : this._lastCreatedAnswer),
+      );
       if (type === "answer" && this._jsOnlyIceRestartRemoteOffer) {
         const answer =
           normalized ||
@@ -5622,7 +5625,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._nonstandardPreparedLocalDescriptionType = null;
         this._nonstandardLocalIceCredentials = null;
         if (type === "offer") {
-          this._setPendingLocalDescription(this._localDescription);
+          this._setPendingLocalDescription(this._localDescription, representedNegotiationRevision);
           pendingLocalOfferApplied = true;
         }
         this._syncStatesFromNative();
@@ -5660,7 +5663,10 @@ class RTCPeerConnection extends SimpleEventTarget {
             directionTemplate,
           );
           if (type === "offer") {
-            this._setPendingLocalDescription(this._localDescription);
+            this._setPendingLocalDescription(
+              this._localDescription,
+              representedNegotiationRevision,
+            );
             pendingLocalOfferApplied = true;
           }
           this._syncStatesFromNative();
@@ -5668,11 +5674,13 @@ class RTCPeerConnection extends SimpleEventTarget {
         }
       }
       if (type === "offer") {
-        if (!pendingLocalOfferApplied) this._setPendingLocalDescription(this._localDescription);
+        if (!pendingLocalOfferApplied) {
+          this._setPendingLocalDescription(this._localDescription, representedNegotiationRevision);
+        }
         this._syncSignalingStateFromDescriptions();
       } else if (type === "answer") {
         this._commitRemoteDescription();
-        this._commitLocalDescription(this._localDescription);
+        this._commitLocalDescription(this._localDescription, representedNegotiationRevision);
         this._syncSignalingStateFromDescriptions();
         for (const candidate of this._pendingIce.splice(0)) {
           await this._addIceCandidateWithoutChain(candidate);
@@ -7104,7 +7112,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this.dispatchEvent(makeEvent("signalingstatechange"));
   }
 
-  _setPendingLocalDescription(description) {
+  _setPendingLocalDescription(description, representedRevision = null) {
     if (description?.type === "offer") {
       const sections = parseSdpMediaSections(description.sdp).mediaSections;
       for (const transceiver of this._transceivers) {
@@ -7118,17 +7126,23 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._pendingLocalDescription = description;
     this._localDescription = description || this._currentLocalDescription;
     if (description?.type === "offer") {
-      this._pendingLocalNegotiationRevision = this._revisionForLocalDescription(description);
+      this._pendingLocalNegotiationRevision =
+        representedRevision ?? this._revisionForLocalDescription(description);
       this._recomputeNegotiationNeeded(this._pendingLocalNegotiationRevision);
     }
   }
 
-  _commitLocalDescription(description = this._pendingLocalDescription || this._localDescription) {
+  _commitLocalDescription(
+    description = this._pendingLocalDescription || this._localDescription,
+    representedRevision = null,
+  ) {
     if (description) this._currentLocalDescription = description;
     if (description?.type === "offer") {
       this._negotiatedRevision = Math.max(
         this._negotiatedRevision,
-        this._pendingLocalNegotiationRevision ?? this._revisionForLocalDescription(description),
+        this._pendingLocalNegotiationRevision ??
+          representedRevision ??
+          this._revisionForLocalDescription(description),
       );
       this._pendingLocalNegotiationRevision = null;
     } else if (
@@ -7137,7 +7151,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     ) {
       this._negotiatedRevision = Math.max(
         this._negotiatedRevision,
-        this._revisionForLocalDescription(description),
+        representedRevision ?? this._revisionForLocalDescription(description),
       );
     }
     this._pendingLocalDescription = null;
@@ -7879,9 +7893,10 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _markNegotiationNeeded() {
     if (this._closed) return;
+    const alreadyNeeded = this._negotiationNeeded;
     this._negotiationRevision += 1;
     this._negotiationNeeded = true;
-    this._scheduleNegotiationNeededEvent();
+    if (!alreadyNeeded) this._scheduleNegotiationNeededEvent();
   }
 
   _scheduleNegotiationNeededEvent() {

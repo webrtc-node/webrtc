@@ -612,6 +612,24 @@ test("media changes queue negotiationneeded", async () => {
   }
 });
 
+test("additional media changes do not refire an outstanding negotiationneeded event", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    let eventCount = 0;
+    peer.addEventListener("negotiationneeded", () => {
+      eventCount += 1;
+    });
+    peer.addTransceiver("audio");
+    await waitFor(peer, "negotiationneeded");
+    peer.addTransceiver("video");
+    peer.createDataChannel("media-and-data");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(eventCount, 1);
+  } finally {
+    peer.close();
+  }
+});
+
 test("setStreams renegotiates only when the stream identity set changes", async () => {
   const peer = new RTCPeerConnection();
   const remote = new RTCPeerConnection();
@@ -721,6 +739,30 @@ test("media changes after a local offer renegotiate when signaling becomes stabl
   } finally {
     peer.close();
     remote.close();
+  }
+});
+
+test("removeTrack during local answer application remains negotiation-needed", async () => {
+  const caller = new RTCPeerConnection();
+  const callee = new RTCPeerConnection();
+  try {
+    caller.addTransceiver("audio", { direction: "recvonly" });
+    const offer = await caller.createOffer();
+
+    const sender = callee.addTrack(track());
+    await waitFor(callee, "negotiationneeded");
+    await callee.setRemoteDescription(offer);
+    const answer = await callee.createAnswer();
+    const applying = callee.setLocalDescription(answer);
+    callee.removeTrack(sender);
+    const renegotiation = waitFor(callee, "negotiationneeded");
+
+    await applying;
+    await renegotiation;
+    assert.equal(callee.getTransceivers()[0].direction, "recvonly");
+  } finally {
+    caller.close();
+    callee.close();
   }
 });
 
