@@ -40,6 +40,7 @@ The named WPT files are from pinned WPT commit
 | Explicit track removal and stopping lifecycle | `confirmed-absent` | None found |
 | Transceiver-like media-section lifecycle and m-line reuse | `confirmed-absent` | None found |
 | Observable media DTLS-SRTP/ICE state and pair statistics | `confirmed-absent` | None found |
+| DTLS startup after remote-description commit | `confirmed-absent` | None found |
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
@@ -411,6 +412,66 @@ candidate.
 8. **Compatibility/build options.** Preserve aggregate APIs and make unavailable
    backend fields optional. SRTP counters require `RTC_ENABLE_MEDIA`.
 9. **Upstream links.** No matching issue or released API found as of 2026-07-13.
+
+## DTLS startup after remote-description commit
+
+**Status:** `confirmed-absent`
+
+1. **Requirement and WPT.** Applying a valid remote answer must commit its ICE
+   credentials and DTLS fingerprint before connectivity can start a DTLS
+   handshake. A correct fingerprint must connect, while an incorrect fingerprint
+   must fail authentication rather than racing an empty description. Applicable
+   WPT: `webrtc/RTCPeerConnection-setRemoteDescription-answer.html` and
+   `webrtc/protocol/dtls-fingerprint-validation.html`. The Chrome interoperability
+   suite additionally exchanges fully gathered offers and answers.
+2. **Source inspected.** `src/peerconnection.cpp`,
+   `src/impl/peerconnection.hpp`, `src/impl/peerconnection.cpp`,
+   `src/impl/icetransport.cpp`, `src/impl/dtlstransport.cpp`,
+   `src/impl/dtlssrtptransport.cpp`, `deps/libjuice/src/agent.c`,
+   `test/connectivity.cpp`, and `test/negotiated.cpp`.
+3. **Absence evidence.** `PeerConnection::setRemoteDescription()` passes ICE
+   credentials to `IceTransport::setRemoteDescription()` before
+   `processRemoteDescription()` stores `mRemoteDescription`. Already received ICE
+   checks can therefore change ICE to `Connected` in that interval. The connected
+   callback unconditionally calls `initDtlsTransport()`, while
+   `checkFingerprint()` returns false when `mRemoteDescription` or its fingerprint
+   is absent. DTLS failure queues `remoteClose()`, which atomically clears the ICE
+   transport. The later inline-candidate loop can then throw `Got a remote
+   candidate without ICE transport`. The Ubuntu Chrome mixed-channel
+   interoperability scenario observed that exact failure while applying a valid
+   full answer. The pinned source and upstream master
+   `d5d31c7d794345d7aa536c074a9e17cbec95089d` have the same ordering.
+4. **Current workaround.** There is no correctness-preserving facade workaround.
+   The facade can defer inline candidate insertion, but it cannot prevent buffered
+   connectivity checks from firing when native ICE credentials are installed, and
+   a closed native transport cannot be reconstructed without changing candidates,
+   identity, and object lifetime. Any downstream backend patch must be temporary
+   and removable with this entry.
+5. **Why insufficient.** Catching the candidate exception would report a committed
+   JavaScript description over a closed native transport. Omitting gathered offer
+   candidates hides the race by changing signaling behavior and does not cover
+   ordinary full-SDP exchange. JavaScript cannot make the native ICE credential
+   update and remote-fingerprint commit atomic.
+6. **Proposed upstream behavior.** Gate DTLS initialization on a committed remote
+   description containing a fingerprint. After remote-description commit, start
+   DTLS if ICE is already `Connected` or `Completed`; otherwise let the ICE state
+   callback start it. Serialize the two paths so exactly one peer-owned transport
+   is created. Keep ICE and DTLS callbacks on their existing backend threads and
+   retain the existing `Processor` dispatch for peer close and public state
+   callbacks. No new public API is required.
+7. **Required native tests.** Add a standalone two-peer test that lets a full
+   offer's candidates produce checks before the offerer applies the full answer,
+   then asserts a valid fingerprint connects and an invalid fingerprint fails.
+   Stress the commit/connected ordering, multiple inline candidates, trickle ICE,
+   close during the delayed start, and repeated construction and teardown.
+8. **Compatibility/build options.** Exercise libjuice and libnice, OpenSSL,
+   GnuTLS, and Mbed TLS, and media-enabled and media-disabled builds. Preserve
+   `forceMediaTransport`, explicit fingerprint-verification policy, candidate
+   ordering, and current public ABI. The change should only defer premature DTLS;
+   it must not accept an absent or mismatched fingerprint.
+9. **Upstream links.** No matching issue, pull request, or released fix found as
+   of 2026-07-20. An independent C++ reproduction is still required before this
+   item can become `upstream-ready`.
 
 ## Native ICE restart with fresh credentials
 
