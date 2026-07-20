@@ -391,6 +391,7 @@ const defaultSpecs = [
       "setRemoteDescription(offer) in stable should update internal state with a queued task, in the right order",
       "Naive rollback approach is not glare-proof (control)",
       "setRemoteDescription(offer) from have-local-offer is glare-proof",
+      "setRemoteDescription(invalidOffer) from have-local-offer does not undo rollback",
       "repeated sRD(offer) works",
       "sRD(reoffer) with candidates and without trickle works",
       "Transceivers added by sRD(offer) should not show up until sRD resolves",
@@ -400,7 +401,10 @@ const defaultSpecs = [
   {
     file: "webrtc/RTCPeerConnection-setRemoteDescription-offer.html",
     search: "?interop-2026",
-    include: ["setRemoteDescription(offer) from have-local-offer fires signalingstatechange twice"],
+    include: [
+      "setRemoteDescription(offer) from have-local-offer fires signalingstatechange twice",
+      "setRemoteDescription(offer) in have-local-offer should update internal state with a queued task, in the right order",
+    ],
   },
   { file: "webrtc/RTCPeerConnection-setRemoteDescription-answer.html" },
   { file: "webrtc/RTCPeerConnection-setRemoteDescription-pranswer.html" },
@@ -758,6 +762,25 @@ function transformScriptSource(relativePath, code) {
       "gatheringState === 'gathering' || gatheringState === 'completed'",
       "gatheringState === 'gathering' || gatheringState === 'complete'",
     );
+  }
+  if (relativePath === "webrtc/RTCPeerConnection-setRemoteDescription-offer.html") {
+    // Backport upstream WPT 0510bcc94f: the pinned test passes two promises
+    // directly to Promise.any() and checks an RTCError as a DOMException name.
+    return code
+      .replace(
+        "await Promise.any(statePromise, timeoutPromise);",
+        "await Promise.race([statePromise, timeoutPromise]);",
+      )
+      .replace(
+        "await promise_rejects_dom(t, 'RTCError', p);",
+        `try {
+      await p;
+      assert_unreached('setRemoteDescription with invalid SDP should reject');
+    } catch (err) {
+      assert_true(err instanceof RTCError, 'Expect err to be instance of RTCError');
+      assert_equals(err.name, 'OperationError');
+    }`,
+      );
   }
   return code;
 }

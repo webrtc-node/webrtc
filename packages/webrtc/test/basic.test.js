@@ -14,6 +14,7 @@ const {
   RTCIceCandidate,
   RTCIceCandidatePair,
   RTCSessionDescription,
+  RTCError,
   RTCPeerConnectionIceErrorEvent,
 } = require("..");
 
@@ -364,6 +365,38 @@ test("setLocalDescription rollback updates state before its promise resolves", a
 
   await rollback;
   assert.equal(resolved, true);
+});
+
+test("invalid remote offer preserves completed implicit rollback", async (t) => {
+  const peerConnection = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(peerConnection));
+  peerConnection.addTransceiver("audio", { direction: "recvonly" });
+  await peerConnection.setLocalDescription(await peerConnection.createOffer());
+
+  const signalingStateChange = waitFor(peerConnection, "signalingstatechange");
+  let settled = false;
+  const result = peerConnection
+    .setRemoteDescription({ type: "offer", sdp: "Invalid SDP" })
+    .then(
+      () => ({ resolved: true }),
+      (error) => ({ resolved: false, error }),
+    )
+    .finally(() => {
+      settled = true;
+    });
+
+  assert.equal(peerConnection.signalingState, "have-local-offer");
+  await signalingStateChange;
+  assert.equal(peerConnection.signalingState, "stable");
+  assert.equal(peerConnection.pendingLocalDescription, null);
+  assert.equal(peerConnection.pendingRemoteDescription, null);
+  assert.equal(settled, false);
+
+  const outcome = await result;
+  assert.equal(outcome.resolved, false);
+  assert.equal(outcome.error instanceof RTCError, true);
+  assert.equal(outcome.error.name, "OperationError");
+  assert.equal(outcome.error.errorDetail, "sdp-syntax-error");
 });
 
 test("close changes signalingState without firing signalingstatechange", async () => {
