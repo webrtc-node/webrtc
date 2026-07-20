@@ -228,7 +228,8 @@ candidate.
    direction, and `a=msid` associations without replacing receiver identity.
    Applicable WPT: `webrtc/RTCRtpSender-setStreams.https.html`,
    `webrtc/RTCPeerConnection-ontrack.https.html`, and
-   `webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html`.
+   `webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html`, plus
+   `webrtc/RTCTrackEvent-fire.html` for same-track association changes.
 2. **Source inspected.** `include/rtc/track.hpp`, `src/track.cpp`,
    `src/impl/track.hpp`, `src/impl/track.cpp`,
    `src/impl/peerconnection.hpp`, `src/impl/peerconnection.cpp`,
@@ -241,8 +242,8 @@ candidate.
    associations, and synthesizes repeated `track` events.
    `NativeTrack::UpdateDescription`/`UpdateStreams` in the addon mutate copied
    media descriptions before offer/answer generation. The addon uses
-   libdatachannel's arbitrary media attributes to retain stream-only `a=msid`
-   lines when a sender has associations but no attached track.
+   libdatachannel's arbitrary media attributes to retain media-level `a=msid`
+   lines, including stable sender identity when no encoded source is attached.
 5. **Why insufficient.** Native and JavaScript description state can diverge,
    backend changes have no authoritative revision signal, and candidate-driven
    local SDP refresh requires direction realignment. The SDP diff is removable.
@@ -551,7 +552,9 @@ candidate.
    streams; renegotiation updates membership while track identity stays stable.
    Applicable WPT: `webrtc/RTCRtpSender-setStreams.https.html`,
    `webrtc/RTCPeerConnection-addTrack.https.html`, and
-   `webrtc/RTCPeerConnection-ontrack.https.html`.
+   `webrtc/RTCPeerConnection-ontrack.https.html`,
+   `webrtc/protocol/msid-generate.html`, `webrtc/protocol/msid-parse.html`, and
+   `webrtc/RTCTrackEvent-fire.html`.
 2. **Source inspected.** `include/rtc/description.hpp`, `src/description.cpp`,
    `include/rtc/track.hpp`, `src/impl/track.cpp`,
    `src/impl/peerconnection.cpp`.
@@ -561,7 +564,8 @@ candidate.
    can be manually added but peer/track APIs cannot observe structured changes.
 4. **Current workaround.** Addon `SetMediaStreamIds()` removes/rebuilds raw
    `msid:` attributes. JavaScript owns stream arrays, SDP parsing, remote stream
-   identity/membership, and repeated `track` events.
+   identity/membership, the no-MSID default stream, legacy SSRC-level fallback,
+   and repeated `track` events.
 5. **Why insufficient.** Raw rewriting duplicates state and can discard attribute
    details. Remote updates are inferred because native same-`mid` processing has
    no callback. Raw rewrite/parsing is removable; JavaScript identity remains.

@@ -148,19 +148,20 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   to a fingerprint and do not retain or publicly expose their DER, so external remote certificate
   stats are omitted rather than reconstructed.
 - Sender stream and track IDs are written as media-level `a=msid` attributes. The facade parses
-  those attributes from remote SDP, preserves remote `MediaStream` identity by ID, and dispatches
-  `track` only after the remote-description operation resolves.
-- A trackless sender can still have stream associations through `setStreams()`. The addon writes
-  RFC 9429 stream-only `a=msid:<stream-id>` attributes when no sender track ID exists; it does not
-  invent an encoded source, SSRC, or track ID. libdatachannel retains these arbitrary media
-  attributes when `Track::setDescription()` produces the next offer.
+  those attributes from remote SDP, falls back to legacy SSRC-level MSID only when media-level
+  MSID is absent, and preserves remote `MediaStream` identity by ID. SDP with no MSID uses one
+  stable peer-scoped default stream; explicit `a=msid:-` remains streamless.
+- A trackless sending transceiver retains a stable sender track identifier for JSEP signaling. The
+  addon writes `a=msid:- <track-id>` or the sender's `setStreams()` associations without inventing
+  an encoded source or SSRC. `recvonly` and `inactive` sections omit sender MSID. libdatachannel
+  retains these arbitrary media attributes when `Track::setDescription()` produces the next offer.
 - Each peer connection creates one stable RTCP CNAME. The addon supplies it to
   `Description::Media::addSSRC()` on creation and description updates, so `getParameters().rtcp`
   reports the same value that libdatachannel serializes for every local SSRC.
 - libdatachannel does not invoke `onTrack()` again when renegotiation only changes `a=msid` on an
   existing track. The facade detects changed remote associations from SDP, updates stream
   membership, preserves the encoded packet listener source, and queues the W3C-required repeated
-  `track` event without duplicating native callbacks.
+  `track` event after the remote-description operation without duplicating native callbacks.
 - A bidirectional m-line may have multiple libdatachannel track handles for the locally created
   sender and remotely announced receiver even though all use the same `mid`. The facade retains
   separate send ownership plus every announced receive handle under one JavaScript transceiver.

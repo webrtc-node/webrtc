@@ -83,12 +83,18 @@ function mediaDirectionByMid(description, mid) {
 
 function mediaStreamIdsByMid(description, mid) {
   const section = mediaSectionByMid(description, mid);
-  if (!section) return { streamIds: [], trackId: null };
-  const associations = [...section.matchAll(/(?:^|\r?\n)a=msid:([^\s]+)(?:[ \t]+([^\s]+))?/g)];
+  if (!section) return { streamIds: [], trackId: null, hasMsid: false };
+  let associations = [...section.matchAll(/(?:^|\r?\n)a=msid:([^\s]+)(?:[ \t]+([^\s]+))?/g)];
+  if (associations.length === 0) {
+    associations = [
+      ...section.matchAll(/(?:^|\r?\n)a=ssrc:\d+[ \t]+msid:([^\s]+)(?:[ \t]+([^\s]+))?/g),
+    ];
+  }
   const trackId = associations.find((match) => match[2])?.[2] || null;
   return {
     streamIds: [...new Set(associations.map((match) => match[1]).filter((id) => id !== "-"))],
     trackId,
+    hasMsid: associations.length > 0,
   };
 }
 
@@ -1079,6 +1085,7 @@ function rtpCodecsFromMediaSection(section, kind) {
     };
     const channels = Number(encoding[2]);
     if (Number.isInteger(channels)) codec.channels = channels;
+    else if (kind === "audio") codec.channels = 1;
     const fmtp = section.lines.find((line) => line.startsWith(`a=fmtp:${payloadTypeText} `));
     if (fmtp) {
       codec.sdpFmtpLine = fmtp.slice(fmtp.indexOf(" ") + 1);
@@ -4328,6 +4335,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._dataChannelsOpened = 0;
     this._dataChannelsClosed = 0;
     this._remoteMediaStreams = new Map();
+    this._defaultRemoteMediaStream = null;
     this._negotiationNeeded = false;
     this._negotiationNeededScheduled = false;
     this._negotiationRevision = 0;
@@ -4876,7 +4884,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   _applyRemoteTrackAssociations(transceiver, description) {
     const association = mediaStreamIdsByMid(description, transceiver.mid);
     if (association.trackId) transceiver.receiver.track._id = association.trackId;
-    const streams = association.streamIds.map((id) => {
+    let streams = association.streamIds.map((id) => {
       let stream = this._remoteMediaStreams.get(id);
       if (!stream) {
         stream = new MediaStream();
@@ -4886,6 +4894,11 @@ class RTCPeerConnection extends SimpleEventTarget {
       stream._addTrack(transceiver.receiver.track, true);
       return stream;
     });
+    if (!association.hasMsid) {
+      this._defaultRemoteMediaStream ||= new MediaStream();
+      this._defaultRemoteMediaStream._addTrack(transceiver.receiver.track, true);
+      streams = [this._defaultRemoteMediaStream];
+    }
     for (const previous of transceiver._remoteStreams || []) {
       if (!streams.includes(previous)) previous._removeTrack(transceiver.receiver.track, true);
     }
@@ -4895,7 +4908,8 @@ class RTCPeerConnection extends SimpleEventTarget {
 
   _remoteTrackAssociationKey(transceiver, description) {
     const association = mediaStreamIdsByMid(description, transceiver.mid);
-    return `${transceiver.mid}|${association.trackId || ""}|${association.streamIds.join(",")}`;
+    const source = association.hasMsid ? "msid" : "default";
+    return `${transceiver.mid}|${source}|${association.trackId || ""}|${association.streamIds.join(",")}`;
   }
 
   _queueTrackEvent(transceiver, streams, associationKey) {

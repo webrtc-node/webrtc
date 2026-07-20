@@ -544,6 +544,9 @@ const defaultSpecs = [
   { file: "mediacapture-streams/MediaStream-finished-add.https.html" },
   { file: "mediacapture-streams/MediaStream-add-audio-track.https.html" },
   { file: "mediacapture-streams/MediaStreamTrack-init.https.html" },
+  { file: "webrtc/protocol/msid-generate.html" },
+  { file: "webrtc/protocol/msid-parse.html" },
+  { file: "webrtc/RTCTrackEvent-fire.html" },
   {
     file: "webrtc/RTCPeerConnection-ontrack.https.html",
     include: [

@@ -374,6 +374,34 @@ test("answer codec preferences intersect the offer in answerer order", async () 
   }
 });
 
+test("answers accept omitted mono RTP channel counts", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    offerer.addTransceiver("audio");
+    const offer = await offerer.createOffer();
+    const parsed = offer.sdp.split("\r\n");
+    const sdp = parsed
+      .filter((line) => !/^a=(?:rtpmap|rtcp-fb|fmtp):/.test(line) || /^a=rtpmap:0\s/i.test(line))
+      .map((line) => {
+        if (line.startsWith("m=audio ")) {
+          return line.replace(/^(m=audio\s+\d+\s+\S+)\s+.+$/, "$1 0");
+        }
+        if (/^a=rtpmap:0\s/i.test(line)) return "a=rtpmap:0 PCMU/8000";
+        return line;
+      })
+      .join("\r\n");
+
+    await answerer.setRemoteDescription({ type: "offer", sdp });
+    const answer = await answerer.createAnswer();
+    assert.match(answer.sdp, /^m=audio \d+ \S+ 0$/m);
+    assert.match(answer.sdp, /^a=rtpmap:0 PCMU\/8000(?:\/1)?$/m);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
 test("encoded sources reject codec preferences that exclude their packet codec", async () => {
   const peer = new RTCPeerConnection();
   const source = new nonstandard.EncodedMediaSource({
@@ -833,6 +861,62 @@ test("setRemoteDescription rejects one MSID association across media sections", 
     );
     assert.equal(answerer.signalingState, "stable");
     assert.deepEqual(answerer.getTransceivers(), []);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("remote media without MSID shares one default stream", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    offerer.addTransceiver("audio");
+    offerer.addTransceiver("video");
+    const offer = await offerer.createOffer();
+    const events = [];
+    answerer.addEventListener("track", (event) => events.push(event));
+
+    await answerer.setRemoteDescription({
+      type: "offer",
+      sdp: offer.sdp.replace(/^a=msid:[^\r\n]*\r?\n/gm, ""),
+    });
+
+    assert.equal(events.length, 2);
+    assert.deepEqual(
+      events.map((event) => event.streams.length),
+      [1, 1],
+    );
+    assert.equal(events[0].streams[0], events[1].streams[0]);
+    assert.deepEqual(
+      events[0].streams[0].getTracks(),
+      events.map((event) => event.track),
+    );
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("remote media falls back to source-level MSID", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    offerer.addTransceiver("audio");
+    const offer = await offerer.createOffer();
+    const trackEvent = new Promise((resolve) => answerer.addEventListener("track", resolve));
+    const sdp = offer.sdp.replace(
+      /^a=msid:[^\r\n]*\r?\n/gm,
+      "a=ssrc:1234 cname:legacy\r\na=ssrc:1234 msid:legacy-stream legacy-track\r\n",
+    );
+
+    await answerer.setRemoteDescription({ type: "offer", sdp });
+    const event = await trackEvent;
+    assert.equal(event.track.id, "legacy-track");
+    assert.deepEqual(
+      event.streams.map((stream) => stream.id),
+      ["legacy-stream"],
+    );
   } finally {
     offerer.close();
     answerer.close();
