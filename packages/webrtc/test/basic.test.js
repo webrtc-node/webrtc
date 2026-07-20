@@ -896,6 +896,9 @@ test("data-channel negotiation exposes an SCTP transport facade", async (t) => {
   assert.equal(answerer.sctp.state, "connected");
   assert.equal(typeof offerer.sctp.maxMessageSize, "number");
   assert.equal(typeof answerer.sctp.maxMessageSize, "number");
+  assert.equal(typeof offerer.sctp.maxChannels, "number");
+  assert.equal(typeof answerer.sctp.maxChannels, "number");
+  assert.equal(offerer.sctp.maxChannels, answerer.sctp.maxChannels);
 
   offerer.close();
   assert.equal(offerer.sctp.state, "closed");

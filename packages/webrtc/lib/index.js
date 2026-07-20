@@ -6459,7 +6459,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     this._sctpTransport._setLimits({
       maxMessageSize: this._currentSctpMaxMessageSize(),
-      maxChannels: connected ? this._currentSctpMaxChannels() : null,
+      maxChannels: connected ? this._currentSctpMaxChannels(true) : null,
     });
     this._sctpTransport._setState(closed ? "closed" : connected ? "connected" : "connecting");
     if (connected || closed) this._sctpConnectPollDeadline = 0;
@@ -7017,9 +7017,11 @@ class RTCPeerConnection extends SimpleEventTarget {
     return localLimit === 0 ? remoteLimit : Math.min(remoteLimit, localLimit);
   }
 
-  _currentSctpMaxChannels() {
+  _currentSctpMaxChannels(transportConnected = false) {
     const connected =
-      this._connectionState === "connected" || this._sctpTransport?.state === "connected";
+      transportConnected ||
+      this._connectionState === "connected" ||
+      this._sctpTransport?.state === "connected";
     if (!connected || this._selfRemoteDescription) return null;
     if (!this._native) return null;
     const maxId = Number(this._native.maxDataChannelId);
