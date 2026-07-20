@@ -177,6 +177,14 @@ pair proves it possible, and restores required state-transition ordering. A
 connection remains W3C `connected` when libjuice reports nomination because
 the backend does not expose an authoritative checklist-complete fact.
 
+The public backend also does not expose ICE controlling/controlled role:
+`IceTransport::role()` reports the SDP/DTLS `active` or `passive` setup role.
+The facade therefore infers ICE role from the first committed offer/answer and
+latches it across later ICE restarts, as required when the controlled endpoint
+initiates a restart. It cannot observe a native ICE role-conflict resolution.
+This removable workaround is tracked under
+[Observable media DTLS-SRTP/ICE state and pair statistics](libdatachannel-upstream-candidates.md#observable-media-dtls-srtpice-state-and-pair-statistics).
+
 Impact: focused WPT covers candidate-free media negotiation, one-way candidate
 exchange, responder ordering, all bundle policies, and restart state stability.
 The conservative mapping is removable when libdatachannel exposes remote

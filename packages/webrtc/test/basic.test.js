@@ -850,6 +850,25 @@ test("restartIce has no effect after close", () => {
   assert.doesNotThrow(() => pc.restartIce());
 });
 
+test("answerer-initiated ICE restart preserves established ICE roles", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
+  offerer.createDataChannel("ice-role");
+
+  await exchangeSessionDescriptions(offerer, answerer);
+  const offererIceTransport = offerer.sctp.transport.iceTransport;
+  const answererIceTransport = answerer.sctp.transport.iceTransport;
+  assert.equal(offererIceTransport.role, "controlling");
+  assert.equal(answererIceTransport.role, "controlled");
+
+  answerer.restartIce();
+  await exchangeSessionDescriptions(answerer, offerer);
+
+  assert.equal(offererIceTransport.role, "controlling");
+  assert.equal(answererIceTransport.role, "controlled");
+});
+
 test("transport facades are created by RTCPeerConnection, not public constructors", () => {
   assert.throws(() => new RTCIceTransport(), TypeError);
   assert.throws(() => new RTCDtlsTransport(), TypeError);

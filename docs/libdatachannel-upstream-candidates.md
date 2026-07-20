@@ -377,10 +377,11 @@ candidate.
 **Status:** `confirmed-absent`
 
 1. **Requirement and WPT.** RTP endpoints expose a shared DTLS transport, ICE
-   state, and selected candidate-pair stats. Applicable WPT:
+   state and role, and selected candidate-pair stats. Applicable WPT:
    `webrtc/RTCRtpSender-transport.https.html`,
    `webrtc/RTCPeerConnection-transport-stats.https.html`, and
-   `webrtc/RTCIceConnectionState-candidate-pair.https.html`.
+   `webrtc/RTCIceConnectionState-candidate-pair.https.html`, plus the role and
+   lifecycle cases in `webrtc/RTCIceTransport.html`.
 2. **Source inspected.** `src/impl/transport.hpp`,
    `src/impl/icetransport.hpp`, `src/impl/icetransport.cpp`,
    `src/impl/dtlstransport.hpp`, `src/impl/dtlstransport.cpp`,
@@ -392,6 +393,9 @@ candidate.
    but public peer API exposes only aggregate peer/ICE state. It provides selected
    candidates and addresses, but no public transport handles, DTLS-SRTP state,
    selected-pair change callback, pair counters, consent state, or ICE RTT. The
+   internal `IceTransport::role()` returns `Description::Role`, whose values are
+   the SDP/DTLS setup roles `active` and `passive`; no public API reports the ICE
+   controlling/controlled role or role-conflict changes. The
    TLS-specific certificate verification callbacks receive the peer certificate
    but retain only its fingerprint; the public API does not expose the verified
    DER certificate chain. In libjuice, gathering unconditionally changes the
@@ -402,6 +406,9 @@ candidate.
    at `agent.c:1353-1363`, but that lifecycle fact has no public callback.
 4. **Current workaround.** The facade creates stable `RTCDtlsTransport` and
    `RTCIceTransport` objects, maps aggregate events, and polls selected pairs.
+   It infers the initial ICE role from the first committed offer/answer and
+   latches that role across restarts because signaling offerer/answerer role may
+   change while the existing ICE transport role does not.
    It gates premature `checking` until signaling or a selected pair proves a
    remote candidate exists, restores W3C transition ordering in JavaScript, and
    conservatively maps native `Completed` nomination signals to W3C `connected`.
@@ -412,8 +419,9 @@ candidate.
 5. **Why insufficient.** Aggregate state loses layer transitions and SCTP
    counters are wrong for media-only/mixed traffic. JavaScript object identity
    stays, but inferred facts and counters are removable. External peer-reflexive
-   discovery cannot be observed before pair selection, and W3C completion
-   cannot be reported without risking a false standardized fact.
+   discovery cannot be observed before pair selection, native ICE role conflicts
+   cannot be reflected, and W3C completion cannot be reported without risking a
+   false standardized fact.
 6. **Proposed upstream API.** Expose value-only `IceTransportSnapshot` and
    `DtlsTransportSnapshot` with state, role, selected pair/generation,
    packet/octet counters, optional RTT, and a copied verified peer certificate
@@ -421,9 +429,10 @@ candidate.
    internal pointers across teardown threads. ICE snapshots should distinguish
    local gathering, remote-candidate availability, peer-reflexive discovery,
    pair nomination, checklist completion, and remote end-of-candidates.
-7. **Required native tests.** ICE and DTLS transitions, selected-pair change,
-   media-only and mixed counters, copied remote certificate lifetime and chain
-   order, close during callback, libjuice/libnice, and TLS/SRTP backend matrices.
+7. **Required native tests.** ICE and DTLS transitions, initial and restarted ICE
+   role stability, role-conflict resolution, selected-pair change, media-only and
+   mixed counters, copied remote certificate lifetime and chain order, close
+   during callback, libjuice/libnice, and TLS/SRTP backend matrices.
 8. **Compatibility/build options.** Preserve aggregate APIs and make unavailable
    backend fields optional. SRTP counters require `RTC_ENABLE_MEDIA`.
 9. **Upstream links.** No matching issue or released API found as of 2026-07-13.

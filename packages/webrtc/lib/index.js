@@ -6343,6 +6343,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _refreshIceRole() {
+    if (this._iceRole !== "unknown") return;
     if (this._localDescription?.type === "offer" && this._remoteDescription?.type === "answer") {
       this._iceRole = "controlling";
       return;
