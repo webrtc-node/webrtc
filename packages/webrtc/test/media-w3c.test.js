@@ -1076,6 +1076,69 @@ async function negotiate(offerer, answerer) {
   await offerer.setRemoteDescription(answerer.localDescription);
 }
 
+test("candidate-free media signaling leaves ICE in new", async () => {
+  const caller = new RTCPeerConnection();
+  const callee = new RTCPeerConnection();
+  const source = new nonstandard.EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+  });
+  try {
+    caller.addTrack(source.track);
+    await caller.setLocalDescription(await caller.createOffer());
+    const offer = caller.localDescription;
+    assert.doesNotMatch(offer.sdp, /^a=candidate:/m);
+    await callee.setRemoteDescription(offer);
+
+    const answer = await callee.createAnswer();
+    await caller.setRemoteDescription(answer);
+    await callee.setLocalDescription(answer);
+
+    assert.equal(caller.iceConnectionState, "new");
+    assert.equal(callee.iceConnectionState, "new");
+  } finally {
+    caller.close();
+    callee.close();
+    source.close();
+  }
+});
+
+test("one-way media candidates survive local-answer operation ordering", async () => {
+  const caller = new RTCPeerConnection();
+  const callee = new RTCPeerConnection();
+  const source = new nonstandard.EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+  });
+  const callerIceStates = [];
+  const candidateApplications = [];
+  try {
+    caller.addTrack(source.track);
+    caller.addEventListener("iceconnectionstatechange", () => {
+      callerIceStates.push(caller.iceConnectionState);
+    });
+    caller.addEventListener("icecandidate", ({ candidate }) => {
+      const application = callee.addIceCandidate(candidate);
+      candidateApplications.push(application);
+      application.catch(() => {});
+    });
+
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription);
+    const answer = await callee.createAnswer();
+    await caller.setRemoteDescription(answer);
+    await callee.setLocalDescription(answer);
+    await Promise.all([waitForIceConnected(caller), waitForIceConnected(callee)]);
+    await Promise.all(candidateApplications);
+
+    assert.equal(callerIceStates[0], "checking");
+  } finally {
+    caller.close();
+    callee.close();
+    source.close();
+  }
+});
+
 function waitFor(target, type, timeout = 10000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${type}`)), timeout);
@@ -1088,6 +1151,12 @@ function waitFor(target, type, timeout = 10000) {
       { once: true },
     );
   });
+}
+
+async function waitForIceConnected(peerConnection) {
+  while (!["connected", "completed"].includes(peerConnection.iceConnectionState)) {
+    await waitFor(peerConnection, "iceconnectionstatechange");
+  }
 }
 
 async function waitForWebRtcTask() {

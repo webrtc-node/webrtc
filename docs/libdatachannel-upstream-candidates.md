@@ -385,28 +385,41 @@ candidate.
    `src/impl/dtlstransport.hpp`, `src/impl/dtlstransport.cpp`,
    `src/impl/dtlssrtptransport.hpp`,
    `src/impl/dtlssrtptransport.cpp`, `src/impl/peerconnection.hpp`,
-   `src/impl/peerconnection.cpp`, `include/rtc/peerconnection.hpp`.
+   `src/impl/peerconnection.cpp`, `include/rtc/peerconnection.hpp`,
+   `deps/libjuice/src/agent.c`, and `deps/libjuice/test/conflict.c`.
 3. **Absence evidence.** ICE, DTLS, and DTLS-SRTP have internal state callbacks,
    but public peer API exposes only aggregate peer/ICE state. It provides selected
    candidates and addresses, but no public transport handles, DTLS-SRTP state,
    selected-pair change callback, pair counters, consent state, or ICE RTT. The
    TLS-specific certificate verification callbacks receive the peer certificate
    but retain only its fingerprint; the public API does not expose the verified
-   DER certificate chain.
+   DER certificate chain. In libjuice, gathering unconditionally changes the
+   agent to `JUICE_STATE_CONNECTING` at `agent.c:322`, even with no remote
+   candidate pair. A nominated pair changes it to `JUICE_STATE_COMPLETED` at
+   `agent.c:1152-1158`; this is not an authoritative W3C checklist-complete
+   signal. Authenticated inbound STUN requests create peer-reflexive candidates
+   at `agent.c:1353-1363`, but that lifecycle fact has no public callback.
 4. **Current workaround.** The facade creates stable `RTCDtlsTransport` and
    `RTCIceTransport` objects, maps aggregate events, and polls selected pairs.
+   It gates premature `checking` until signaling or a selected pair proves a
+   remote candidate exists, restores W3C transition ordering in JavaScript, and
+   conservatively maps native `Completed` nomination signals to W3C `connected`.
    SCTP bytes stand in for pair traffic; media-only traffic cannot be represented.
    Local certificate stats use binding-retained DER. Remote certificate stats
    are complete only for paired in-process peers, where the remote binding owns
    authoritative DER; external peers expose only their verified fingerprint.
 5. **Why insufficient.** Aggregate state loses layer transitions and SCTP
    counters are wrong for media-only/mixed traffic. JavaScript object identity
-   stays, but inferred facts and counters are removable.
+   stays, but inferred facts and counters are removable. External peer-reflexive
+   discovery cannot be observed before pair selection, and W3C completion
+   cannot be reported without risking a false standardized fact.
 6. **Proposed upstream API.** Expose value-only `IceTransportSnapshot` and
    `DtlsTransportSnapshot` with state, role, selected pair/generation,
    packet/octet counters, optional RTT, and a copied verified peer certificate
    chain in DER form. Dispatch state/pair callbacks on `Processor`; do not expose
-   internal pointers across teardown threads.
+   internal pointers across teardown threads. ICE snapshots should distinguish
+   local gathering, remote-candidate availability, peer-reflexive discovery,
+   pair nomination, checklist completion, and remote end-of-candidates.
 7. **Required native tests.** ICE and DTLS transitions, selected-pair change,
    media-only and mixed counters, copied remote certificate lifetime and chain
    order, close during callback, libjuice/libnice, and TLS/SRTP backend matrices.

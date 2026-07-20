@@ -159,6 +159,20 @@ same objects back `RTCSctpTransport.transport` when media and data are bundled.
 Detailed media candidate-pair timing and statistics remain outside the current
 expected-pass set.
 
+libjuice enters its `CONNECTING` state when local gathering starts, even when
+zero remote candidates exist, and enters `COMPLETED` when a pair is nominated.
+Those are not sufficient by themselves for the W3C `checking` and `completed`
+states. The facade therefore keeps a candidate-free connection at `new`, admits
+peer-reflexive connectivity after an exchanged candidate or native selected
+pair proves it possible, and restores required state-transition ordering. A
+connection remains W3C `connected` when libjuice reports nomination because
+the backend does not expose an authoritative checklist-complete fact.
+
+Impact: focused WPT covers candidate-free media negotiation, one-way candidate
+exchange, responder ordering, all bundle policies, and restart state stability.
+The conservative mapping is removable when libdatachannel exposes remote
+candidate/checklist lifecycle facts distinct from nomination.
+
 ## Data channel closing
 
 libdatachannel does not expose a native `closing` ready state. The JS facade

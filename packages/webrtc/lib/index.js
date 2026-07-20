@@ -4333,6 +4333,8 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._operationIdleCallbacks = [];
     this._explicitIceCandidateExchange = false;
     this._sameProcessIceCandidateExchange = false;
+    this._candidateGatedIceConnectionStates = [];
+    this._candidateGatedConnectionStates = [];
     this._suppressNextNativeSignalingState = null;
     this._sctpTransportUpdateScheduled = false;
     this._sctpConnectedTransitionScheduled = false;
@@ -6068,6 +6070,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     this._ensureNativePeerConnection().addRemoteCandidate(nativeCandidate);
     this._refreshCurrentOrPendingRemoteDescription(remoteDescription);
+    this._activateCandidateGatedTransportStates();
   }
 
   async _addExchangedLocalCandidate(candidate) {
@@ -6076,10 +6079,18 @@ class RTCPeerConnection extends SimpleEventTarget {
     if (this._pairedPeer) this._pairedPeer._sameProcessIceCandidateExchange = true;
     this._rememberRemoteIceCandidate(candidate);
     this._markExplicitIceCandidateExchange();
-    if (!this.remoteDescription || this._shouldDeferRemoteCandidateUntilLocalAnswer()) {
+    if (!this.remoteDescription) {
       if (!this._pendingIce.some((entry) => sameCandidate(entry, candidate))) {
         this._pendingIce.push(candidate);
       }
+      return;
+    }
+
+    if (this._shouldDeferRemoteCandidateUntilLocalAnswer()) {
+      this._queuePendingRemoteCandidatesForNative([candidate]);
+      this._refreshCurrentOrPendingRemoteDescription(
+        appendRemoteCandidateToDescription(this._remoteDescription, candidate),
+      );
       return;
     }
 
@@ -6093,6 +6104,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._refreshCurrentOrPendingRemoteDescription(
         appendRemoteCandidateToDescription(this._remoteDescription, candidate),
       );
+      this._activateCandidateGatedTransportStates();
     } catch {
       // Exchanged local candidates are delivered from event handlers that do
       // not await addIceCandidate(); keep them best-effort like browser ICE.
@@ -6211,6 +6223,8 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     this._pairExistingDataChannels();
     peer._pairExistingDataChannels();
+    this._activateCandidateGatedTransportStates();
+    peer._activateCandidateGatedTransportStates();
     this._scheduleDataChannelAnnouncementRepair();
     peer._scheduleDataChannelAnnouncementRepair();
   }
@@ -6235,6 +6249,88 @@ class RTCPeerConnection extends SimpleEventTarget {
     if (!candidate?.candidate) return;
     if (!this._remoteIceCandidates.some((entry) => sameCandidate(entry, candidate))) {
       this._remoteIceCandidates.push(candidate);
+    }
+  }
+
+  _hasRemoteIceCandidate() {
+    let nativePair = null;
+    try {
+      nativePair = this._native?.selectedCandidatePair();
+    } catch {
+      // The native transport can close while its final callbacks are queued.
+    }
+    return (
+      this._remoteIceCandidates.length > 0 ||
+      extractIceCandidatesFromDescription(this._remoteDescription).length > 0 ||
+      this._explicitIceCandidateExchange ||
+      this._sameProcessIceCandidateExchange ||
+      Boolean(nativePair?.remote)
+    );
+  }
+
+  _candidateVisibleIceConnectionState(state) {
+    const visibleState = state === "completed" ? "connected" : state;
+    if (
+      !this._hasRemoteIceCandidate() &&
+      (visibleState === "checking" || visibleState === "connected" || visibleState === "completed")
+    ) {
+      const states = this._candidateGatedIceConnectionStates;
+      if (states.at(-1) !== visibleState) states.push(visibleState);
+      return "new";
+    }
+    return visibleState;
+  }
+
+  _candidateVisibleConnectionState(state) {
+    if (!this._hasRemoteIceCandidate() && (state === "connecting" || state === "connected")) {
+      const states = this._candidateGatedConnectionStates;
+      if (states.at(-1) !== state) states.push(state);
+      return "new";
+    }
+    return state;
+  }
+
+  _applyVisibleIceConnectionState(state) {
+    if (state === "connected" && this._iceConnectionState === "new") {
+      this._iceConnectionState = "checking";
+      this._updateSctpTransport();
+      this.dispatchEvent(makeEvent("iceconnectionstatechange"));
+      this._iceTransport()?._handlePeerIceConnectionState("checking");
+    }
+    if (state === this._iceConnectionState) return;
+    this._iceConnectionState = state;
+    this._updateSctpTransport();
+    this.dispatchEvent(makeEvent("iceconnectionstatechange"));
+    this._iceTransport()?._handlePeerIceConnectionState(state);
+    this._closeChannelsOnPeerFailure();
+  }
+
+  _applyVisibleConnectionState(state) {
+    if (state === "connected" && this._connectionState === "new") {
+      this._connectionState = "connecting";
+      this._updateSctpTransport();
+      this.dispatchEvent(makeEvent("connectionstatechange"));
+    }
+    if (state === this._connectionState) return;
+    this._connectionState = state;
+    this._updateSctpTransport();
+    this.dispatchEvent(makeEvent("connectionstatechange"));
+    this._closeChannelsOnPeerFailure();
+  }
+
+  _activateCandidateGatedTransportStates() {
+    if (!this._hasRemoteIceCandidate()) return;
+    const iceStates = this._candidateGatedIceConnectionStates.splice(0);
+    const connectionStates = this._candidateGatedConnectionStates.splice(0);
+    if (this._native) {
+      iceStates.push(this._native.iceConnectionState);
+      connectionStates.push(this._native.connectionState);
+    }
+    for (const state of iceStates) {
+      this._applyVisibleIceConnectionState(this._candidateVisibleIceConnectionState(state));
+    }
+    for (const state of connectionStates) {
+      this._applyVisibleConnectionState(state);
     }
   }
 
@@ -6464,6 +6560,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   _flushPendingRemoteCandidatesForNative() {
     if (!this._remoteDescription || this._shouldDeferRemoteCandidateUntilLocalAnswer()) return;
     const candidates = this._pendingRemoteCandidatesForNative.splice(0);
+    let applied = false;
     for (const candidate of candidates) {
       try {
         const nativeCandidate = candidate.toJSON();
@@ -6471,10 +6568,12 @@ class RTCPeerConnection extends SimpleEventTarget {
           nativeCandidate.sdpMid = resolveCandidateMid(this._remoteDescription, candidate);
         }
         this._ensureNativePeerConnection().addRemoteCandidate(nativeCandidate);
+        applied = true;
       } catch {
         // Same-process and inline SDP candidate races are best-effort.
       }
     }
+    if (applied) this._activateCandidateGatedTransportStates();
   }
 
   async _beginPendingOperation() {
@@ -6594,8 +6693,12 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._iceConnectionState !== "closed" &&
         this._native
       ) {
-        this._connectionState = this._native.connectionState;
-        this._iceConnectionState = this._native.iceConnectionState;
+        const iceConnectionState = this._candidateVisibleIceConnectionState(
+          this._native.iceConnectionState,
+        );
+        const connectionState = this._candidateVisibleConnectionState(this._native.connectionState);
+        this._applyVisibleIceConnectionState(iceConnectionState);
+        this._applyVisibleConnectionState(connectionState);
       }
       this._updateSctpTransport();
     });
@@ -7469,8 +7572,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _refreshLocalDescriptionAfterGatheringWindow() {
-    this._refreshLocalDescriptionFromNative();
-    if (this._closed || !this._localDescription || this._iceGatheringState === "complete") return;
+    if (this._closed || !this._localDescription) return;
     if (this._localDescriptionRefreshScheduled) return;
     this._localDescriptionRefreshScheduled = true;
     setTimeout(() => {
@@ -7482,8 +7584,8 @@ class RTCPeerConnection extends SimpleEventTarget {
   _syncStatesFromNative() {
     if (this._closed) return;
     if (!this._native) return;
-    this._connectionState = this._native.connectionState;
-    this._iceConnectionState = this._native.iceConnectionState;
+    this._candidateVisibleConnectionState(this._native.connectionState);
+    this._candidateVisibleIceConnectionState(this._native.iceConnectionState);
     this._syncSignalingStateFromDescriptions();
     this._refreshIceRole();
     this._updateSctpTransport();
@@ -7597,6 +7699,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._refreshCurrentOrPendingLocalDescription(
           appendRemoteCandidateToDescription(this._localDescription, candidate),
         );
+        this._registerLocalDescriptionForPairing();
         this.dispatchEvent(new RTCPeerConnectionIceEvent("icecandidate", { candidate }));
         break;
       }
@@ -7609,17 +7712,12 @@ class RTCPeerConnection extends SimpleEventTarget {
         }
         break;
       case "iceconnectionstatechange":
-        this._iceConnectionState = event.state;
-        this._updateSctpTransport();
-        this.dispatchEvent(makeEvent("iceconnectionstatechange"));
-        this._iceTransport()?._handlePeerIceConnectionState(event.state);
-        this._closeChannelsOnPeerFailure();
+        if (this._candidateVisibleIceConnectionState(event.state) !== event.state) break;
+        this._applyVisibleIceConnectionState(event.state);
         break;
       case "connectionstatechange":
-        this._connectionState = event.state;
-        this._updateSctpTransport();
-        this.dispatchEvent(makeEvent("connectionstatechange"));
-        this._closeChannelsOnPeerFailure();
+        if (this._candidateVisibleConnectionState(event.state) !== event.state) break;
+        this._applyVisibleConnectionState(event.state);
         break;
       case "signalingstatechange":
         if (this._jsOnlyIceRestartOfferPending) {
