@@ -471,7 +471,11 @@ candidate.
    it must not accept an absent or mismatched fingerprint.
 9. **Upstream links.** No matching issue, pull request, or released fix found as
    of 2026-07-20. An independent C++ reproduction is still required before this
-   item can become `upstream-ready`.
+   item can become `upstream-ready`. A public-API-only Windows harness applied
+   500 delayed full answers after answer-side ICE checks had started; all 500
+   valid fingerprints connected, while 10 corrupted-fingerprint controls stayed
+   disconnected. This did not reproduce the Ubuntu race, so a Linux reproduction
+   remains required rather than treating source inspection alone as filing-ready.
 
 ## Native ICE restart with fresh credentials
 
