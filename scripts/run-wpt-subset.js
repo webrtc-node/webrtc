@@ -419,6 +419,7 @@ const defaultSpecs = [
   },
   { file: "webrtc/RTCPeerConnection-onsignalingstatechanged.https.html" },
   { file: "webrtc/RTCPeerConnection-addIceCandidate.html" },
+  { file: "webrtc/RTCPeerConnection-addIceCandidate-connectionSetup.html" },
   {
     file: "webrtc/RTCPeerConnection-addIceCandidate.html",
     search: "?interop-2026",
