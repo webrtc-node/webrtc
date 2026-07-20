@@ -237,6 +237,23 @@ test("video offers associate negotiated RTX and expose removable FEC formats", a
   }
 });
 
+test("trackless sending transceivers expose a stable sender MSID", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const transceiver = peer.addTransceiver("video");
+    const first = /^a=msid:- (\S+)$/m.exec((await peer.createOffer()).sdp);
+    assert.ok(first);
+
+    assert.match((await peer.createOffer()).sdp, new RegExp(`^a=msid:- ${first[1]}$`, "m"));
+    transceiver.direction = "recvonly";
+    assert.doesNotMatch((await peer.createOffer()).sdp, /^a=msid:/m);
+    transceiver.direction = "sendonly";
+    assert.match((await peer.createOffer()).sdp, new RegExp(`^a=msid:- ${first[1]}$`, "m"));
+  } finally {
+    peer.close();
+  }
+});
+
 function codecNames(description) {
   const section = description.sdp
     .split(/(?=^m=)/m)
@@ -793,6 +810,29 @@ test("remote offer track events complete in media-section order", async () => {
 
     assert.deepEqual(kinds, ["audio", "video", "video", "audio"]);
     assert.equal(answerer.getTransceivers().length, 4);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("setRemoteDescription rejects one MSID association across media sections", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  try {
+    offerer.addTransceiver("video");
+    const offer = await offerer.createOffer();
+    const sections = offer.sdp.split(/(?=^m=)/m);
+    assert.equal(sections.length, 2);
+    assert.match(sections[1], /^a=msid:- \S+/m);
+
+    const duplicate = sections[1].replace(/^a=mid:\S+/m, "a=mid:duplicate");
+    await assert.rejects(
+      answerer.setRemoteDescription({ type: "offer", sdp: `${offer.sdp}${duplicate}` }),
+      { name: "OperationError" },
+    );
+    assert.equal(answerer.signalingState, "stable");
+    assert.deepEqual(answerer.getTransceivers(), []);
   } finally {
     offerer.close();
     answerer.close();

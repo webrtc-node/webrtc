@@ -385,10 +385,16 @@ const defaultSpecs = [
     include: [
       "setRemoteDescription with valid offer should succeed",
       "setRemoteDescription multiple times should succeed",
+      "setRemoteDescription multiple times with different offer should succeed",
       "setRemoteDescription(offer) with invalid SDP should reject with RTCError",
       "setRemoteDescription(offer) from have-local-offer should roll back and succeed",
+      "setRemoteDescription(offer) in stable should update internal state with a queued task, in the right order",
       "Naive rollback approach is not glare-proof (control)",
       "setRemoteDescription(offer) from have-local-offer is glare-proof",
+      "repeated sRD(offer) works",
+      "sRD(reoffer) with candidates and without trickle works",
+      "Transceivers added by sRD(offer) should not show up until sRD resolves",
+      "setRemoteDescription(section with duplicate msid) rejects",
     ],
   },
   {

@@ -1028,6 +1028,26 @@ function parseSdpMediaSections(sdp) {
   return { sessionLines, mediaSections };
 }
 
+function assertUniqueMsidAssociations(description) {
+  const seen = new Map();
+  const { mediaSections } = parseSdpMediaSections(description?.sdp || "");
+  for (let sectionIndex = 0; sectionIndex < mediaSections.length; sectionIndex += 1) {
+    for (const line of mediaSections[sectionIndex].lines) {
+      const match = /^a=msid:([^\s]+)(?:[ \t]+([^\s]+))?[ \t]*$/.exec(line);
+      if (!match) continue;
+      const key = `${match[1]}\0${match[2] || ""}`;
+      const previousSection = seen.get(key);
+      if (previousSection !== undefined && previousSection !== sectionIndex) {
+        throw makeDOMException(
+          "An MSID association cannot identify media in multiple sections",
+          "OperationError",
+        );
+      }
+      seen.set(key, sectionIndex);
+    }
+  }
+}
+
 function effectiveTransceiverMid(transceiver) {
   return transceiver._mid ?? transceiver._nativeMid;
 }
@@ -4625,6 +4645,10 @@ class RTCPeerConnection extends SimpleEventTarget {
       const nativeSends = nativeDirection === "sendrecv" || nativeDirection === "sendonly";
       const source = mediaTrackSources.get(transceiver.sender.track);
       const nativeHasSource = nativeSends && transceiver.sender.track !== null;
+      const nativeStreamIds = nativeSends
+        ? transceiver.sender._streams.map((stream) => stream.id)
+        : [];
+      const nativeTrackId = nativeSends ? transceiver._senderTrackId : null;
       const localSection = localSections.find(
         (section) => section.mid === effectiveTransceiverMid(transceiver),
       );
@@ -4651,8 +4675,8 @@ class RTCPeerConnection extends SimpleEventTarget {
           nativeDirection,
           transceiver.stopping,
           ssrc,
-          transceiver.sender._streams.map((stream) => stream.id),
-          nativeHasSource ? transceiver._senderTrackId : null,
+          nativeStreamIds,
+          nativeTrackId,
           this._rtcpCname,
           codecs,
         );
@@ -4678,8 +4702,8 @@ class RTCPeerConnection extends SimpleEventTarget {
           direction: nativeDirection,
           codecs,
           ssrc,
-          streamIds: transceiver.sender._streams.map((stream) => stream.id),
-          trackId: nativeHasSource ? transceiver._senderTrackId : null,
+          streamIds: nativeStreamIds,
+          trackId: nativeTrackId,
           cname: this._rtcpCname,
         },
         (events) => {
@@ -5726,6 +5750,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         if (this._closed) return new Promise(() => {});
       }
       assertValidSdpSyntax(normalized);
+      assertUniqueMsidAssociations(normalized);
       if (normalized.type === "rollback") {
         if (this._signalingState !== "have-remote-offer") {
           throw makeDOMException(
