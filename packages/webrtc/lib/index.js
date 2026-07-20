@@ -768,6 +768,29 @@ function nextTask() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+const webRtcTaskQueue = [];
+let webRtcTaskScheduled = false;
+
+function queueWebRtcTask(task) {
+  webRtcTaskQueue.push(task);
+  if (webRtcTaskScheduled) return;
+  webRtcTaskScheduled = true;
+  setTimeout(runNextWebRtcTask, 0);
+}
+
+function runNextWebRtcTask() {
+  const task = webRtcTaskQueue.shift();
+  try {
+    task?.();
+  } finally {
+    if (webRtcTaskQueue.length > 0) {
+      setTimeout(runNextWebRtcTask, 0);
+    } else {
+      webRtcTaskScheduled = false;
+    }
+  }
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -3947,7 +3970,7 @@ class RTCRtpSender {
     if (this._lastReturnedParameters === null) {
       const parameters = senderRtpParameters(this._transceiver, crypto.randomUUID());
       this._lastReturnedParameters = parameters;
-      setImmediate(() => {
+      queueWebRtcTask(() => {
         if (this._lastReturnedParameters === parameters) this._lastReturnedParameters = null;
       });
     }
@@ -3988,7 +4011,7 @@ class RTCRtpSender {
       return Promise.reject(error);
     }
     return new Promise((resolve, reject) => {
-      setImmediate(() => {
+      queueWebRtcTask(() => {
         try {
           transceiver._sendEncodings = normalized.encodings.map((encoding) => ({ ...encoding }));
           transceiver._nativeSendTrack?.setActive(
@@ -5528,7 +5551,6 @@ class RTCPeerConnection extends SimpleEventTarget {
       const previousIceGatheringState = this._iceGatheringState;
       const previousSignalingState = this._signalingState;
       let appliedIceRestart = false;
-      let manuallyUpdatedSignalingState = false;
       let usedJsOnlyIceRestart = false;
       let pendingLocalOfferApplied = false;
       if (
@@ -5548,7 +5570,6 @@ class RTCPeerConnection extends SimpleEventTarget {
         }
         this._syncStatesFromNative();
         this._scheduleNativeCandidateGathering();
-        manuallyUpdatedSignalingState = true;
       } else {
         const hadIceRestartRequest =
           (this._iceRestartPending || jsOnlyIceRestartDescription) && type === "offer";
@@ -5563,7 +5584,6 @@ class RTCPeerConnection extends SimpleEventTarget {
           this._jsOnlyIceRestartOfferPending = true;
           this._signalingState = "have-local-offer";
           appliedIceRestart = true;
-          manuallyUpdatedSignalingState = true;
           usedJsOnlyIceRestart = true;
         } else {
           if (type === "offer" || type === "answer") this._materializeTransceivers(normalized);
@@ -5605,8 +5625,7 @@ class RTCPeerConnection extends SimpleEventTarget {
       this._localDescriptionSetByApi = hasDataMediaSection(this._localDescription);
       this._clearNegotiationNeededIfDataMLineIsPresent();
       this._refreshIceRole();
-      if (manuallyUpdatedSignalingState && previousSignalingState !== this._signalingState)
-        this._dispatchSignalingStateChange();
+      if (previousSignalingState !== this._signalingState) this._dispatchSignalingStateChange();
       if (appliedIceRestart) {
         if (previousIceGatheringState === "complete") this._queueSyntheticIceRestartGathering();
         this._clearIceRestartRequest();
@@ -7724,7 +7743,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     }
     if (this._negotiationNeededScheduled) return;
     this._negotiationNeededScheduled = true;
-    setTimeout(() => {
+    queueWebRtcTask(() => {
       this._negotiationNeededScheduled = false;
       if (
         this._closed ||
@@ -7735,7 +7754,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         return;
       }
       this.dispatchEvent(makeEvent("negotiationneeded"));
-    }, 0);
+    });
   }
 
   _clearNegotiationNeededIfDataMLineIsPresent() {

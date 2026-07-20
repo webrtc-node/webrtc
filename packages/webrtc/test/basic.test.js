@@ -316,6 +316,32 @@ test("setLocalDescription emits repeated offer states across renegotiation", asy
   assert.deepEqual(states, ["have-local-offer", "stable", "have-local-offer"]);
 });
 
+test("setLocalDescription emits stable after a provisional answer without a native callback", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
+  offerer.addTransceiver("video", { direction: "recvonly" });
+
+  const states = [];
+  answerer.addEventListener("signalingstatechange", () => states.push(answerer.signalingState));
+  const originalHandleNativeEvent = answerer._handleNativeEvent.bind(answerer);
+  let dropNativeSignalingEvents = false;
+  answerer._handleNativeEvent = (event) => {
+    if (dropNativeSignalingEvents && event.type === "signalingstatechange") return;
+    originalHandleNativeEvent(event);
+  };
+
+  const offer = await offerer.createOffer();
+  await answerer.setRemoteDescription(offer);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+  dropNativeSignalingEvents = true;
+  await answerer.setLocalDescription(answer);
+
+  assert.equal(answerer.signalingState, "stable");
+  assert.deepEqual(states, ["have-remote-offer", "have-local-pranswer", "stable"]);
+});
+
 test("close changes signalingState without firing signalingstatechange", async () => {
   const peerConnection = new RTCPeerConnection();
   let eventCount = 0;

@@ -17,7 +17,8 @@ application-supplied encoded packet I/O so native track lifecycle does not cross
 - `RTCRtpSender.getParameters()` owns a task-scoped transaction snapshot. `setParameters()` is
   asynchronous and independent of the operations chain, validates all read-only native/SDP facts,
   and applies `encodings[0].active` through an atomic outbound-RTP gate. RTCP remains enabled, so
-  activation does not synthesize BYE or renegotiation.
+  activation does not synthesize BYE or renegotiation. Transaction expiry, update completion, and
+  `negotiationneeded` use one FIFO WebRTC task source so cross-peer task ordering is deterministic.
 - Static sender and receiver capabilities describe every encoded RTP codec that the backend can
   carry through its raw packet track API. They do not claim codec processing. Audio advertises MID
   plus the RFC 6464 SSRC and RFC 6465 CSRC audio-level extensions; video advertises MID. Every

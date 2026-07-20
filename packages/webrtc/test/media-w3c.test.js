@@ -847,7 +847,7 @@ test("sender parameters preserve encodings and expose negotiated SDP facts", asy
     assert.equal(negotiated.transactionId, sender.getParameters().transactionId);
     assert.equal(typeof negotiated.rtcp.cname, "string");
     assert.ok(negotiated.rtcp.cname.length > 0);
-    await new Promise((resolve) => setImmediate(resolve));
+    await waitForWebRtcTask();
     assert.notEqual(negotiated.transactionId, sender.getParameters().transactionId);
   } finally {
     offerer.close();
@@ -868,7 +868,7 @@ test("sender parameter transactions validate task lifetime and immutable fields"
     await undefined;
     assert.equal(first.transactionId, sender.getParameters().transactionId);
 
-    await new Promise((resolve) => setImmediate(resolve));
+    await waitForWebRtcTask();
     await assert.rejects(sender.setParameters(first), { name: "InvalidStateError" });
 
     const modified = sender.getParameters();
@@ -880,6 +880,25 @@ test("sender parameter transactions validate task lifetime and immutable fields"
     await assert.rejects(sender.setParameters(unsupported), { name: "OperationError" });
   } finally {
     peer.close();
+  }
+});
+
+test("sender parameter transactions expire before a later WebRTC task", async () => {
+  const peer = new RTCPeerConnection();
+  const taskPeer = new RTCPeerConnection();
+  try {
+    const sender = peer.addTransceiver("audio").sender;
+    const parameters = sender.getParameters();
+    const firstUpdate = sender.setParameters(parameters);
+    const negotiationNeeded = waitFor(taskPeer, "negotiationneeded");
+    taskPeer.addTransceiver("audio");
+
+    await negotiationNeeded;
+    await firstUpdate;
+    await assert.rejects(sender.setParameters(parameters), { name: "InvalidStateError" });
+  } finally {
+    peer.close();
+    taskPeer.close();
   }
 });
 
@@ -920,6 +939,17 @@ function waitFor(target, type, timeout = 10000) {
       { once: true },
     );
   });
+}
+
+async function waitForWebRtcTask() {
+  const peer = new RTCPeerConnection();
+  try {
+    const negotiationNeeded = waitFor(peer, "negotiationneeded");
+    peer.addTransceiver("audio");
+    await negotiationNeeded;
+  } finally {
+    peer.close();
+  }
 }
 
 test("negotiated direction and stopping follow answer state", async () => {
