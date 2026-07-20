@@ -90,6 +90,11 @@ requireMatch(
 );
 requireMatch("Node-API version definition", cmake, /NAPI_VERSION=\$\{WEBRTC_NODE_NAPI_VERSION\}/);
 requireMatch("static libdatachannel target", cmake, /LibDataChannel::LibDataChannelStatic/);
+requireMatch(
+  "opt-in native regression target",
+  cmake,
+  /WEBRTC_NODE_BUILD_NATIVE_TESTS[\s\S]*add_executable\s*\(\s*webrtc_node_dtls_startup_race/,
+);
 
 const localLibDataChannel = path.join(repoRoot, "libdatachannel");
 if (fs.existsSync(path.join(localLibDataChannel, ".git"))) {

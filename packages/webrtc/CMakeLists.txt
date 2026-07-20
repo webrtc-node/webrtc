@@ -32,6 +32,9 @@ endif()
 set(WEBRTC_NODE_STATIC_OPENSSL OFF CACHE BOOL
     "Prefer static OpenSSL libraries when building release prebuilds.")
 
+set(WEBRTC_NODE_BUILD_NATIVE_TESTS OFF CACHE BOOL
+    "Build opt-in libdatachannel regression executables.")
+
 if(NOT DEFINED CMAKE_JS_INC)
   message(FATAL_ERROR "This project is intended to be built through cmake-js.")
 endif()
@@ -173,6 +176,21 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   LibDataChannel::LibDataChannelStatic
   webrtc_node_certificate
 )
+
+if(WEBRTC_NODE_BUILD_NATIVE_TESTS)
+  add_executable(webrtc_node_dtls_startup_race EXCLUDE_FROM_ALL
+    test/native/dtls-startup-race.cpp
+  )
+  target_compile_definitions(webrtc_node_dtls_startup_race PRIVATE RTC_STATIC)
+  target_link_libraries(webrtc_node_dtls_startup_race PRIVATE
+    LibDataChannel::LibDataChannelStatic
+  )
+  if(MSVC)
+    target_compile_options(webrtc_node_dtls_startup_race PRIVATE /EHsc)
+  else()
+    target_compile_options(webrtc_node_dtls_startup_race PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
+endif()
 
 if(UNIX AND NOT APPLE)
   target_compile_options(${PROJECT_NAME} PRIVATE

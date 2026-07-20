@@ -16,6 +16,7 @@
     "format:check": "biome format .",
     "lint": "biome lint .",
     "native:check": "npm run native:check -w @webrtc-node/webrtc",
+    "native:test:dtls-startup": "npm run native:test:dtls-startup -w @webrtc-node/webrtc",
     "package:check": "npm run package:check --workspaces --if-present",
     "prebuild:package": "npm run prebuild:package -w @webrtc-node/webrtc",
     "prebuild:check": "npm run prebuild:check -w @webrtc-node/webrtc",

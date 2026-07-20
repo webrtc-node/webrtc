@@ -460,7 +460,9 @@ candidate.
    is created. Keep ICE and DTLS callbacks on their existing backend threads and
    retain the existing `Processor` dispatch for peer close and public state
    callbacks. No new public API is required.
-7. **Required native tests.** Add a standalone two-peer test that lets a full
+7. **Required native tests.** The binding now carries the public-API-only
+   `packages/webrtc/test/native/dtls-startup-race.cpp` regression, built through
+   the opt-in `WEBRTC_NODE_BUILD_NATIVE_TESTS` CMake option. It lets a full
    offer's candidates produce checks before the offerer applies the full answer,
    then asserts a valid fingerprint connects and an invalid fingerprint fails.
    Stress the commit/connected ordering, multiple inline candidates, trickle ICE,

@@ -15,6 +15,19 @@ npm run build
 thread-safe callback dispatch. The build uses `cmake-js` and links
 `LibDataChannel::LibDataChannelStatic`.
 
+The opt-in backend regression executable applies delayed full answers directly
+through libdatachannel's public C++ API, after answer-side ICE checks begin. It
+requires valid fingerprints to connect and corrupted-fingerprint controls to
+remain disconnected without throwing during description application:
+
+```sh
+npm run native:test:dtls-startup
+```
+
+CI and Conformance run 500 valid iterations and 10 invalid controls on Ubuntu
+Node 24. The CMake target is excluded from ordinary builds and from npm package
+contents.
+
 If a local `libdatachannel/` checkout exists, CMake verifies it against the
 pinned commit. Otherwise it fetches the pinned upstream commit with
 `FetchContent`.
