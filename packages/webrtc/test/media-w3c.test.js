@@ -942,6 +942,23 @@ test("sender parameter transactions expire before a later WebRTC task", async ()
   }
 });
 
+test("sender parameter transactions expire across createOffer", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const sender = peer.addTransceiver("audio").sender;
+    const expired = sender.getParameters();
+
+    await peer.createOffer();
+    await assert.rejects(sender.setParameters(expired), { name: "InvalidStateError" });
+
+    const current = sender.getParameters();
+    assert.notEqual(expired.transactionId, current.transactionId);
+    await assert.rejects(sender.setParameters(expired), { name: "InvalidModificationError" });
+  } finally {
+    peer.close();
+  }
+});
+
 test("sender parameters use the peer CNAME written to local SDP", async () => {
   const peer = new RTCPeerConnection();
   try {

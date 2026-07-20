@@ -3990,7 +3990,7 @@ class RTCRtpSender {
     if (this._lastReturnedParameters === null) {
       const parameters = senderRtpParameters(this._transceiver, crypto.randomUUID());
       this._lastReturnedParameters = parameters;
-      queueWebRtcTask(() => {
+      setImmediate(() => {
         if (this._lastReturnedParameters === parameters) this._lastReturnedParameters = null;
       });
     }
