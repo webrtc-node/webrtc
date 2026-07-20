@@ -159,6 +159,15 @@ same objects back `RTCSctpTransport.transport` when media and data are bundled.
 Detailed media candidate-pair timing and statistics remain outside the current
 expected-pass set.
 
+The pinned libdatachannel peer owns one ICE/DTLS transport chain and serializes
+all active sections into one BUNDLE group. It cannot allocate a second transport
+for an SCTP m-section added after an explicitly unbundled media negotiation.
+Consequently, the unbundled renegotiation case in
+`RTCPeerConnection-connectionState.https.html` remains excluded: the native
+operation fails instead of taking the aggregate connection state back through
+`"connecting"`. The facade does not rewrite this topology into BUNDLE because
+that would misrepresent candidate routing and interoperability.
+
 libjuice enters its `CONNECTING` state when local gathering starts, even when
 zero remote candidates exist, and enters `COMPLETED` when a pair is nominated.
 Those are not sufficient by themselves for the W3C `checking` and `completed`

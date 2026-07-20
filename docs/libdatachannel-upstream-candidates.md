@@ -40,6 +40,7 @@ The named WPT files are from pinned WPT commit
 | Explicit track removal and stopping lifecycle | `confirmed-absent` | None found |
 | Transceiver-like media-section lifecycle and m-line reuse | `confirmed-absent` | None found |
 | Observable media DTLS-SRTP/ICE state and pair statistics | `confirmed-absent` | None found |
+| Per-m-section ICE/DTLS transport topology | `confirmed-absent` | None found |
 | DTLS startup after remote-description commit | `confirmed-absent` | None found |
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
@@ -426,6 +427,63 @@ candidate.
 8. **Compatibility/build options.** Preserve aggregate APIs and make unavailable
    backend fields optional. SRTP counters require `RTC_ENABLE_MEDIA`.
 9. **Upstream links.** No matching issue or released API found as of 2026-07-13.
+
+## Per-m-section ICE/DTLS transport topology
+
+**Status:** `confirmed-absent`
+
+1. **Requirement and WPT.** WebRTC-PC computes aggregate connection state from
+   every ICE and DTLS transport. JSEP and BUNDLE permit an application m-section
+   added to an established, deliberately unbundled media session to use a new
+   transport. Applicable WPT:
+   `webrtc/RTCPeerConnection-connectionState.https.html`, specifically
+   `when adding a datachannel to an existing unbundled connected PC, it should go
+   through a connecting state`.
+2. **Source inspected.** `src/impl/peerconnection.hpp`,
+   `src/impl/peerconnection.cpp`, `include/rtc/description.hpp`,
+   `src/description.cpp`, `include/rtc/peerconnection.hpp`,
+   `src/peerconnection.cpp`, `src/impl/icetransport.hpp`,
+   `src/impl/dtlstransport.hpp`, `src/impl/dtlssrtptransport.hpp`, and
+   `src/impl/sctptransport.hpp`.
+3. **Absence evidence.** `impl::PeerConnection` owns exactly one
+   `mIceTransport`, one `mDtlsTransport`, and one `mSctpTransport` rather than a
+   transport map keyed by BUNDLE group or m-section. `initDtlsTransport()` always
+   layers over that singleton ICE transport; `initSctpTransport()` always layers
+   over that singleton DTLS transport. Candidate parsing and application rewrite
+   candidate MID hints to `Description::bundleMid()`, and SDP serialization
+   automatically emits one BUNDLE group containing every non-removed section.
+   There is no public or private API to allocate a second ICE/DTLS chain. The
+   focused WPT reproduction on the pinned build fails at the second negotiation
+   with `SCTP transport initialization failed`.
+4. **Current workaround.** The facade accepts `bundlePolicy` and models stable
+   W3C transport objects for the single bundled native chain. It does not invent
+   another transport or claim the unbundled renegotiation succeeded. The WPT
+   case remains excluded as `#unbundled-transport-case`.
+5. **Why insufficient.** JavaScript cannot create, route candidates to, secure,
+   or tear down a second native ICE/DTLS chain. Rewriting the remote SDP back to
+   BUNDLE would discard the peer's transport topology and make aggregate state,
+   candidate routing, and interoperability misleading.
+6. **Proposed upstream API.** Make transport groups peer-owned objects keyed by
+   BUNDLE tag or standalone m-section, each owning its ICE, DTLS or DTLS-SRTP,
+   and optional SCTP layers. Description processing should atomically reconcile
+   groups and route candidates by MID. Expose copied group snapshots and
+   lifecycle callbacks through `Processor`; callbacks must not run while peer,
+   description, track, or transport mutexes are held, and group handles must
+   remain safe across close and late callbacks.
+7. **Required native tests.** Initial bundled and unbundled audio/video, adding
+   SCTP to an established unbundled media peer, candidate routing by MID,
+   aggregate state transitions while the new chain connects, BUNDLE regrouping,
+   rejected m-sections, rollback, per-group ICE restart, close during callback,
+   and destruction from a transport thread.
+8. **Compatibility/build options.** Preserve the current singleton fast path and
+   public aggregate peer APIs. Multi-group behavior must work with libjuice and
+   libnice, each TLS backend, `RTC_ENABLE_MEDIA` on and off, and both plain DTLS
+   and DTLS-SRTP groups. Existing bundled SDP and candidate behavior must remain
+   unchanged.
+9. **Upstream links.** GitHub issue searches for unbundled/BUNDLE and multiple
+   ICE or m-line transports found no matching libdatachannel issue as of
+   2026-07-20. A standalone C++ reproduction is still required before this item
+   can become `upstream-ready`.
 
 ## DTLS startup after remote-description commit
 
