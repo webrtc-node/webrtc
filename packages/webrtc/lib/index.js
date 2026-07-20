@@ -5361,7 +5361,7 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._iceRestartPending = true;
     this._pendingIceRestartCredentials = null;
     this._armDataChannelNativeCloseSuppression();
-    if (this._signalingState === "stable") this._markNegotiationNeeded();
+    this._markNegotiationNeeded();
   }
 
   async createAnswer() {

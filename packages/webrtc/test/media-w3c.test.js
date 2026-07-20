@@ -724,6 +724,27 @@ test("media changes after a local offer renegotiate when signaling becomes stabl
   }
 });
 
+test("restartIce after a local offer renegotiates when signaling becomes stable", async () => {
+  const peer = new RTCPeerConnection();
+  const remote = new RTCPeerConnection();
+  try {
+    const initialNegotiation = waitFor(peer, "negotiationneeded");
+    peer.addTransceiver("audio");
+    await initialNegotiation;
+
+    await peer.setLocalDescription(await peer.createOffer());
+    peer.restartIce();
+    await remote.setRemoteDescription(peer.localDescription);
+    await remote.setLocalDescription(await remote.createAnswer());
+    await peer.setRemoteDescription(remote.localDescription);
+
+    await waitFor(peer, "negotiationneeded");
+  } finally {
+    peer.close();
+    remote.close();
+  }
+});
+
 test("setStreams updates remote stream membership while preserving track identity", async () => {
   const peer = new RTCPeerConnection();
   const remote = new RTCPeerConnection();
