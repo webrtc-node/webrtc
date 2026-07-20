@@ -1417,6 +1417,21 @@ function withTimeout(promise, timeout, name, describeState = null) {
   ]).finally(() => clearTimeout(timer));
 }
 
+function setTimeoutAfterMinimumDelay(callback, timeout) {
+  const convertedTimeout = Number(timeout);
+  const delay = Number.isFinite(convertedTimeout) ? Math.max(0, convertedTimeout) : 0;
+  const startedAt = performance.now();
+  const run = () => {
+    const remaining = delay - (performance.now() - startedAt);
+    if (remaining > 0) {
+      setTimeout(run, Math.max(1, Math.ceil(remaining)));
+      return;
+    }
+    callback();
+  };
+  return setTimeout(run, Math.ceil(delay));
+}
+
 function makeTestContext(cleanups, hooks = {}) {
   const fail =
     hooks.fail ||
@@ -1446,7 +1461,7 @@ function makeTestContext(cleanups, hooks = {}) {
         fail(new Error(message));
       },
     step_timeout: (fn, timeout, ...args) =>
-      setTimeout(() => {
+      setTimeoutAfterMinimumDelay(() => {
         try {
           fn(...args);
         } catch (error) {
