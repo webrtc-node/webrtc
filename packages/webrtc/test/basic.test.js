@@ -342,6 +342,30 @@ test("setLocalDescription emits stable after a provisional answer without a nati
   assert.deepEqual(states, ["have-remote-offer", "have-local-pranswer", "stable"]);
 });
 
+test("setLocalDescription rollback updates state before its promise resolves", async (t) => {
+  const peerConnection = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(peerConnection));
+  peerConnection.addTransceiver("audio", { direction: "recvonly" });
+  await peerConnection.setLocalDescription(await peerConnection.createOffer());
+
+  let resolved = false;
+  const rollback = peerConnection.setLocalDescription({ type: "rollback" }).then(() => {
+    resolved = true;
+  });
+  assert.equal(peerConnection.signalingState, "have-local-offer");
+  assert.equal(peerConnection.pendingLocalDescription.type, "offer");
+
+  await new Promise((resolve) => {
+    peerConnection.addEventListener("signalingstatechange", resolve, { once: true });
+  });
+  assert.equal(peerConnection.signalingState, "stable");
+  assert.equal(peerConnection.pendingLocalDescription, null);
+  assert.equal(resolved, false);
+
+  await rollback;
+  assert.equal(resolved, true);
+});
+
 test("close changes signalingState without firing signalingstatechange", async () => {
   const peerConnection = new RTCPeerConnection();
   let eventCount = 0;

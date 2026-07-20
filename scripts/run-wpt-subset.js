@@ -345,6 +345,7 @@ const defaultSpecs = [
       "setLocalDescription(rollback) after setting answer description should reject with InvalidStateError",
       "setLocalDescription(rollback) after setting a remote offer should reject with InvalidStateError",
       "setLocalDescription(rollback) should ignore invalid sdp content and succeed",
+      "setLocalDescription(rollback) should update internal state with a queued tassk, in the right order",
     ],
   },
   { file: "webrtc/RTCPeerConnection-description-attributes-timing.https.html" },
