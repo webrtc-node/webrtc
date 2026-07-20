@@ -6158,8 +6158,6 @@ class RTCPeerConnection extends SimpleEventTarget {
         }
       }
     }
-    this.dispatchEvent(makeEvent("iceconnectionstatechange"));
-    this.dispatchEvent(makeEvent("connectionstatechange"));
   }
 
   _registerLocalDescriptionForPairing() {

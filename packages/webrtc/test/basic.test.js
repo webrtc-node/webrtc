@@ -399,17 +399,23 @@ test("invalid remote offer preserves completed implicit rollback", async (t) => 
   assert.equal(outcome.error.errorDetail, "sdp-syntax-error");
 });
 
-test("close changes signalingState without firing signalingstatechange", async () => {
+test("close changes connection states without firing statechange events", async () => {
   const peerConnection = new RTCPeerConnection();
-  let eventCount = 0;
-  peerConnection.addEventListener("signalingstatechange", () => {
-    eventCount += 1;
-  });
+  const events = [];
+  for (const type of [
+    "signalingstatechange",
+    "iceconnectionstatechange",
+    "connectionstatechange",
+  ]) {
+    peerConnection.addEventListener(type, () => events.push(type));
+  }
 
   peerConnection.close();
   assert.equal(peerConnection.signalingState, "closed");
+  assert.equal(peerConnection.iceConnectionState, "closed");
+  assert.equal(peerConnection.connectionState, "closed");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(eventCount, 0);
+  assert.deepEqual(events, []);
 });
 
 test("close leaves an already-started createOffer operation unsettled", async () => {
