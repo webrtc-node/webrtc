@@ -456,6 +456,8 @@ const defaultSpecs = [
       "Closing the connection should set iceConnectionState to closed",
       "connection with one data channel should eventually have connected or completed connection state",
       "connection with one data channel should eventually have connected connection state",
+      "connection with audio track should eventually have connected connection state",
+      "connection with audio and video tracks should eventually have connected connection state",
       "ICE can connect in a recvonly usecase",
       "iceConnectionState changes at the right time, with bundle policy balanced",
       "iceConnectionState changes at the right time, with bundle policy max-bundle",
