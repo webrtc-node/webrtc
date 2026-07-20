@@ -45,6 +45,14 @@ timing, and negotiation timing. It also retains rejected SDP sections after the
 backend drops their weak track entries so later offers can preserve or recycle
 the original m-line index. Selected WPT covers these lifecycle behaviors.
 
+`RTCRtpReceiver.getSynchronizationSources()` and `getContributingSources()`
+update when an authenticated clear RTP packet reaches the encoded receiver on
+the Node event loop. Browsers update these dictionaries when a decoded frame is
+delivered to a track. Packet delivery is the closest truthful boundary in this
+runtime because decoding and playout are intentional non-goals. Source entries
+expire after ten seconds, RTCP is excluded, and `audioLevel` is absent unless
+the corresponding negotiated RFC 6464 or RFC 6465 header extension is present.
+
 Statistics include only backend measurements that can be attributed reliably:
 encoded RTP packet/byte counters, aggregate transport bytes, negotiated codec
 dictionaries, selected ICE candidate facts, and facade-owned data-channel

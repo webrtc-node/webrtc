@@ -649,6 +649,8 @@ const defaultSpecs = [
     discoveredTests: supportedMandatoryStatsTests,
   },
   { file: "webrtc/RTCRtpSender-getStats.https.html" },
+  { file: "webrtc/RTCRtpReceiver-getSynchronizationSources.https.html" },
+  { file: "webrtc/RTCRtpReceiver-getContributingSources.https.html" },
   {
     file: "webrtc/RTCRtpReceiver-getStats.https.html",
     search: "?interop-2026",
@@ -973,6 +975,17 @@ async function runFile(spec) {
       }
       return documentElements.get(key);
     },
+    createElement(localName) {
+      return { localName: String(localName), autoplay: false, srcObject: null };
+    },
+    body: {
+      appendChild(element) {
+        return element;
+      },
+      removeChild(element) {
+        return element;
+      },
+    },
   };
 
   function syntheticNoiseTrack(kind) {
@@ -999,7 +1012,7 @@ async function runFile(spec) {
       sequenceNumber = (sequenceNumber + 1) & 0xffff;
       timestamp = (timestamp + (kind === "audio" ? 960 : 3000)) >>> 0;
       const packet = Uint8Array.from([
-        0x80,
+        kind === "audio" ? 0x90 : 0x80,
         payloadType,
         sequenceNumber >>> 8,
         sequenceNumber & 0xff,
@@ -1011,6 +1024,7 @@ async function runFile(spec) {
         (ssrc >>> 16) & 0xff,
         (ssrc >>> 8) & 0xff,
         ssrc & 0xff,
+        ...(kind === "audio" ? [0xbe, 0xde, 0, 1, 0x20, 20, 0, 0] : []),
         0,
       ]);
       source.send(packet);

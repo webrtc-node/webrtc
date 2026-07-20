@@ -1144,15 +1144,126 @@ const defaultRtpPayloadTypes = new Map([
 const defaultVideoRtcpFeedback = ["nack", "nack pli", "ccm fir", "goog-remb"];
 const resilienceCodecNames = new Set(["rtx", "red", "ulpfec", "cn"]);
 
-const rtpHeaderExtensionCapabilities = [{ uri: "urn:ietf:params:rtp-hdrext:sdes:mid" }];
+const midHeaderExtensionUri = "urn:ietf:params:rtp-hdrext:sdes:mid";
+const ssrcAudioLevelExtensionUri = "urn:ietf:params:rtp-hdrext:ssrc-audio-level";
+const csrcAudioLevelExtensionUri = "urn:ietf:params:rtp-hdrext:csrc-audio-level";
+const rtpSourceRetentionMs = 10_000;
+const rtpHeaderExtensionCapabilities = {
+  audio: [
+    { uri: midHeaderExtensionUri },
+    { uri: ssrcAudioLevelExtensionUri },
+    { uri: csrcAudioLevelExtensionUri },
+  ],
+  video: [{ uri: midHeaderExtensionUri }],
+};
 
 function getRtpCapabilities(kind) {
-  const codecs = rtpCodecCapabilities[String(kind)];
+  const normalizedKind = String(kind);
+  const codecs = rtpCodecCapabilities[normalizedKind];
   if (!codecs) return null;
   return {
     codecs: codecs.map((codec) => ({ ...codec })),
-    headerExtensions: rtpHeaderExtensionCapabilities.map((extension) => ({ ...extension })),
+    headerExtensions: rtpHeaderExtensionCapabilities[normalizedKind].map((extension) => ({
+      ...extension,
+    })),
   };
+}
+
+function parseRtpHeaderExtensions(bytes, headerLength) {
+  const values = new Map();
+  if ((bytes[0] & 0x10) === 0 || headerLength + 4 > bytes.byteLength) return values;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const profile = view.getUint16(headerLength);
+  const extensionLength = view.getUint16(headerLength + 2) * 4;
+  let offset = headerLength + 4;
+  const end = offset + extensionLength;
+  if (end > bytes.byteLength) return values;
+
+  if (profile === 0xbede) {
+    while (offset < end) {
+      const descriptor = bytes[offset++];
+      if (descriptor === 0) continue;
+      const id = descriptor >> 4;
+      if (id === 15) break;
+      const length = (descriptor & 0x0f) + 1;
+      if (offset + length > end) break;
+      values.set(id, bytes.subarray(offset, offset + length));
+      offset += length;
+    }
+    return values;
+  }
+
+  if ((profile & 0xfff0) === 0x1000) {
+    while (offset < end) {
+      const id = bytes[offset++];
+      if (id === 0) continue;
+      if (offset >= end) break;
+      const length = bytes[offset++];
+      if (offset + length > end) break;
+      values.set(id, bytes.subarray(offset, offset + length));
+      offset += length;
+    }
+  }
+  return values;
+}
+
+function linearAudioLevel(extension) {
+  if (!extension || extension.byteLength === 0) return undefined;
+  const level = extension[0] & 0x7f;
+  return level === 127 ? 0 : 10 ** (-level / 20);
+}
+
+function parseRtpSourcePacket(data, kind, extensionIds) {
+  const bytes = toUint8Array(data);
+  if (bytes.byteLength < 12 || bytes[0] >> 6 !== 2) return null;
+  const payloadType = bytes[1] & 0x7f;
+  if (payloadType >= 64 && payloadType <= 95) return null;
+  const csrcCount = bytes[0] & 0x0f;
+  const headerLength = 12 + csrcCount * 4;
+  if (headerLength > bytes.byteLength) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const extensions = parseRtpHeaderExtensions(bytes, headerLength);
+  const rtpTimestamp = view.getUint32(4);
+  const synchronizationSource = {
+    source: view.getUint32(8),
+    rtpTimestamp,
+  };
+  if (kind === "audio") {
+    const audioLevel = linearAudioLevel(
+      extensions.get(extensionIds.get(ssrcAudioLevelExtensionUri)),
+    );
+    if (audioLevel !== undefined) synchronizationSource.audioLevel = audioLevel;
+  }
+
+  const contributingSources = [];
+  const contributingAudioLevels =
+    kind === "audio" ? extensions.get(extensionIds.get(csrcAudioLevelExtensionUri)) : null;
+  for (let index = 0; index < csrcCount; index += 1) {
+    const source = { source: view.getUint32(12 + index * 4), rtpTimestamp };
+    const audioLevel = linearAudioLevel(contributingAudioLevels?.subarray(index, index + 1));
+    if (audioLevel !== undefined) source.audioLevel = audioLevel;
+    contributingSources.push(source);
+  }
+  return { synchronizationSource, contributingSources };
+}
+
+function updateRtpSource(map, source, timestamp) {
+  const current = map.get(source.source);
+  if (current && timestamp - current.timestamp <= rtpSourceRetentionMs) {
+    const rtpDelta = (source.rtpTimestamp - current.rtpTimestamp) >>> 0;
+    if (rtpDelta >= 0x80000000) return;
+  }
+  map.set(source.source, { timestamp, ...source });
+}
+
+function currentRtpSources(map) {
+  const cutoff = performance.timeOrigin + performance.now() - rtpSourceRetentionMs;
+  for (const [source, value] of map) {
+    if (value.timestamp < cutoff) map.delete(source);
+  }
+  return [...map.values()]
+    .sort((left, right) => right.timestamp - left.timestamp)
+    .map((source) => ({ ...source }));
 }
 
 function rtpCodecName(codec) {
@@ -3936,6 +4047,8 @@ class RTCRtpReceiver {
       label: `remote ${kind}`,
       muted: true,
     });
+    this._synchronizationSources = new Map();
+    this._contributingSources = new Map();
   }
   get track() {
     return this._track;
@@ -3947,6 +4060,24 @@ class RTCRtpReceiver {
   }
   getParameters() {
     return receiverRtpParameters(this._transceiver);
+  }
+  getContributingSources() {
+    return currentRtpSources(this._contributingSources);
+  }
+  getSynchronizationSources() {
+    return currentRtpSources(this._synchronizationSources);
+  }
+  _handleRtpPacket(data) {
+    const extensionIds = new Map(
+      this.getParameters().headerExtensions.map(({ uri, id }) => [uri, id]),
+    );
+    const sources = parseRtpSourcePacket(data, this._track.kind, extensionIds);
+    if (!sources) return;
+    const timestamp = performance.timeOrigin + performance.now();
+    updateRtpSource(this._synchronizationSources, sources.synchronizationSource, timestamp);
+    for (const source of sources.contributingSources) {
+      updateRtpSource(this._contributingSources, source, timestamp);
+    }
   }
   getStats() {
     return this._peerConnection.getStats(this);
@@ -4624,6 +4755,7 @@ class RTCPeerConnection extends SimpleEventTarget {
         listeners: new Set(),
         _handleNativeEvent(event) {
           if (event.type === "message") {
+            transceiver.receiver._handleRtpPacket(event.data);
             if (transceiver.receiver.track._muted) {
               transceiver.receiver.track._muted = false;
               transceiver.receiver.track.dispatchEvent(makeEvent("unmute"));

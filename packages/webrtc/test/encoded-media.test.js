@@ -75,6 +75,39 @@ function rtpPacketWithMid(mid, sequenceNumber = 1, payloadType = 96, ssrc = 42) 
   return packet;
 }
 
+function audioRtpPacketWithSources({
+  sequenceNumber,
+  rtpTimestamp,
+  ssrc,
+  csrcs,
+  ssrcAudioLevel,
+  csrcAudioLevels,
+}) {
+  if (csrcs.length !== csrcAudioLevels.length || csrcs.length > 15) {
+    throw new RangeError("CSRC identifiers and audio levels must have matching RTP lengths");
+  }
+  const extensionData = [0x20, ssrcAudioLevel & 0x7f];
+  if (csrcAudioLevels.length > 0) {
+    extensionData.push(0x30 | (csrcAudioLevels.length - 1), ...csrcAudioLevels);
+  }
+  const paddedExtensionLength = Math.ceil(extensionData.length / 4) * 4;
+  const rtpHeaderLength = 12 + csrcs.length * 4;
+  const packet = new Uint8Array(rtpHeaderLength + 4 + paddedExtensionLength + 1);
+  const view = new DataView(packet.buffer);
+  packet[0] = 0x90 | csrcs.length;
+  packet[1] = 111;
+  view.setUint16(2, sequenceNumber);
+  view.setUint32(4, rtpTimestamp);
+  view.setUint32(8, ssrc);
+  for (let index = 0; index < csrcs.length; index += 1) {
+    view.setUint32(12 + index * 4, csrcs[index]);
+  }
+  view.setUint16(rtpHeaderLength, 0xbede);
+  view.setUint16(rtpHeaderLength + 2, paddedExtensionLength / 4);
+  packet.set(extensionData, rtpHeaderLength + 4);
+  return packet;
+}
+
 function rtcpReceiverReport(ssrc = 42) {
   return Uint8Array.from([
     0x80,
@@ -143,13 +176,117 @@ test("answerer-supplied encoded RTP reaches the offerer receiver", async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     const [, packet] = await received;
-    assert.equal(new Uint8Array(packet.data)[0], 0x80);
+    const packetBytes = new Uint8Array(packet.data);
+    assert.equal(packetBytes[0], 0x80);
+
+    const synchronizationSources = receiver.getSynchronizationSources();
+    assert.equal(synchronizationSources.length, 1);
+    assert.equal(synchronizationSources[0].source, 43);
+    assert.equal(typeof synchronizationSources[0].timestamp, "number");
+    assert.ok(synchronizationSources[0].rtpTimestamp > 0);
+    assert.equal("audioLevel" in synchronizationSources[0], false);
+    assert.deepEqual(receiver.getContributingSources(), []);
 
     const inbound = [...(await receiver.getStats()).values()].find(
       (entry) => entry.type === "inbound-rtp",
     );
     assert.ok(inbound);
     assert.ok(inbound.packetsReceived > 0);
+  } finally {
+    sink?.close();
+    source.close();
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("receiver reports negotiated synchronization and contributing RTP sources", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const source = new EncodedMediaSource({
+    kind: "audio",
+    codec: { mimeType: "audio/opus", payloadType: 111 },
+    ssrc: 0x10203040,
+  });
+  let sink;
+  try {
+    const remoteTrack = waitFor(answerer, "track");
+    offerer.addTrack(source.track);
+    await negotiate(offerer, answerer);
+    const { receiver, track } = await remoteTrack;
+    sink = new EncodedMediaSink(track);
+    assert.deepEqual(receiver.getSynchronizationSources(), []);
+    assert.deepEqual(receiver.getContributingSources(), []);
+    assert.match(
+      answerer.localDescription.sdp,
+      /^a=extmap:2 urn:ietf:params:rtp-hdrext:ssrc-audio-level$/m,
+    );
+    assert.match(
+      answerer.localDescription.sdp,
+      /^a=extmap:3 urn:ietf:params:rtp-hdrext:csrc-audio-level$/m,
+    );
+
+    const opened = source.readyState === "open" ? null : waitFor(source, "open");
+    if (opened) await opened;
+    const packet = audioRtpPacketWithSources({
+      sequenceNumber: 1,
+      rtpTimestamp: 9000,
+      ssrc: 0x10203040,
+      csrcs: [0x11223344, 0x55667788],
+      ssrcAudioLevel: 20,
+      csrcAudioLevels: [40, 127],
+    });
+    const earliestTimestamp = performance.timeOrigin + performance.now();
+    const packetEvent = waitFor(sink, "packet");
+    assert.equal(source.send(packet), true);
+    await packetEvent;
+    const latestTimestamp = performance.timeOrigin + performance.now();
+
+    const synchronizationSources = receiver.getSynchronizationSources();
+    assert.equal(synchronizationSources.length, 1);
+    assert.equal(synchronizationSources[0].source, 0x10203040);
+    assert.equal(synchronizationSources[0].rtpTimestamp, 9000);
+    assert.equal(synchronizationSources[0].audioLevel, 0.1);
+    assert.ok(synchronizationSources[0].timestamp >= earliestTimestamp);
+    assert.ok(synchronizationSources[0].timestamp <= latestTimestamp);
+
+    const contributingSources = receiver.getContributingSources();
+    assert.deepEqual(
+      contributingSources.map(({ source: identifier, rtpTimestamp, audioLevel }) => ({
+        source: identifier,
+        rtpTimestamp,
+        audioLevel,
+      })),
+      [
+        { source: 0x11223344, rtpTimestamp: 9000, audioLevel: 0.01 },
+        { source: 0x55667788, rtpTimestamp: 9000, audioLevel: 0 },
+      ],
+    );
+
+    synchronizationSources[0].source = 0;
+    contributingSources.length = 0;
+    assert.equal(receiver.getSynchronizationSources()[0].source, 0x10203040);
+    assert.equal(receiver.getContributingSources().length, 2);
+
+    const beforeOutOfOrder = receiver.getSynchronizationSources()[0];
+    const outOfOrderPacket = audioRtpPacketWithSources({
+      sequenceNumber: 2,
+      rtpTimestamp: 8000,
+      ssrc: 0x10203040,
+      csrcs: [0x11223344, 0x55667788],
+      ssrcAudioLevel: 10,
+      csrcAudioLevels: [10, 10],
+    });
+    const outOfOrderEvent = waitFor(sink, "packet");
+    assert.equal(source.send(outOfOrderPacket), true);
+    await outOfOrderEvent;
+    assert.deepEqual(receiver.getSynchronizationSources()[0], beforeOutOfOrder);
+
+    const beforeRtcp = receiver.getSynchronizationSources()[0];
+    const rtcpEvent = waitFor(sink, "packet");
+    assert.equal(source.send(rtcpReceiverReport(0x10203040)), true);
+    await rtcpEvent;
+    assert.deepEqual(receiver.getSynchronizationSources()[0], beforeRtcp);
   } finally {
     sink?.close();
     source.close();

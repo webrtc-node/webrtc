@@ -18,6 +18,20 @@ const {
   nonstandard,
 } = require("..");
 
+const audioHeaderExtensionUris = [
+  "urn:ietf:params:rtp-hdrext:sdes:mid",
+  "urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+  "urn:ietf:params:rtp-hdrext:csrc-audio-level",
+];
+
+function expectedAudioHeaderExtensionParameters() {
+  return audioHeaderExtensionUris.map((uri, index) => ({
+    uri,
+    id: index + 1,
+    encrypted: false,
+  }));
+}
+
 function track(kind = "audio") {
   const codec =
     kind === "audio"
@@ -161,7 +175,10 @@ test("RTP capabilities report fresh packet-transport codec dictionaries", () => 
         "video/ulpfec",
       ],
     );
-    assert.deepEqual(audio.headerExtensions, [{ uri: "urn:ietf:params:rtp-hdrext:sdes:mid" }]);
+    assert.deepEqual(
+      audio.headerExtensions,
+      audioHeaderExtensionUris.map((uri) => ({ uri })),
+    );
     audio.codecs[0].mimeType = "modified";
     audio.headerExtensions[0].uri = "modified";
     assert.equal(endpointClass.getCapabilities("audio").codecs[0].mimeType, "audio/opus");
@@ -427,13 +444,7 @@ test("receiver parameters populate from the committed answer", async () => {
     await answerer.setLocalDescription(await answerer.createAnswer());
     const answererParameters = answererReceiver.getParameters();
     assert.equal(answererParameters.codecs[0].mimeType, "audio/opus");
-    assert.deepEqual(answererParameters.headerExtensions, [
-      {
-        uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
-        id: 1,
-        encrypted: false,
-      },
-    ]);
+    assert.deepEqual(answererParameters.headerExtensions, expectedAudioHeaderExtensionParameters());
     assert.deepEqual(answererParameters.rtcp, { reducedSize: false });
     assert.equal(answererParameters.transactionId, undefined);
     assert.equal(answererParameters.encodings, undefined);
@@ -832,13 +843,7 @@ test("sender parameters preserve encodings and expose negotiated SDP facts", asy
     const negotiated = sender.getParameters();
     assert.ok(negotiated.codecs.length > 0);
     assert.match(negotiated.codecs[0].mimeType, /^audio\//);
-    assert.deepEqual(negotiated.headerExtensions, [
-      {
-        uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
-        id: 1,
-        encrypted: false,
-      },
-    ]);
+    assert.deepEqual(negotiated.headerExtensions, expectedAudioHeaderExtensionParameters());
     assert.equal(negotiated.transactionId, sender.getParameters().transactionId);
     assert.equal(typeof negotiated.rtcp.cname, "string");
     assert.ok(negotiated.rtcp.cname.length > 0);

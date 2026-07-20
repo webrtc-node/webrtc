@@ -41,7 +41,13 @@ std::atomic<uint32_t> nextTrackId{1};
 constexpr auto PEER_CLOSE_TIMEOUT = std::chrono::seconds(5);
 constexpr size_t MAX_PENDING_TRACK_PACKETS = 1024;
 constexpr int MID_HEADER_EXTENSION_ID = 1;
+constexpr int SSRC_AUDIO_LEVEL_EXTENSION_ID = 2;
+constexpr int CSRC_AUDIO_LEVEL_EXTENSION_ID = 3;
 constexpr auto MID_HEADER_EXTENSION_URI = "urn:ietf:params:rtp-hdrext:sdes:mid";
+constexpr auto SSRC_AUDIO_LEVEL_EXTENSION_URI =
+    "urn:ietf:params:rtp-hdrext:ssrc-audio-level";
+constexpr auto CSRC_AUDIO_LEVEL_EXTENSION_URI =
+    "urn:ietf:params:rtp-hdrext:csrc-audio-level";
 
 bool IsRtpPacket(const rtc::byte *data, size_t size) {
 	if (size < 2 || (static_cast<uint8_t>(data[0]) >> 6) != 2)
@@ -127,9 +133,16 @@ void SetMediaStreamIds(rtc::Description::Media &media,
 	}
 }
 
-void AddSupportedRtpHeaderExtensions(rtc::Description::Media &media) {
+void AddSupportedRtpHeaderExtensions(rtc::Description::Media &media,
+	                                 bool includeAudioLevels) {
 	media.addExtMap(rtc::Description::Media::ExtMap(MID_HEADER_EXTENSION_ID,
 	                                                MID_HEADER_EXTENSION_URI));
+	if (!includeAudioLevels)
+		return;
+	media.addExtMap(rtc::Description::Media::ExtMap(SSRC_AUDIO_LEVEL_EXTENSION_ID,
+	                                                SSRC_AUDIO_LEVEL_EXTENSION_URI));
+	media.addExtMap(rtc::Description::Media::ExtMap(CSRC_AUDIO_LEVEL_EXTENSION_ID,
+	                                                CSRC_AUDIO_LEVEL_EXTENSION_URI));
 }
 
 struct RtpCodecDescription {
@@ -259,7 +272,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (kind == "audio") {
 		rtc::Description::Audio media(mid, parsedDirection);
 		ReplaceRtpCodecs(media, codecs);
-		AddSupportedRtpHeaderExtensions(media);
+		AddSupportedRtpHeaderExtensions(media, true);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
 			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), cname.value_or(mid));
@@ -269,7 +282,7 @@ rtc::Description::Media ParseMediaDescription(const Napi::Value &value) {
 	if (kind == "video") {
 		rtc::Description::Video media(mid, parsedDirection);
 		ReplaceRtpCodecs(media, codecs);
-		AddSupportedRtpHeaderExtensions(media);
+		AddSupportedRtpHeaderExtensions(media, false);
 		if (options.Has("ssrc") && !options.Get("ssrc").IsNull() &&
 		    !options.Get("ssrc").IsUndefined())
 			media.addSSRC(options.Get("ssrc").ToNumber().Uint32Value(), cname.value_or(mid));

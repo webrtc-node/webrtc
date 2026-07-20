@@ -137,7 +137,7 @@ an upstream candidate.
   useful in libdatachannel's per-peer `Track` API, so no upstream issue is
   warranted.
 
-### Evaluated integration constraint: RTP capabilities and MID extension negotiation
+### Evaluated integration constraint: RTP capabilities, header extensions, and source reporting
 
 **Disposition:** existing upstream media-description API; not an upstream
 candidate.
@@ -145,11 +145,14 @@ candidate.
 - **Requirement and WPT.** WebRTC-PC requires static sender/receiver
   capabilities and receiver parameters derived from the negotiated codecs,
   RTP header extensions, and RTCP mode. It also requires transceiver codec
-  preferences to control offer/answer codec filtering and order. Applicable WPT:
+  preferences to control offer/answer codec filtering and order, plus recent
+  SSRC/CSRC source dictionaries derived from delivered RTP. Applicable WPT:
   `webrtc/RTCRtpSender-getCapabilities.html`,
-  `webrtc/RTCRtpReceiver-getCapabilities.html`, and
-  `webrtc/RTCRtpReceiver-getParameters.html`, and
-  `webrtc/RTCRtpTransceiver-setCodecPreferences.html`.
+  `webrtc/RTCRtpReceiver-getCapabilities.html`,
+  `webrtc/RTCRtpReceiver-getParameters.html`,
+  `webrtc/RTCRtpTransceiver-setCodecPreferences.html`,
+  `webrtc/RTCRtpReceiver-getSynchronizationSources.https.html`, and
+  `webrtc/RTCRtpReceiver-getContributingSources.https.html`.
 - **Source inspected.** `include/rtc/description.hpp`, `src/description.cpp`,
   `include/rtc/rtp.hpp`, `src/rtp.cpp`, `src/impl/track.cpp`, and
   `src/impl/peerconnection.cpp`, and `src/impl/dtlssrtptransport.cpp`.
@@ -157,14 +160,19 @@ candidate.
   reciprocates extension direction. Audio/video descriptions expose the exact
   RTP maps used by the addon. With no media handler, `impl::Track` accepts a
   complete RTP packet and DTLS-SRTP protects or unprotects it without rewriting
-  its extension header.
+  its extension header. `DtlsSrtpTransport::recvMedia()` authenticates and
+  unprotects SRTP before forwarding the original clear RTP header through the
+  track callback.
 - **Binding action.** Static JavaScript capabilities report only codecs the raw
   packet adapter can describe and transport. New native media descriptions add
-  the standardized MID extension through `addExtMap()`; receiver parameters are
-  reconstructed from the committed answer. Codec preferences are converted and
-  validated in JavaScript, then applied as complete RTP maps through
-  `Track::setDescription()` before native offer/answer generation. The binding
-  does not claim an encoder, decoder, packetizer, or any extension it does not
+  MID on audio/video and standardized SSRC/CSRC audio levels on audio through
+  `addExtMap()`; receiver parameters are reconstructed from the committed
+  answer. Codec preferences are converted and validated in JavaScript, then
+  applied as complete RTP maps through `Track::setDescription()` before native
+  offer/answer generation. The facade derives the W3C ten-second source
+  dictionaries from authenticated clear packets and negotiated extension IDs;
+  their WebIDL shape and task visibility are JavaScript policy. The binding does
+  not claim an encoder, decoder, packetizer, or any extension it does not
   negotiate. Native build coverage, SDP assertions, Node-to-Node flow, and the
   focused WPT files exercise the contract. Existing upstream primitives are
   sufficient for this ownership split, so no capability issue is warranted.

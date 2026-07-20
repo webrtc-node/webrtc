@@ -2,8 +2,8 @@
   "libdatachannelRepository": "https://github.com/paullouisageneau/libdatachannel.git",
   "libdatachannelCommit": "188ec93f6a0b01c2032ddb4c8c013118f7f30232",
   "wptCommit": "03169f171c797d0953b21d7388561b454fde0ad4",
-  "expectedSelectedSubtests": 947,
-  "selectedSubtestsSha256": "a7bc4daf3f832ab5c104b737b29f73035ec7de07a46646566c4f54163bd6872a",
+  "expectedSelectedSubtests": 962,
+  "selectedSubtestsSha256": "ec966f4a20cb315739c7390daca1b0a4bc978b90dfe326b658be24d15af74361",
   "expectedPass": [
     "webrtc/RTCPeerConnection-constructor.html",
     "webrtc/RTCError.html?interop-2026",
@@ -124,6 +124,8 @@
     "webrtc/RTCPeerConnection-getStats-timestamp.https.html#base-performance-time-subset",
     "webrtc/RTCPeerConnection-mandatory-getStats.https.html#backend-supported-standard-dictionaries-subset",
     "webrtc/RTCRtpSender-getStats.https.html",
+    "webrtc/RTCRtpReceiver-getSynchronizationSources.https.html",
+    "webrtc/RTCRtpReceiver-getContributingSources.https.html",
     "webrtc/RTCRtpReceiver-getStats.https.html?interop-2026",
     "webrtc/RTCRtpReceiver-getStats.https.html?rest#stopped-lifecycle-subset",
     "webrtc/RTCRtpTransceiver-stop.html",
@@ -159,7 +161,9 @@
     "webrtc/RTCPeerConnection-getStats-timestamp*.html#remote-inbound-media-case",
     "webrtc/RTCPeerConnection-getStats.https.html#remaining-detailed-backend-stats-cases",
     "webrtc/RTCPeerConnection-mandatory-getStats.https.html#loss-jitter-remote-report-decoded-source-and-pair-metric-cases",
-    "webrtc/RTCRtp*.html#remaining-source-report-jitter-buffer-and-simulcast-cases"
+    "webrtc/RTCRtpReceiver-getSynchronizationSources.https.html#synthetic-encoded-source-and-no-op-media-element",
+    "webrtc/RTCRtpReceiver-getContributingSources.https.html#synthetic-encoded-source-and-no-op-media-element",
+    "webrtc/RTCRtp*.html#remaining-jitter-buffer-simulcast-and-processing-cases"
   ],
   "expectedFail": [
     "webrtc/RTCPeerConnection-setLocalDescription*.html#arbitrary-local-sdp-munging",

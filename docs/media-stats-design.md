@@ -19,8 +19,9 @@ application-supplied encoded packet I/O so native track lifecycle does not cross
   and applies `encodings[0].active` through an atomic outbound-RTP gate. RTCP remains enabled, so
   activation does not synthesize BYE or renegotiation.
 - Static sender and receiver capabilities describe every encoded RTP codec that the backend can
-  carry through its raw packet track API. They do not claim codec processing. The only advertised
-  RTP header extension is MID, which is represented natively in SDP and transported unchanged.
+  carry through its raw packet track API. They do not claim codec processing. Audio advertises MID
+  plus the RFC 6464 SSRC and RFC 6465 CSRC audio-level extensions; video advertises MID. Every
+  extension is represented natively in SDP and transported unchanged.
 - `RTCRtpTransceiver.setCodecPreferences()` conversion and validation remain JavaScript policy.
   The addon receives the resulting complete ordered codec list and replaces one copied native
   track description before libdatachannel creates an offer or answer. Answers preserve remote
@@ -28,9 +29,15 @@ application-supplied encoded packet I/O so native track lifecycle does not cross
   answerer's preference order. Committed answer mappings seed later offers from the same
   transceiver. RTP packet bytes are not rewritten, so offer/answer generation rejects an attached
   encoded source whose fixed codec/payload mapping is absent or conflicts with the media section.
-- `RTCRtpReceiver.getParameters()` derives fresh codec, MID-extension, and RTCP dictionaries from
-  the committed answer. It stays empty before answer application and has no sender transaction,
-  encoding, or CNAME fields.
+- `RTCRtpReceiver.getParameters()` derives fresh codec, negotiated-header-extension, and RTCP
+  dictionaries from the committed answer. It stays empty before answer application and has no
+  sender transaction, encoding, or CNAME fields.
+- `RTCRtpReceiver.getSynchronizationSources()` and `getContributingSources()` derive SSRC, CSRC,
+  RTP timestamp, and negotiated audio-level facts from authenticated clear RTP delivered by the
+  backend. The facade retains one latest dictionary per source for ten seconds, rejects older RTP
+  timestamps with wraparound-aware ordering, returns fresh copies in descending delivery-time
+  order, and excludes RTCP. Because this runtime intentionally has no decoder, delivery time is the
+  encoded packet's Node event-loop arrival rather than decoded-frame playout.
 - The application-supplied encoded backend has one real sending encoding. It trims excess initial
   encodings to that capacity and does not expose a RID for the lone encoding. Encoder and pacing
   controls are rejected rather than stored as ineffective state: codec selection, bitrate,
@@ -73,8 +80,9 @@ uses synthetic encoded tracks only to exercise W3C object and lifecycle semantic
 - `include/rtc/rtp.hpp`, `src/rtp.cpp`, `src/impl/track.cpp`, and
   `src/impl/dtlssrtptransport.cpp`: the backend can parse RTP extension headers when a packetizer
   requests it, while the raw track path preserves the caller's complete RTP header through SRTP
-  protection and unprotection. The addon therefore negotiates MID but does not synthesize it in
-  application packets.
+  protection and unprotection. Incoming media is authenticated and unprotected before the complete
+  clear packet reaches the track callback. The addon therefore negotiates MID and audio-level
+  extensions but does not synthesize them in application packets.
 - `src/impl/transport.hpp`, `src/impl/transport.cpp`, `src/impl/dtlssrtptransport.hpp`,
   `src/impl/dtlssrtptransport.cpp`, `src/impl/dtlstransport.cpp`, `src/impl/icetransport.cpp`, and
   `src/impl/sctptransport.cpp`: media uses DTLS-SRTP while data channels use SCTP. The
@@ -123,6 +131,12 @@ criteria in [libdatachannel Upstream Candidates](libdatachannel-upstream-candida
   dictionaries to the shared transport and to codec dictionaries derived from negotiated SDP;
   inbound reports also expose the stable receiver track identifier. Unsupported loss, jitter,
   bandwidth, decoded-media, media-source, playout, and remote-report fields are omitted.
+- Receiver source snapshots parse only authenticated clear RTP emitted by the track callback. They
+  use the extension IDs from the committed answer, support RFC 8285 one-byte and two-byte header
+  forms, expose audio levels only when the matching extension is present, and never infer source
+  facts from SDP or packet counters. This needs no upstream state cache because libdatachannel's raw
+  callback and `Description::Media::ExtMap` already provide the authoritative packet and negotiated
+  mapping.
 - When libdatachannel exposes a selected ICE pair, reports include standardized local-candidate,
   remote-candidate, and succeeded candidate-pair dictionaries derived from the parsed native
   candidates. Candidate-pair byte counts and RTT are omitted because the available aggregate

@@ -18,6 +18,7 @@ import {
   RTCPeerConnectionIceErrorEvent,
   RTCRtpReceiver,
   RTCRtpSender,
+  type RTCRtpSynchronizationSource,
   type RTCSctpTransport,
   RTCSessionDescription,
   type RTCTransportStats,
@@ -107,6 +108,13 @@ const senderParameters = pc.addTransceiver("audio").sender.getParameters();
 const senderCapabilities = RTCRtpSender.getCapabilities("audio");
 const receiverCapabilities = RTCRtpReceiver.getCapabilities("video");
 const receiverParameters = pc.getReceivers()[0].getParameters();
+const contributingSources = pc.getReceivers()[0].getContributingSources();
+const synchronizationSources: RTCRtpSynchronizationSource[] = pc
+  .getReceivers()[0]
+  .getSynchronizationSources();
+const sourceIdentifier: number | undefined = synchronizationSources[0]?.source;
+const sourceRtpTimestamp: number | undefined = contributingSources[0]?.rtpTimestamp;
+const sourceAudioLevel: number | undefined = synchronizationSources[0]?.audioLevel;
 pc.getTransceivers()[0].setCodecPreferences(receiverCapabilities?.codecs ?? []);
 const encodingActive: boolean | undefined = senderParameters.encodings[0]?.active;
 const setParametersResult: Promise<void> = pc.getSenders()[0].setParameters(senderParameters, {});
@@ -118,6 +126,9 @@ const remoteCertificates: ArrayBuffer[] | undefined = maybeDtls?.getRemoteCertif
 void senderCapabilities;
 void receiverCapabilities;
 void receiverParameters;
+void sourceIdentifier;
+void sourceRtpTimestamp;
+void sourceAudioLevel;
 
 pc.ondatachannel = (received: RTCDataChannelEvent) => {
   received.channel.binaryType = "blob";

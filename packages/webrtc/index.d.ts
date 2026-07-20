@@ -389,12 +389,23 @@ export interface RTCRtpSendParameters extends RTCRtpParameters {
 
 export type RTCRtpReceiveParameters = RTCRtpParameters;
 
+export interface RTCRtpContributingSource {
+  timestamp: number;
+  source: number;
+  audioLevel?: number;
+  rtpTimestamp: number;
+}
+
+export type RTCRtpSynchronizationSource = RTCRtpContributingSource;
+
 export class RTCRtpReceiver {
   private constructor();
   static getCapabilities(kind: string): RTCRtpCapabilities | null;
   readonly track: MediaStreamTrack;
   readonly transport: RTCDtlsTransport | null;
   getParameters(): RTCRtpReceiveParameters;
+  getContributingSources(): RTCRtpContributingSource[];
+  getSynchronizationSources(): RTCRtpSynchronizationSource[];
   getStats(): Promise<RTCStatsReport>;
 }
 

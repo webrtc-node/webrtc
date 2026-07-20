@@ -71,6 +71,12 @@ and dispatches one `close` event.
 Incoming packets are dispatched on the Node event loop, and the native pending
 queue is bounded at 1024 packets.
 
+Standard receivers derive `getSynchronizationSources()` and
+`getContributingSources()` from these authenticated incoming RTP headers. An
+application that wants `audioLevel` values must send the RFC 6464 SSRC or RFC
+6465 CSRC extension using the ID negotiated in `receiver.getParameters()`;
+packet bytes and extension IDs are never rewritten by the adapter.
+
 ## UDP mux
 
 ```js

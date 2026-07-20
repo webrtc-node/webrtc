@@ -7,7 +7,7 @@
   <img alt="API" src="https://img.shields.io/badge/API-W3C--style-0a7">
   <img alt="Scope" src="https://img.shields.io/badge/scope-WebRTC-4c1">
   <img alt="TypeScript" src="https://img.shields.io/badge/types-TypeScript-3178c6">
-  <img alt="WPT" src="https://img.shields.io/badge/WPT-947%20selected%20subtests-4c1">
+  <img alt="WPT" src="https://img.shields.io/badge/WPT-962%20selected%20subtests-4c1">
   <img alt="Native API" src="https://img.shields.io/badge/native-Node--API-blue">
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange">
 </p>
@@ -20,7 +20,7 @@
 <p align="center">
   Backed by
   <a href="https://github.com/paullouisageneau/libdatachannel">libdatachannel</a>,
-  shipped as a Node-API native addon, and validated with 947 selected Web
+  shipped as a Node-API native addon, and validated with 962 selected Web
   Platform Tests subtests.
 </p>
 
@@ -56,6 +56,9 @@ included in this package. Applications that already produce packetized media
 can use `nonstandard.EncodedMediaSource` and `nonstandard.EncodedMediaSink` with
 standard `MediaStreamTrack` values. These adapters do not capture devices,
 encode, decode, render, construct RTP headers, or pace packets.
+Received tracks expose standard synchronization and contributing source
+dictionaries from authenticated RTP headers, including negotiated audio-level
+extensions when packet producers supply them.
 
 ## Supported Platforms
 
