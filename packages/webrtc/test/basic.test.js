@@ -65,6 +65,17 @@ async function waitForSelectedCandidatePair(iceTransport) {
   throw new Error("Timed out waiting for selected candidate pair");
 }
 
+async function waitForRemoteCertificateStats(peerConnection) {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const report = await peerConnection.getStats();
+    const remoteCertificateId = report.get("transport-0")?.remoteCertificateId;
+    if (remoteCertificateId && report.get(remoteCertificateId)) return report;
+    await delay(10);
+  }
+  throw new Error("Timed out waiting for authoritative remote certificate stats");
+}
+
 function candidateTransportEndpoint(candidate) {
   return {
     component: candidate.component,
@@ -1060,7 +1071,7 @@ test("connected data-channel ICE transports expose candidate pairs", async (t) =
   assert.equal(answerer.sctp.transport.getRemoteCertificates()[0] instanceof ArrayBuffer, true);
   assert.equal(offerer.sctp.transport.getRemoteCertificates()[0].byteLength > 0, true);
   assert.equal(answerer.sctp.transport.getRemoteCertificates()[0].byteLength > 0, true);
-  const stats = await offerer.getStats();
+  const stats = await waitForRemoteCertificateStats(offerer);
   assert.equal(stats.get("candidate-pair-0").state, "succeeded");
   assert.equal(stats.get("candidate-pair-0").localCandidateId, "local-candidate-0");
   assert.equal(stats.get("candidate-pair-0").remoteCandidateId, "remote-candidate-0");
