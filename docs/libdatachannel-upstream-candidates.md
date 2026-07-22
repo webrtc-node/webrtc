@@ -41,7 +41,7 @@ The named WPT files are from pinned WPT commit
 | Transceiver-like media-section lifecycle and m-line reuse | `confirmed-absent` | None found |
 | Observable media DTLS-SRTP/ICE state and pair statistics | `confirmed-absent` | None found |
 | Per-m-section ICE/DTLS transport topology | `confirmed-absent` | None found |
-| DTLS startup after remote-description commit | `upstream-ready` | Approval required before filing |
+| DTLS startup after remote-description commit | `filed` | [#1612](https://github.com/paullouisageneau/libdatachannel/pull/1612) |
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
@@ -496,7 +496,7 @@ candidate.
 
 ## DTLS startup after remote-description commit
 
-**Status:** `upstream-ready`
+**Status:** `filed`
 
 1. **Requirement and WPT.** Applying a valid remote answer must commit its ICE
    credentials and DTLS fingerprint before connectivity can start a DTLS
@@ -532,7 +532,12 @@ candidate.
    failed 1/500 valid handshakes on Ubuntu Node 24, and exact-head Conformance run
    [29760637275](https://github.com/webrtc-node/webrtc/actions/runs/29760637275)
    failed 3/500 on macOS Node 22. Every iteration had already observed answer-side
-   ICE checks before the delayed full answer was applied.
+   ICE checks before the delayed full answer was applied. Cross-backend execution
+   also showed that the GnuTLS server role accepted the invalid-fingerprint
+   control: `src/impl/dtlstransport.cpp` installed the certificate callback but
+   did not call `gnutls_certificate_server_set_request()`. GnuTLS does not request
+   a client certificate by default, so the callback could not authenticate the
+   active peer. The proposed fix requires that certificate in the server role.
 4. **Current workaround.** There is no correctness-preserving facade workaround.
    The build therefore applies the removable downstream patch
    `packages/webrtc/patches/0001-libdatachannel-serialize-dtls-startup.patch`
@@ -572,13 +577,12 @@ candidate.
    `forceMediaTransport`, explicit fingerprint-verification policy, candidate
    ordering, and current public ABI. The change should only defer premature DTLS;
    it must not accept an absent or mismatched fingerprint.
-9. **Upstream links.** No matching issue, pull request, or released fix found as
-   of 2026-07-20. Earlier exact-head Ubuntu runs passed 500/500, and the same
-   failing head passed 500/500 on CI macOS and local Windows, confirming that the
-   defect is phase-sensitive. The source-backed public C++ reproduction, minimal
-   downstream patch, ownership/threading contract, and native test plan make this
-   item `upstream-ready`. No issue or pull request has been opened; explicit
-   approval is required first.
+9. **Upstream links.** No matching prior issue, pull request, or released fix was
+   found. [libdatachannel #1612](https://github.com/paullouisageneau/libdatachannel/pull/1612)
+   carries the source-backed C++ reproduction, serialized startup change, GnuTLS
+   peer-certificate requirement, and cross-backend regression coverage. The
+   downstream patch remains removable only after an accepted upstream revision is
+   pinned and validated.
 
 ## Native ICE restart with fresh credentials
 
