@@ -35,7 +35,7 @@ The named WPT files are from pinned WPT commit
 
 | Candidate | Status | Existing upstream link |
 | --- | --- | --- |
-| Existing-track description and `msid` notifications | `confirmed-absent` | None found |
+| Existing-track description and `msid` notifications | `upstream-ready` | [#1253](https://github.com/paullouisageneau/libdatachannel/issues/1253); [prepared branch](https://github.com/mertushka/libdatachannel/commit/3d9e55d9cdf23f42e19be9174930151550e48df8) |
 | Reliable transport and RTP/RTCP statistics | `confirmed-absent` | None found |
 | Explicit track removal and stopping lifecycle | `confirmed-absent` | None found |
 | Transceiver-like media-section lifecycle and m-line reuse | `confirmed-absent` | None found |
@@ -45,7 +45,7 @@ The named WPT files are from pinned WPT commit
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
-| Codec-preference-consistent RTP-map serialization | `upstream-ready` | [prepared branch](https://github.com/mertushka/libdatachannel/commit/8645866d2c26be85bdcd983a40001cc18e96e982) |
+| Codec-preference-consistent RTP-map serialization | `filed` | [#1613](https://github.com/paullouisageneau/libdatachannel/pull/1613) |
 
 ### Evaluated integration constraint: late media transport initialization
 
@@ -181,7 +181,7 @@ candidate.
 
 ## Codec-preference-consistent RTP-map serialization
 
-**Status:** `upstream-ready`
+**Status:** `filed`
 
 1. **Requirement and WPT.** WebRTC-PC and JSEP use m-line payload order as codec
    preference order. WPT additionally checks that generated RTP-map lines expose
@@ -224,13 +224,14 @@ candidate.
    Upstream later added m-line ordering in
    [commit 687ff6a4](https://github.com/paullouisageneau/libdatachannel/commit/687ff6a4),
    while attribute groups remained numerically ordered. The focused fix and
-   native regression are prepared in
-   [commit 8645866d](https://github.com/mertushka/libdatachannel/commit/8645866d2c26be85bdcd983a40001cc18e96e982);
-   no upstream issue or pull request has been filed for it yet.
+   native regression are filed as
+   [libdatachannel PR #1613](https://github.com/paullouisageneau/libdatachannel/pull/1613)
+   from
+   [commit 8645866d](https://github.com/mertushka/libdatachannel/commit/8645866d2c26be85bdcd983a40001cc18e96e982).
 
 ## Existing-track description and msid notifications
 
-**Status:** `confirmed-absent`
+**Status:** `upstream-ready`
 
 1. **Requirement and WPT.** JSEP renegotiation updates an existing m-section,
    direction, and `a=msid` associations without replacing receiver identity.
@@ -240,12 +241,21 @@ candidate.
    `webrtc/RTCTrackEvent-fire.html` for same-track association changes.
 2. **Source inspected.** `include/rtc/track.hpp`, `src/track.cpp`,
    `src/impl/track.hpp`, `src/impl/track.cpp`,
+   `include/rtc/peerconnection.hpp`, `src/peerconnection.cpp`,
    `src/impl/peerconnection.hpp`, `src/impl/peerconnection.cpp`,
-   `include/rtc/description.hpp`, `src/description.cpp`, `test/track.cpp`.
-3. **Absence evidence.** `Track::setDescription()` replaces
-   `mMediaDescription` and invokes only the media-handler chain. There is no
-   description-change callback. `processRemoteDescription()` skips an existing
-   `mid` except for RTX disabling; `onTrack()` is emitted only for a new track.
+   `include/rtc/channel.hpp`, `src/impl/channel.hpp`, `src/impl/channel.cpp`,
+   `src/impl/processor.hpp`, `src/impl/processor.cpp`,
+   `include/rtc/utils.hpp`, `include/rtc/description.hpp`,
+   `src/description.cpp`, `include/rtc/rtc.h`, `src/capi.cpp`,
+   `test/track.cpp`, and `test/capi_track.cpp`. The absence remains on upstream
+   master commit `d5d31c7d794345d7aa536c074a9e17cbec95089d`.
+3. **Absence evidence.** `Track::description()` returns only the local
+   `mMediaDescription` used to generate offers and answers. There is no remote
+   description snapshot or change callback. `processRemoteDescription()` skips
+   an existing `mid` except for RTX disabling; `onTrack()` is emitted only for
+   a new media section. `a=msid` remains observable only as raw media
+   attributes, so an existing track cannot authoritatively observe changed
+   associations after renegotiation.
 4. **Current workaround.** `packages/webrtc/lib/index.js` diffs SDP, owns stream
    associations, and synthesizes repeated `track` events.
    `NativeTrack::UpdateDescription`/`UpdateStreams` in the addon mutate copied
@@ -255,16 +265,40 @@ candidate.
 5. **Why insufficient.** Native and JavaScript description state can diverge,
    backend changes have no authoritative revision signal, and candidate-driven
    local SDP refresh requires direction realignment. The SDP diff is removable.
-6. **Proposed upstream API.** Add per-track
-   `onDescriptionChange(function<void(Description::Media)>)`, dispatched by the
-   peer `Processor` after commit and outside track/peer locks. The callback owns
-   a copy, distinguishes local from remote updates, and resets on close.
-7. **Required native tests.** Same-`mid` direction and `msid` renegotiation,
-   zero/one/multiple associations, no duplicate for identical SDP, commit order,
-   callback reset, and close during callback in `test/track.cpp`.
-8. **Compatibility/build options.** Keep `setDescription()` source compatible.
-   Preserve removed-track behavior with `RTC_ENABLE_MEDIA=OFF`.
-9. **Upstream links.** No matching issue or released API found as of 2026-07-13.
+6. **Proposed upstream API.** The prepared branch adds
+   `Track::remoteDescription()` as a copied optional snapshot and
+   `Track::onRemoteDescription(function<void(Description::Media)>)` for changed
+   remote descriptions on existing tracks. Equivalent C APIs expose a copied
+   SDP getter and callback. The peer stores same-`mid` updates while processing
+   the remote description, publishes signaling state, releases the signaling
+   lock, and then queues callbacks on its `Processor`. The initial incoming
+   track snapshot is available before `onTrack`; only later changes trigger the
+   new callback. The registered callback is copied before invocation so close
+   or callback removal during invocation cannot destroy the active callable.
+7. **Required native tests.** The prepared C++ regression verifies the initial
+   remote direction, SSRC, and `msid`; separation from the local description;
+   same-`mid` direction updates; multiple raw media-level associations; no
+   duplicate notification for unchanged SDP; post-commit callback order; and
+   close from inside the callback. The C API regression verifies the initial
+   incoming snapshot and exactly one remote-answer update on a locally added
+   sender. Both regressions failed before the production API existed.
+8. **Compatibility/build options.** `Track::description()` and
+   `setDescription()` remain source compatible and retain their local meaning.
+   The new state and callbacks are additive, copied values, reset on close, and
+   do not change `onTrack` multiplicity. The final prepared commit passed 11/11
+   fork CI jobs: Linux and macOS with OpenSSL, GnuTLS, and Mbed TLS; Windows
+   OpenSSL; libnice; Linux and Windows without media; and no-WebSocket. Local
+   Windows OpenSSL media and no-media builds also passed with warnings as
+   errors. Structured multiple-stream association access remains a separate
+   candidate below; this API only makes authoritative raw remote attributes
+   observable.
+9. **Upstream links.** Open
+   [issue #1253](https://github.com/paullouisageneau/libdatachannel/issues/1253)
+   reports the same inability to identify new remote SSRC/`msid` information
+   when a browser reuses an existing m-section. The focused API, C++/C tests,
+   reference documentation, and cross-platform fix are prepared in
+   [commit 3d9e55d9](https://github.com/mertushka/libdatachannel/commit/3d9e55d9cdf23f42e19be9174930151550e48df8).
+   No upstream pull request has been filed for this candidate.
 
 ## Reliable transport and RTP/RTCP statistics
 
