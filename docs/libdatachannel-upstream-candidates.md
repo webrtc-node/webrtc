@@ -45,7 +45,7 @@ The named WPT files are from pinned WPT commit
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
-| Codec-preference-consistent RTP-map serialization | `upstream-ready` | [prepared branch](https://github.com/mertushka/libdatachannel/commit/0f672be8894639a8f0d7af0d82fbe59092a8ccd7) |
+| Codec-preference-consistent RTP-map serialization | `upstream-ready` | [prepared branch](https://github.com/mertushka/libdatachannel/commit/8645866d2c26be85bdcd983a40001cc18e96e982) |
 
 ### Evaluated integration constraint: late media transport initialization
 
@@ -225,7 +225,7 @@ candidate.
    [commit 687ff6a4](https://github.com/paullouisageneau/libdatachannel/commit/687ff6a4),
    while attribute groups remained numerically ordered. The focused fix and
    native regression are prepared in
-   [commit 0f672be8](https://github.com/mertushka/libdatachannel/commit/0f672be8894639a8f0d7af0d82fbe59092a8ccd7);
+   [commit 8645866d](https://github.com/mertushka/libdatachannel/commit/8645866d2c26be85bdcd983a40001cc18e96e982);
    no upstream issue or pull request has been filed for it yet.
 
 ## Existing-track description and msid notifications
