@@ -6490,7 +6490,7 @@ class RTCPeerConnection extends SimpleEventTarget {
   _scheduleSctpConnectedTransition() {
     if (this._sctpConnectedTransitionScheduled) return;
     this._sctpConnectedTransitionScheduled = true;
-    setImmediate(() => {
+    queueWebRtcTask(() => {
       this._sctpConnectedTransitionScheduled = false;
       if (this._closed || !this._sctpTransport) return;
       this._sctpConnectedTransitionReady = true;

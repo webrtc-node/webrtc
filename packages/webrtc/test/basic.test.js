@@ -935,6 +935,39 @@ test("data-channel negotiation exposes an SCTP transport facade", async (t) => {
   answerer.close();
 });
 
+test("SCTP limits publish in the queued connected-state transition", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAllAndWait(offerer, answerer));
+  exchangeIceCandidates(offerer, answerer);
+  offerer.createDataChannel("sctp-transition-order");
+
+  const offer = await offerer.createOffer();
+  await offerer.setLocalDescription(offer);
+  const offererSctp = offerer.sctp;
+  const offererConnected = waitForState(offererSctp, "connected");
+
+  await answerer.setRemoteDescription(offer);
+  const answererSctp = answerer.sctp;
+  const answererConnected = waitForState(answererSctp, "connected");
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription(answer);
+  await offerer.setRemoteDescription(answer);
+
+  assert.equal(offerer.sctp, offererSctp);
+  assert.equal(answerer.sctp, answererSctp);
+  assert.equal(offererSctp.state, "connecting");
+  assert.equal(answererSctp.state, "connecting");
+  assert.equal(offererSctp.maxChannels, null);
+  assert.equal(answererSctp.maxChannels, null);
+
+  await Promise.all([offererConnected, answererConnected]);
+  assert.equal(offerer.sctp, offererSctp);
+  assert.equal(answerer.sctp, answererSctp);
+  assert.equal(typeof offererSctp.maxChannels, "number");
+  assert.equal(offererSctp.maxChannels, answererSctp.maxChannels);
+});
+
 test("connected SCTP state and limits survive transient peer state replay", async (t) => {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();

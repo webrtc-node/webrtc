@@ -359,9 +359,10 @@ signaling remain outside the current expected-pass set.
 
 The audited libdatachannel commit negotiates up to 1024 SCTP streams internally.
 The JS facade exposes that connected-state `RTCSctpTransport.maxChannels` limit
-before the connected event and retains it until the association closes. Transient
-aggregate ICE or peer-state replay does not move an established SCTP association
-back to `"connecting"` or clear its negotiated stream limit.
+in the queued connected-state transition, before the event is dispatched, and
+retains it until the association closes. Transient aggregate ICE or peer-state
+replay does not move an established SCTP association back to `"connecting"` or
+clear its negotiated stream limit.
 Browser WebRTC/WPT includes cases around stream ids up to 65534.
 For WebIDL construction compatibility, negotiated channels with ids above the
 native limit can be constructed and keep their requested `id` while remaining in
