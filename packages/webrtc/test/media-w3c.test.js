@@ -549,6 +549,98 @@ test("RTP endpoints expose the shared bundled DTLS and ICE transport", async () 
   }
 });
 
+test("late media ICE listeners observe checking before connected", async () => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const candidateApplications = [];
+  try {
+    const { sender } = offerer.addTransceiver("audio");
+    for (const [source, target] of [
+      [offerer, answerer],
+      [answerer, offerer],
+    ]) {
+      source.addEventListener("icecandidate", ({ candidate }) => {
+        if (!candidate) return;
+        const application = target.addIceCandidate(candidate);
+        candidateApplications.push(application);
+        application.catch(() => {});
+      });
+    }
+
+    await negotiate(offerer, answerer);
+    const iceTransport = sender.transport.iceTransport;
+    const nextState = () =>
+      new Promise((resolve) => {
+        iceTransport.addEventListener("statechange", () => resolve(iceTransport.state), {
+          once: true,
+        });
+      });
+
+    assert.equal(await nextState(), "checking");
+    assert.equal(await nextState(), "connected");
+    await Promise.all(candidateApplications);
+  } finally {
+    offerer.close();
+    answerer.close();
+  }
+});
+
+test("closing a peer preserves in-progress ICE transport gathering state", async () => {
+  const peer = new RTCPeerConnection();
+  const { sender } = peer.addTransceiver("audio");
+  await peer.setLocalDescription();
+  const iceTransport = sender.transport.iceTransport;
+  const gathering = new Promise((resolve) => {
+    iceTransport.addEventListener(
+      "gatheringstatechange",
+      () => resolve(iceTransport.gatheringState),
+      { once: true },
+    );
+  });
+
+  assert.equal(await gathering, "gathering");
+  let eventsAfterClose = 0;
+  iceTransport.addEventListener("gatheringstatechange", () => {
+    eventsAfterClose += 1;
+  });
+  peer.close();
+
+  assert.equal(iceTransport.gatheringState, "gathering");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(eventsAfterClose, 0);
+});
+
+test("ICE transport gathering state changes before the peer gathering event", async () => {
+  const peer = new RTCPeerConnection();
+  try {
+    const { sender } = peer.addTransceiver("audio");
+    await peer.setLocalDescription();
+    const iceTransport = sender.transport.iceTransport;
+    const events = [];
+    let resolveGathering;
+    const gathering = new Promise((resolve) => {
+      resolveGathering = resolve;
+    });
+
+    iceTransport.addEventListener("gatheringstatechange", () => {
+      if (iceTransport.gatheringState !== "gathering") return;
+      assert.equal(peer.iceGatheringState, "gathering");
+      events.push("transport");
+    });
+    peer.addEventListener("icegatheringstatechange", () => {
+      if (peer.iceGatheringState !== "gathering") return;
+      assert.equal(iceTransport.gatheringState, "gathering");
+      events.push("peer");
+      resolveGathering();
+    });
+
+    await gathering;
+    assert.deepEqual(events, ["transport", "peer"]);
+  } finally {
+    peer.close();
+  }
+});
+
 test("addTrack reuses eligible sender and removeTrack updates direction", () => {
   const peer = new RTCPeerConnection();
   try {

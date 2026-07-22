@@ -2336,6 +2336,7 @@ class RTCIceTransport extends SimpleEventTarget {
     this._connectionSequenceRequested = false;
     this._connectionSequenceStarted = false;
     this._connectionSequenceReplaying = false;
+    this._gatheringState = this._gatheringStateFromPeer();
     this.onstatechange = null;
     this.ongatheringstatechange = null;
     this.onselectedcandidatepairchange = null;
@@ -2355,6 +2356,10 @@ class RTCIceTransport extends SimpleEventTarget {
   }
 
   get gatheringState() {
+    return this._gatheringState;
+  }
+
+  _gatheringStateFromPeer() {
     const state = this._pc.iceGatheringState;
     if (
       state === "new" &&
@@ -2365,6 +2370,12 @@ class RTCIceTransport extends SimpleEventTarget {
       return "gathering";
     }
     return state;
+  }
+
+  _handlePeerIceGatheringState(state) {
+    if (state === this._gatheringState) return;
+    this._gatheringState = state;
+    this.dispatchEvent(makeEvent("gatheringstatechange"));
   }
 
   getLocalCandidates() {
@@ -2445,7 +2456,7 @@ class RTCIceTransport extends SimpleEventTarget {
     if (
       !this._connectionSequenceRequested ||
       this._connectionSequenceStarted ||
-      !this._pc._hasNegotiatedDataTransport() ||
+      !this._pc._hasNegotiatedIceTransport() ||
       !["connected", "completed"].includes(this._pc.iceConnectionState)
     ) {
       return false;
@@ -5488,8 +5499,8 @@ class RTCPeerConnection extends SimpleEventTarget {
         this._refreshIceRole();
         this._updateSctpTransport();
         if (rollingBackInitialOffer && previousGatheringState !== "new") {
+          this._iceTransport()?._handlePeerIceGatheringState("new");
           this.dispatchEvent(makeEvent("icegatheringstatechange"));
-          this._iceTransport()?.dispatchEvent(makeEvent("gatheringstatechange"));
         }
         if (previousState !== this._signalingState) this._dispatchSignalingStateChange();
         await nextTask();
@@ -6544,6 +6555,13 @@ class RTCPeerConnection extends SimpleEventTarget {
     );
   }
 
+  _hasNegotiatedIceTransport() {
+    return (
+      hasNegotiatedMediaSection(this._localDescription) &&
+      hasNegotiatedMediaSection(this._remoteDescription)
+    );
+  }
+
   _hasExplicitlyNegotiatedDataTransport() {
     return this._localDescriptionSetByApi && this._hasNegotiatedDataTransport();
   }
@@ -7258,8 +7276,8 @@ class RTCPeerConnection extends SimpleEventTarget {
     this._refreshIceRole();
     this._updateSctpTransport();
     if (rollingBackInitialOffer && previousGatheringState !== "new") {
+      this._iceTransport()?._handlePeerIceGatheringState("new");
       this.dispatchEvent(makeEvent("icegatheringstatechange"));
-      this._iceTransport()?.dispatchEvent(makeEvent("gatheringstatechange"));
     }
     if (previousState !== this._signalingState) this._dispatchSignalingStateChange();
     await nextTask();
@@ -7725,8 +7743,8 @@ class RTCPeerConnection extends SimpleEventTarget {
       }
       case "icegatheringstatechange":
         this._iceGatheringState = event.state;
+        this._iceTransport()?._handlePeerIceGatheringState(event.state);
         this.dispatchEvent(makeEvent("icegatheringstatechange"));
-        this._iceTransport()?.dispatchEvent(makeEvent("gatheringstatechange"));
         if (event.state === "complete") {
           this.dispatchEvent(new RTCPeerConnectionIceEvent("icecandidate", { candidate: null }));
         }
