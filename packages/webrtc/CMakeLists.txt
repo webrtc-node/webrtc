@@ -112,6 +112,7 @@ function(prepare_patched_libdatachannel_source source_dir output_var)
   set(patched_root "${CMAKE_BINARY_DIR}/ldcp-overlay")
   set(patched_dir "${patched_root}/src/impl")
   set(patched_source "${patched_dir}/peerconnection.cpp")
+  cmake_path(GET patched_root ROOT_PATH patch_working_directory)
   file(REMOVE_RECURSE "${patched_root}")
   file(MAKE_DIRECTORY "${patched_dir}")
   file(GLOB libdatachannel_impl_headers "${source_dir}/src/impl/*.hpp")
@@ -119,9 +120,10 @@ function(prepare_patched_libdatachannel_source source_dir output_var)
   file(COPY "${source_dir}/src/impl/peerconnection.cpp" DESTINATION "${patched_dir}")
 
   execute_process(
-    COMMAND "${GIT_EXECUTABLE}" apply --check --unidiff-zero --whitespace=nowarn
+    COMMAND "${GIT_EXECUTABLE}" apply --check --unsafe-paths --directory=${patched_root}
+            --unidiff-zero --whitespace=nowarn
             "${WEBRTC_NODE_LIBDATACHANNEL_PATCH}"
-    WORKING_DIRECTORY "${patched_root}"
+    WORKING_DIRECTORY "${patch_working_directory}"
     RESULT_VARIABLE patch_check_result
     ERROR_VARIABLE patch_check_error
   )
@@ -132,14 +134,21 @@ function(prepare_patched_libdatachannel_source source_dir output_var)
   endif()
 
   execute_process(
-    COMMAND "${GIT_EXECUTABLE}" apply --unidiff-zero --whitespace=nowarn
+    COMMAND "${GIT_EXECUTABLE}" apply --unsafe-paths --directory=${patched_root}
+            --unidiff-zero --whitespace=nowarn
             "${WEBRTC_NODE_LIBDATACHANNEL_PATCH}"
-    WORKING_DIRECTORY "${patched_root}"
+    WORKING_DIRECTORY "${patch_working_directory}"
     RESULT_VARIABLE patch_result
     ERROR_VARIABLE patch_error
   )
   if(NOT patch_result EQUAL 0)
     message(FATAL_ERROR "Failed to apply libdatachannel patch: ${patch_error}")
+  endif()
+
+  file(READ "${patched_source}" patched_source_contents)
+  string(FIND "${patched_source_contents}" "locked->initDtlsTransport();" patch_marker)
+  if(patch_marker EQUAL -1)
+    message(FATAL_ERROR "libdatachannel patch command succeeded without modifying the overlay.")
   endif()
 
   set(${output_var} "${patched_source}" PARENT_SCOPE)

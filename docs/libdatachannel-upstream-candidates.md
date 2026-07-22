@@ -538,8 +538,11 @@ candidate.
    `packages/webrtc/patches/0001-libdatachannel-serialize-dtls-startup.patch`
    to a build-private copy of the affected compilation unit. The ICE `Connected`
    callback queues DTLS startup on the peer `Processor`; that task acquires the
-   signaling mutex, so an in-flight remote-description operation commits the
-   fingerprint before DTLS construction. The pinned checkout is not modified.
+   signaling mutex and starts only when a remote description exists. If ICE is
+   already connected when `processRemoteDescription()` commits the fingerprint,
+   that commit starts DTLS itself. CMake applies the patch outside Git index
+   filtering and verifies the changed source marker before compiling it. The
+   pinned checkout is not modified.
 5. **Why insufficient.** Catching the candidate exception would report a committed
    JavaScript description over a closed native transport. Omitting gathered offer
    candidates hides the race by changing signaling behavior and does not cover
@@ -547,11 +550,14 @@ candidate.
    update and remote-fingerprint commit atomic.
 6. **Proposed upstream behavior.** Queue DTLS initialization from the ICE
    `Connected` callback onto the peer-owned `Processor`, then acquire the existing
-   signaling mutex before creating the transport. This serializes startup after
-   remote-description commit without blocking a potentially synchronous backend
-   callback or exposing a new public API. The queued task holds only a weak peer
-   reference until execution; the locked peer owns the created transport. Keep
-   public state callbacks on their existing threads and preserve close semantics.
+   signaling mutex before inspecting the committed remote description and creating
+   the transport. If ICE connected before any remote description existed, start
+   DTLS from `processRemoteDescription()` after storing the fingerprint. This
+   serializes startup after commit without blocking a potentially synchronous
+   backend callback or exposing a new public API. The queued task holds only a
+   weak peer reference until execution; the locked peer owns the created
+   transport. Keep public state callbacks on their existing threads and preserve
+   close semantics.
 7. **Required native tests.** The binding now carries the public-API-only
    `packages/webrtc/test/native/dtls-startup-race.cpp` regression, built through
    the opt-in `WEBRTC_NODE_BUILD_NATIVE_TESTS` CMake option. It lets a full

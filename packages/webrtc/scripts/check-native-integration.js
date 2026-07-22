@@ -90,6 +90,16 @@ requireMatch(
   /prepare_patched_libdatachannel_source\s*\([\s\S]*LIBDATACHANNEL_PATCHED_PEERCONNECTION_SOURCE\s*\)/,
 );
 requireMatch(
+  "ignored-overlay-safe libdatachannel patch application",
+  cmake,
+  /apply\s+--check\s+--unsafe-paths\s+--directory=\$\{patched_root\}/,
+);
+requireMatch(
+  "libdatachannel patch application postcondition",
+  cmake,
+  /string\s*\(\s*FIND[\s\S]*locked->initDtlsTransport\(\);[\s\S]*patch_marker\s*\)/,
+);
+requireMatch(
   "patched libdatachannel compilation unit replacement",
   cmake,
   /replace_libdatachannel_peerconnection_source\s*\([\s\S]*datachannel-static/,
