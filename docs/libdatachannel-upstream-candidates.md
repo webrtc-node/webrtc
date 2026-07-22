@@ -45,7 +45,7 @@ The named WPT files are from pinned WPT commit
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
 | First-class multiple media-stream associations | `confirmed-absent` | None found |
-| Codec-preference-consistent RTP-map serialization | `confirmed-absent` | None found |
+| Codec-preference-consistent RTP-map serialization | `upstream-ready` | [prepared branch](https://github.com/mertushka/libdatachannel/commit/0f672be8894639a8f0d7af0d82fbe59092a8ccd7) |
 
 ### Evaluated integration constraint: late media transport initialization
 
@@ -181,7 +181,7 @@ candidate.
 
 ## Codec-preference-consistent RTP-map serialization
 
-**Status:** `confirmed-absent`
+**Status:** `upstream-ready`
 
 1. **Requirement and WPT.** WebRTC-PC and JSEP use m-line payload order as codec
    preference order. WPT additionally checks that generated RTP-map lines expose
@@ -194,9 +194,9 @@ candidate.
    payload-specific `a=rtcp-fb`, and `a=fmtp` attributes by iterating the
    numerically ordered `mRtpMaps` map. A preference such as H264 payload 102
    before VP8 payload 96 is therefore represented correctly in the m-line but
-   serialized with the VP8 RTP-map first. An independent minimal C++
-   reproduction has not yet been retained, so this item is not
-   `upstream-ready`.
+   serialized with the VP8 RTP-map first. The prepared upstream branch retains
+   this as `test/description.cpp`, covering parsed and constructed media plus
+   remove/re-add ordering.
 4. **Current workaround.** `packages/webrtc/lib/index.js` groups codec
    attributes by payload type and reorders those groups to match each generated
    audio/video m-line before exposing a session description. The native media
@@ -210,16 +210,23 @@ candidate.
    RTP-map/feedback/fmtp group in that order. This changes no API, ownership, or
    callback contract and runs under the description owner's existing thread
    synchronization.
-7. **Required native tests.** Construct media with numerically non-monotonic
-   payload types, assert m-line and attribute-group order, remove/re-add a map,
-   verify RTX `apt` groups remain adjacent to their ordered primary, and
-   parse/serialize a remote description without changing preference order.
+7. **Required native tests.** The prepared branch constructs media with
+   numerically non-monotonic payload types, asserts attribute-group order,
+   removes and re-adds a map, and parses/serializes a description containing
+   ordered primary and RTX `apt` groups. The regression failed before the
+   production change and passes afterward.
 8. **Compatibility/build options.** Preserve existing SDP content and payload
    mappings; only attribute order changes. Exercise media enabled/disabled,
    bundled/system dependencies, and all supported compilers because this is
    core description code independent of TLS, ICE, and SCTP backends.
-9. **Upstream links.** No matching issue, pull request, or released fix found as
-   of 2026-07-19.
+9. **Upstream links.** [PR #1144](https://github.com/paullouisageneau/libdatachannel/pull/1144)
+   proposed codec-priority preservation but was closed without merge in 2024.
+   Upstream later added m-line ordering in
+   [commit 687ff6a4](https://github.com/paullouisageneau/libdatachannel/commit/687ff6a4),
+   while attribute groups remained numerically ordered. The focused fix and
+   native regression are prepared in
+   [commit 0f672be8](https://github.com/mertushka/libdatachannel/commit/0f672be8894639a8f0d7af0d82fbe59092a8ccd7);
+   no upstream issue or pull request has been filed for it yet.
 
 ## Existing-track description and msid notifications
 
