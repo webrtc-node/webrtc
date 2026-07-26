@@ -35,7 +35,7 @@ The named WPT files are from pinned WPT commit
 
 | Candidate | Status | Existing upstream link |
 | --- | --- | --- |
-| Existing-track description and `msid` notifications | `upstream-ready` | [#1253](https://github.com/paullouisageneau/libdatachannel/issues/1253); [prepared branch](https://github.com/mertushka/libdatachannel/commit/3d9e55d9cdf23f42e19be9174930151550e48df8) |
+| Existing-track description and `msid` notifications | `filed` | [#1253](https://github.com/paullouisageneau/libdatachannel/issues/1253); [#1614](https://github.com/paullouisageneau/libdatachannel/pull/1614) |
 | Reliable transport and RTP/RTCP statistics | `confirmed-absent` | None found |
 | Explicit track removal and stopping lifecycle | `confirmed-absent` | None found |
 | Transceiver-like media-section lifecycle and m-line reuse | `confirmed-absent` | None found |
@@ -44,7 +44,7 @@ The named WPT files are from pinned WPT commit
 | DTLS startup after remote-description commit | `filed` | [#1612](https://github.com/paullouisageneau/libdatachannel/pull/1612) |
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
-| First-class multiple media-stream associations | `confirmed-absent` | None found |
+| First-class multiple media-stream associations | `upstream-ready` | [prepared commit](https://github.com/mertushka/libdatachannel/commit/a45339c469bd4ca6287788131f220c9e73f7ad1c) |
 | Codec-preference-consistent RTP-map serialization | `filed` | [#1613](https://github.com/paullouisageneau/libdatachannel/pull/1613) |
 
 ### Evaluated integration constraint: late media transport initialization
@@ -231,7 +231,7 @@ candidate.
 
 ## Existing-track description and msid notifications
 
-**Status:** `upstream-ready`
+**Status:** `filed`
 
 1. **Requirement and WPT.** JSEP renegotiation updates an existing m-section,
    direction, and `a=msid` associations without replacing receiver identity.
@@ -265,7 +265,7 @@ candidate.
 5. **Why insufficient.** Native and JavaScript description state can diverge,
    backend changes have no authoritative revision signal, and candidate-driven
    local SDP refresh requires direction realignment. The SDP diff is removable.
-6. **Proposed upstream API.** The prepared branch adds
+6. **Proposed upstream API.** PR #1614 adds
    `Track::remoteDescription()` as a copied optional snapshot and
    `Track::onRemoteDescription(function<void(Description::Media)>)` for changed
    remote descriptions on existing tracks. Equivalent C APIs expose a copied
@@ -275,7 +275,7 @@ candidate.
    track snapshot is available before `onTrack`; only later changes trigger the
    new callback. The registered callback is copied before invocation so close
    or callback removal during invocation cannot destroy the active callable.
-7. **Required native tests.** The prepared C++ regression verifies the initial
+7. **Required native tests.** The C++ regression verifies the initial
    remote direction, SSRC, and `msid`; separation from the local description;
    same-`mid` direction updates; multiple raw media-level associations; no
    duplicate notification for unchanged SDP; post-commit callback order; and
@@ -295,10 +295,11 @@ candidate.
 9. **Upstream links.** Open
    [issue #1253](https://github.com/paullouisageneau/libdatachannel/issues/1253)
    reports the same inability to identify new remote SSRC/`msid` information
-   when a browser reuses an existing m-section. The focused API, C++/C tests,
-   reference documentation, and cross-platform fix are prepared in
+   when a browser reuses an existing m-section.
+   [libdatachannel PR #1614](https://github.com/paullouisageneau/libdatachannel/pull/1614)
+   carries the focused API, C++/C tests, reference documentation, and
+   cross-platform fix from
    [commit 3d9e55d9](https://github.com/mertushka/libdatachannel/commit/3d9e55d9cdf23f42e19be9174930151550e48df8).
-   No upstream pull request has been filed for this candidate.
 
 ## Reliable transport and RTP/RTCP statistics
 
@@ -693,7 +694,7 @@ candidate.
 
 ## First-class multiple media-stream associations
 
-**Status:** `confirmed-absent`
+**Status:** `upstream-ready`
 
 1. **Requirement and WPT.** A sender associates a track with zero, one, or many
    streams; renegotiation updates membership while track identity stays stable.
@@ -703,12 +704,23 @@ candidate.
    `webrtc/protocol/msid-generate.html`, `webrtc/protocol/msid-parse.html`, and
    `webrtc/RTCTrackEvent-fire.html`.
 2. **Source inspected.** `include/rtc/description.hpp`, `src/description.cpp`,
-   `include/rtc/track.hpp`, `src/impl/track.cpp`,
-   `src/impl/peerconnection.cpp`.
+   `include/rtc/track.hpp`, `src/track.cpp`, `src/impl/track.hpp`,
+   `src/impl/track.cpp`, `include/rtc/peerconnection.hpp`,
+   `src/peerconnection.cpp`, `src/impl/peerconnection.hpp`,
+   `src/impl/peerconnection.cpp`, `src/capi.cpp`, `test/main.cpp`,
+   `test/track.cpp`, and `CMakeLists.txt`. The applicable WPT sources inspected
+   were `webrtc/RTCRtpSender-setStreams.https.html`,
+   `webrtc/RTCPeerConnection-addTrack.https.html`,
+   `webrtc/RTCTrackEvent-fire.html`, `webrtc/protocol/msid-generate.html`, and
+   `webrtc/protocol/msid-parse.html`.
 3. **Absence evidence.** `Description::Entry` stores untyped attribute strings.
    `Description::Media::addSSRC()` accepts one optional `msid` and appends one
    media-level `a=msid`. There is no association-set parser/accessor. Extra lines
    can be manually added but peer/track APIs cannot observe structured changes.
+   `Media::reciprocate()` clears SSRC attributes but leaves media-level `a=msid`
+   lines from the offer in the answer, contrary to RFC 8830 section 3.2.3.
+   The absence and reciprocation behavior were reproduced on upstream master
+   commit `d5d31c7d794345d7aa536c074a9e17cbec95089d`.
 4. **Current workaround.** Addon `SetMediaStreamIds()` removes/rebuilds raw
    `msid:` attributes. JavaScript owns stream arrays, SDP parsing, remote stream
    identity/membership, the no-MSID default stream, legacy SSRC-level fallback,
@@ -716,16 +728,48 @@ candidate.
 5. **Why insufficient.** Raw rewriting duplicates state and can discard attribute
    details. Remote updates are inferred because native same-`mid` processing has
    no callback. Raw rewrite/parsing is removable; JavaScript identity remains.
-6. **Proposed upstream API.** Add structured
-   `MediaStreamAssociation { streamId, trackId }` vectors with parse, replace,
-   add/remove, deduplication, and SDP generation while preserving unknown attrs.
-   Publish association changes through the description callback above.
-7. **Required native tests.** Zero/one/multiple media-level `a=msid`, legacy
-   SSRC-level input, duplicates, round trip, replacement, same-`mid`
-   renegotiation, invalid tokens, and association without SSRC.
-8. **Compatibility/build options.** Keep `addSSRC()` and raw attributes. Structured
-   SDP methods should compile with media disabled.
-9. **Upstream links.** No matching issue or released API found as of 2026-07-13.
+6. **Proposed upstream API, ownership, and threading.** The prepared branch adds
+   `Description::Media::MediaStreamAssociation { streamId, trackId }`,
+   `mediaStreamAssociations()`, and `setMediaStreamAssociations()`. The getter
+   parses valid RFC 8830 media-level attributes, ignores malformed ABNF,
+   deduplicates exact associations, and preserves SDP order. The setter validates
+   1-64-character SDP tokens and a consistent optional track ID before replacing
+   only media-level `msid` attributes. `addSSRC()` suppresses duplicate
+   media-level associations, and `reciprocate()` removes the offerer's
+   associations. State remains synchronously owned by the copied
+   `Description::Media`; there are no callbacks, transport state, or thread
+   transitions. PR #1614 separately supplies authoritative existing-track
+   description notifications without making this patch depend on it.
+7. **Required native tests.** `test/msid.cpp` covers zero, one, and multiple
+   associations; `-`; optional appdata; duplicate suppression; SDP order and
+   round trip; the 64-character boundary; malformed tokens; atomic rejection of
+   inconsistent track IDs; preservation of unrelated and legacy SSRC-level
+   attributes; clearing; two SSRCs for one track; and answer reciprocation.
+   The regression failed before the typed API existed.
+8. **Compatibility/build options.** `addSSRC()` and raw attributes remain
+   available. The additive C++ API needs no C equivalent because the C API does
+   not expose mutable `Description` objects. Local Windows OpenSSL builds passed
+   with warnings as errors in media and no-media configurations, with 29/29 and
+   13/13 tests respectively. All 11 fork CI jobs passed at exact commit
+   `a45339c469bd4ca6287788131f220c9e73f7ad1c`: OpenSSL
+   ([run 29958251763](https://github.com/mertushka/libdatachannel/actions/runs/29958251763)),
+   GnuTLS
+   ([run 29958251732](https://github.com/mertushka/libdatachannel/actions/runs/29958251732)),
+   Mbed TLS
+   ([run 29958251716](https://github.com/mertushka/libdatachannel/actions/runs/29958251716)),
+   libnice
+   ([run 29958251788](https://github.com/mertushka/libdatachannel/actions/runs/29958251788)),
+   no-WebSocket
+   ([run 29958251736](https://github.com/mertushka/libdatachannel/actions/runs/29958251736)),
+   and media-disabled Linux/Windows
+   ([run 29958251718](https://github.com/mertushka/libdatachannel/actions/runs/29958251718)).
+9. **Upstream links.** Issue
+   [#1253](https://github.com/paullouisageneau/libdatachannel/issues/1253)
+   overlaps on observing changed remote `msid` data but is primarily addressed
+   by PR #1614. The independent RFC 8830 API and native reproduction are prepared
+   in
+   [commit a45339c4](https://github.com/mertushka/libdatachannel/commit/a45339c469bd4ca6287788131f220c9e73f7ad1c).
+   No upstream issue or pull request has been filed for this candidate.
 
 ## Promotion checklist
 
