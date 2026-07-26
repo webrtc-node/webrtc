@@ -44,7 +44,7 @@ The named WPT files are from pinned WPT commit
 | DTLS startup after remote-description commit | `filed` | [#1612](https://github.com/paullouisageneau/libdatachannel/pull/1612) |
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
-| First-class multiple media-stream associations | `upstream-ready` | [prepared commit](https://github.com/mertushka/libdatachannel/commit/de958e6ef8355c7436b1a8736aa781f39d05cb33) |
+| First-class multiple media-stream associations | `filed` | [#1615](https://github.com/paullouisageneau/libdatachannel/pull/1615) |
 | Codec-preference-consistent RTP-map serialization | `filed` | [#1613](https://github.com/paullouisageneau/libdatachannel/pull/1613) |
 
 ### Evaluated integration constraint: late media transport initialization
@@ -694,7 +694,7 @@ candidate.
 
 ## First-class multiple media-stream associations
 
-**Status:** `upstream-ready`
+**Status:** `filed`
 
 1. **Requirement and WPT.** A sender associates a track with zero, one, or many
    streams; renegotiation updates membership while track identity stays stable.
@@ -770,7 +770,8 @@ candidate.
    by PR #1614. The independent RFC 8830 API and native reproduction are prepared
    in
    [commit de958e6e](https://github.com/mertushka/libdatachannel/commit/de958e6ef8355c7436b1a8736aa781f39d05cb33).
-   No upstream issue or pull request has been filed for this candidate.
+   [libdatachannel PR #1615](https://github.com/paullouisageneau/libdatachannel/pull/1615)
+   carries the typed API, RFC 8830 reciprocation fix, and native regression.
 
 ## Promotion checklist
 
