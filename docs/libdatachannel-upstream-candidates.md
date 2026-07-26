@@ -44,7 +44,7 @@ The named WPT files are from pinned WPT commit
 | DTLS startup after remote-description commit | `filed` | [#1612](https://github.com/paullouisageneau/libdatachannel/pull/1612) |
 | Native ICE restart with fresh credentials | `filed` | [#545](https://github.com/paullouisageneau/libdatachannel/issues/545) |
 | Candidate-gathering error callbacks | `confirmed-absent` | None found |
-| First-class multiple media-stream associations | `upstream-ready` | [prepared commit](https://github.com/mertushka/libdatachannel/commit/a45339c469bd4ca6287788131f220c9e73f7ad1c) |
+| First-class multiple media-stream associations | `upstream-ready` | [prepared commit](https://github.com/mertushka/libdatachannel/commit/de958e6ef8355c7436b1a8736aa781f39d05cb33) |
 | Codec-preference-consistent RTP-map serialization | `filed` | [#1613](https://github.com/paullouisageneau/libdatachannel/pull/1613) |
 
 ### Evaluated integration constraint: late media transport initialization
@@ -750,25 +750,26 @@ candidate.
    available. The additive C++ API needs no C equivalent because the C API does
    not expose mutable `Description` objects. Local Windows OpenSSL builds passed
    with warnings as errors in media and no-media configurations, with 29/29 and
-   13/13 tests respectively. All 11 fork CI jobs passed at exact commit
-   `a45339c469bd4ca6287788131f220c9e73f7ad1c`: OpenSSL
-   ([run 29958251763](https://github.com/mertushka/libdatachannel/actions/runs/29958251763)),
+   13/13 tests respectively. The branch is rebased on upstream master commit
+   `a2627fb96c85c75064676ec2b1131d3779c1fc2a`. All 11 fork CI jobs passed at
+   exact commit `de958e6ef8355c7436b1a8736aa781f39d05cb33`: OpenSSL
+   ([run 30215461043](https://github.com/mertushka/libdatachannel/actions/runs/30215461043)),
    GnuTLS
-   ([run 29958251732](https://github.com/mertushka/libdatachannel/actions/runs/29958251732)),
+   ([run 30215461071](https://github.com/mertushka/libdatachannel/actions/runs/30215461071)),
    Mbed TLS
-   ([run 29958251716](https://github.com/mertushka/libdatachannel/actions/runs/29958251716)),
+   ([run 30215461051](https://github.com/mertushka/libdatachannel/actions/runs/30215461051)),
    libnice
-   ([run 29958251788](https://github.com/mertushka/libdatachannel/actions/runs/29958251788)),
+   ([run 30215461045](https://github.com/mertushka/libdatachannel/actions/runs/30215461045)),
    no-WebSocket
-   ([run 29958251736](https://github.com/mertushka/libdatachannel/actions/runs/29958251736)),
+   ([run 30215461055](https://github.com/mertushka/libdatachannel/actions/runs/30215461055)),
    and media-disabled Linux/Windows
-   ([run 29958251718](https://github.com/mertushka/libdatachannel/actions/runs/29958251718)).
+   ([run 30215461047](https://github.com/mertushka/libdatachannel/actions/runs/30215461047)).
 9. **Upstream links.** Issue
    [#1253](https://github.com/paullouisageneau/libdatachannel/issues/1253)
    overlaps on observing changed remote `msid` data but is primarily addressed
    by PR #1614. The independent RFC 8830 API and native reproduction are prepared
    in
-   [commit a45339c4](https://github.com/mertushka/libdatachannel/commit/a45339c469bd4ca6287788131f220c9e73f7ad1c).
+   [commit de958e6e](https://github.com/mertushka/libdatachannel/commit/de958e6ef8355c7436b1a8736aa781f39d05cb33).
    No upstream issue or pull request has been filed for this candidate.
 
 ## Promotion checklist
