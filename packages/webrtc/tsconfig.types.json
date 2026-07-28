@@ -8,5 +8,5 @@
     "noEmit": true,
     "skipLibCheck": false
   },
-  "files": ["test/types.ts"]
+  "files": ["test/types.ts", "test/types-esm.mts"]
 }

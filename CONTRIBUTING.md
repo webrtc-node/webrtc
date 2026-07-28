@@ -64,11 +64,12 @@ For targeted debugging, pass either a WPT file or a `file#subtest` selector to
 
 - Keep changes scoped to one behavior or API area.
 - Run `npm run format` for Biome-managed files before pushing.
-- Update `index.d.ts` when runtime exports or public types change.
+- Update `packages/webrtc/index.d.ts` when runtime exports or public types change.
 - Update `wpt-manifest.json` and docs when conformance status changes.
-- Add or update `test/*.test.js` coverage for regressions.
+- Add or update `packages/webrtc/test/*.test.js` coverage for regressions.
 - Document intentional WebRTC divergences in `docs/divergences.md`.
 
-The package scope is `RTCPeerConnection` plus `RTCDataChannel`. Do not add
-media tracks, transceivers, RTP sender/receiver APIs, stats, DTMF, or browser
-device APIs.
+The package scope is the applicable W3C WebRTC API for Node transport,
+including media object/RTP lifecycle semantics for application-supplied encoded
+media and backend-supported standardized stats. Browser capture, devices,
+rendering, media elements, codec processing, DTMF, and capture UI are non-goals.

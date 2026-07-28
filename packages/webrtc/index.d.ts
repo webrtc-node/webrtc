@@ -776,3 +776,35 @@ export namespace nonstandard {
   };
   const native: unknown;
 }
+
+export interface WebRTCNodeModule {
+  readonly MediaStream: typeof MediaStream;
+  readonly MediaStreamTrack: typeof MediaStreamTrack;
+  readonly MediaStreamTrackEvent: typeof MediaStreamTrackEvent;
+  readonly RTCRtpSender: typeof RTCRtpSender;
+  readonly RTCRtpReceiver: typeof RTCRtpReceiver;
+  readonly RTCRtpTransceiver: typeof RTCRtpTransceiver;
+  readonly RTCStatsReport: typeof RTCStatsReport;
+  readonly RTCTrackEvent: typeof RTCTrackEvent;
+  readonly RTCPeerConnection: typeof RTCPeerConnection;
+  readonly RTCDataChannel: typeof RTCDataChannel;
+  readonly RTCSessionDescription: typeof RTCSessionDescription;
+  readonly RTCIceCandidate: typeof RTCIceCandidate;
+  readonly RTCIceCandidatePair: typeof RTCIceCandidatePair;
+  readonly RTCCertificate: typeof RTCCertificate;
+  readonly RTCDataChannelEvent: typeof RTCDataChannelEvent;
+  readonly RTCPeerConnectionIceEvent: typeof RTCPeerConnectionIceEvent;
+  readonly RTCPeerConnectionIceErrorEvent: typeof RTCPeerConnectionIceErrorEvent;
+  readonly RTCError: typeof RTCError;
+  readonly RTCErrorEvent: typeof RTCErrorEvent;
+  readonly RTCIceTransport: typeof RTCIceTransport;
+  readonly RTCSctpTransport: typeof RTCSctpTransport;
+  readonly RTCDtlsTransport: typeof RTCDtlsTransport;
+  readonly EventTarget: typeof EventTarget;
+  readonly Event: typeof Event;
+  readonly MessageEvent: typeof MessageEvent;
+  readonly nonstandard: typeof nonstandard;
+}
+
+declare const webrtc: WebRTCNodeModule;
+export default webrtc;

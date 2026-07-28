@@ -33,7 +33,7 @@
     ".": {
       "types": "./index.d.ts",
       "require": "./lib/index.js",
-      "import": "./lib/index.js",
+      "import": "./lib/index.mjs",
       "default": "./lib/index.js"
     },
     "./package.json": "./package.json"
@@ -64,7 +64,7 @@
     "package:check": "npm pack --dry-run --json",
     "prebuild:package": "node scripts/package-prebuild.js",
     "prebuild:check": "node scripts/check-prebuilds.js",
-    "api:check": "node scripts/check-api-surface.js",
+    "api:check": "node scripts/check-api-surface.js && node scripts/check-module-formats.js",
     "test": "npm run test:core && npm run test:focused && node test/encoded-media-cleanup.js",
     "test:core": "node --test --test-force-exit --test-timeout=60000 test/basic.test.js",
     "test:focused": "node --test --test-force-exit --test-timeout=30000 test/encoded-media.test.js test/encoded-media-teardown.test.js test/media-w3c.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/stats-w3c.test.js test/wpt-sharding.test.js",

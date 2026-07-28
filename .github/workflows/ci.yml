@@ -73,7 +73,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              packages/*|vcpkg.json|build-containers/*|package.json|package-lock.json)
+              packages/*|scripts/smoke-installed-workspace.js|vcpkg.json|build-containers/*|package.json|package-lock.json)
                 package_changed="true"
                 ;;
             esac

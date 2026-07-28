@@ -45,6 +45,12 @@ channel.addEventListener("message", (event) => {
 });
 ```
 
+ES modules expose the same runtime and constructor identities:
+
+```js
+import { RTCPeerConnection } from "@webrtc-node/webrtc";
+```
+
 See
 [examples/datachannel.js](https://github.com/webrtc-node/webrtc/blob/main/examples/datachannel.js)
 for a complete local offer/answer exchange.

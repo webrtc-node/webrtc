@@ -33,6 +33,7 @@ const requiredRuntimePackageEntries = [
 ];
 const requiredRuntimePackageFiles = [
   "lib/index.js",
+  "lib/index.mjs",
   "lib/load-native.js",
   "scripts/install-native.js",
   "scripts/prebuild-integrity.js",

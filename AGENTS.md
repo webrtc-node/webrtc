@@ -2,26 +2,28 @@
 
 ## Conformance Target
 
-This package exposes W3C-style `RTCPeerConnection` and `RTCDataChannel` APIs
-for Node.js on top of `paullouisageneau/libdatachannel`. Treat the selected
-web-platform-tests (WPT) suite as the compatibility contract. Prefer
-browser-compatible JavaScript semantics over libdatachannel-specific behavior,
-and document intentional divergences in `docs/divergences.md`.
+This package exposes the applicable W3C WebRTC API for Node.js on top of
+`paullouisageneau/libdatachannel`. Treat the selected web-platform-tests (WPT)
+suite as the compatibility contract. Prefer browser-compatible JavaScript
+semantics over libdatachannel-specific behavior, and document intentional
+divergences in `docs/divergences.md`.
 
-The exposed project scope is peer connections and data channels. Do not add
-media tracks, transceivers, RTP sender/receiver APIs, stats, DTMF, or browser
-device APIs.
+The exposed scope includes peer connections, data channels, media object and
+RTP lifecycle semantics for application-supplied encoded media, transports, and
+backend-supported standardized stats. Do not fabricate capture, device,
+rendering, media-element, codec-processing, DTMF, or capture-UI capabilities.
 
 ## Project Structure
 
-- `lib/index.js`: public WebRTC facade, WebIDL-style conversions, event timing,
-  DOMException-shaped errors, and peer/data-channel behavior.
-- `src/native/addon.cc`: Node-API bridge to libdatachannel. Keep this ABI-stable
-  and free of direct V8 or NAN APIs.
-- `CMakeLists.txt`: native build and pinned libdatachannel integration.
-- `index.d.ts`: public TypeScript declarations; keep runtime exports in sync.
+- `packages/webrtc/lib/`: public WebRTC facade and module entry points.
+- `packages/webrtc/src/native/`: Node-API bridge to libdatachannel. Keep this
+  ABI-stable and free of direct V8 or NAN APIs.
+- `packages/webrtc/CMakeLists.txt`: native build and pinned libdatachannel
+  integration.
+- `packages/webrtc/index.d.ts`: public TypeScript declarations; keep runtime
+  exports in sync.
 - `examples/`: small runnable examples for public users.
-- `test/*.test.js`: focused Node `node:test` coverage.
+- `packages/webrtc/test/*.test.js`: focused Node `node:test` coverage.
 - `wpt-manifest.json`: selected WPT scope, expected failures, shims, and
   non-applicable browser/media cases.
 - `scripts/`: build, API, native, WPT, and reporting checks.
@@ -54,8 +56,8 @@ close calls, garbage collection, and failed construction without use-after-free
 or double callback delivery.
 
 Keep native code thin: own handles, translate configuration, and surface events.
-Put W3C-facing behavior in `lib/index.js` unless native behavior is required for
-correctness.
+Put W3C-facing behavior in the JavaScript facade unless native behavior is
+required for correctness.
 
 ## Build and Test Commands
 

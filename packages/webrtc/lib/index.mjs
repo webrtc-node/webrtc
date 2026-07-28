@@ -1,0 +1,30 @@
+import webrtc from "./index.js";
+
+export const MediaStream = webrtc.MediaStream;
+export const MediaStreamTrack = webrtc.MediaStreamTrack;
+export const MediaStreamTrackEvent = webrtc.MediaStreamTrackEvent;
+export const RTCRtpSender = webrtc.RTCRtpSender;
+export const RTCRtpReceiver = webrtc.RTCRtpReceiver;
+export const RTCRtpTransceiver = webrtc.RTCRtpTransceiver;
+export const RTCStatsReport = webrtc.RTCStatsReport;
+export const RTCTrackEvent = webrtc.RTCTrackEvent;
+export const RTCPeerConnection = webrtc.RTCPeerConnection;
+export const RTCDataChannel = webrtc.RTCDataChannel;
+export const RTCSessionDescription = webrtc.RTCSessionDescription;
+export const RTCIceCandidate = webrtc.RTCIceCandidate;
+export const RTCIceCandidatePair = webrtc.RTCIceCandidatePair;
+export const RTCCertificate = webrtc.RTCCertificate;
+export const RTCDataChannelEvent = webrtc.RTCDataChannelEvent;
+export const RTCPeerConnectionIceEvent = webrtc.RTCPeerConnectionIceEvent;
+export const RTCPeerConnectionIceErrorEvent = webrtc.RTCPeerConnectionIceErrorEvent;
+export const RTCError = webrtc.RTCError;
+export const RTCErrorEvent = webrtc.RTCErrorEvent;
+export const RTCIceTransport = webrtc.RTCIceTransport;
+export const RTCSctpTransport = webrtc.RTCSctpTransport;
+export const RTCDtlsTransport = webrtc.RTCDtlsTransport;
+export const EventTarget = webrtc.EventTarget;
+export const Event = webrtc.Event;
+export const MessageEvent = webrtc.MessageEvent;
+export const nonstandard = webrtc.nonstandard;
+
+export default webrtc;
