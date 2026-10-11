@@ -37,3 +37,8 @@ jobs:
           node smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Published ARM64 data-channel smoke failed' }
           Pop-Location
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { throw 'Source dependency installation failed' }
+          $env:WEBRTC_NODE_NATIVE_PATH = Join-Path $taskInstallPath 'node_modules/@webrtc-node/webrtc/build/Release/webrtc_node.node'
+          node --test --test-reporter=tap --test-force-exit --test-timeout=30000 test/basic.test.js test/nonstandard.test.js
+          if ($LASTEXITCODE -ne 0) { throw 'Current facade tests with published addon failed' }
