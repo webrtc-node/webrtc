@@ -19,6 +19,13 @@ If a local `libdatachannel/` checkout exists, CMake verifies it against the
 pinned commit. Otherwise it fetches the pinned upstream commit with
 `FetchContent`.
 
+Windows CI and release builds use pinned vcpkg dependencies. The ARM64 static
+triplet builds OpenSSL C code with `/Od` to avoid an access violation during
+DTLS handshakes with optimized MSVC builds. OpenSSL assembly implementations,
+static linkage, and optimization of the addon and libdatachannel are retained.
+This trades OpenSSL C-code performance for working connections; removing the
+workaround requires validating an optimized build with a data-channel exchange.
+
 ## Local Checks
 
 ```sh

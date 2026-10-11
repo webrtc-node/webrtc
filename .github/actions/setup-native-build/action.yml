@@ -113,13 +113,14 @@ runs:
         "VCPKG_TARGET_TRIPLET=$triplet" | Out-File -FilePath $env:GITHUB_ENV -Append
         "VCPKG_INSTALLED_DIR=$installedDir" | Out-File -FilePath $env:GITHUB_ENV -Append
         "CMAKE_TOOLCHAIN_FILE=$toolchainFile" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "VCPKG_OVERLAY_TRIPLETS=$(Join-Path $env:GITHUB_WORKSPACE '.github\vcpkg-triplets')" | Out-File -FilePath $env:GITHUB_ENV -Append
 
     - name: Cache Windows vcpkg packages
       if: runner.os == 'Windows'
       uses: actions/cache@v5
       with:
         path: vcpkg_installed
-        key: vcpkg-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-vcpkg.outputs.triplet }}-${{ steps.windows-vcpkg.outputs.toolset_version }}-${{ hashFiles('vcpkg.json') }}
+        key: vcpkg-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-vcpkg.outputs.triplet }}-${{ steps.windows-vcpkg.outputs.toolset_version }}-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
 
     - name: Install Windows native dependencies
       if: runner.os == 'Windows'
