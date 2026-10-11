@@ -2,16 +2,6 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      npm_tag:
-        description: npm distribution tag (used only when publish_npm is enabled)
-        required: true
-        default: next
-      publish_npm:
-        description: Publish to npm after uploading prebuild assets (explicit opt-in)
-        required: true
-        type: boolean
-        default: false
   release:
     types: [published]
 
@@ -52,11 +42,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
 
       - name: Build Linux prebuild
         run: |
-          docker build \
+          docker build --no-cache --pull \
             -f "${{ matrix.dockerfile }}" \
             ${{ matrix.build_args }} \
             -t "${{ matrix.image }}" .
@@ -64,7 +54,24 @@ jobs:
             -v "$PWD:/usr/app" \
             -w /usr/app \
             "${{ matrix.image }}" \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:package -- --platform=linux --arch=${{ matrix.arch }} --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\""
+            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run native:check && npm test && npm run api:check && npm run types:check && npm run prebuild:package -- --platform=linux --arch=${{ matrix.arch }} --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\" && npm exec -c \"node scripts/validate-prebuild-install.js\""
+
+      - name: Inspect Linux addon linkage
+        run: |
+          docker run --rm -v "$PWD:/usr/app" -w /usr/app "${{ matrix.image }}" sh -lc 'set -eu
+            cmake --version
+            readelf -h build/Release/webrtc_node.node
+            readelf -d build/Release/webrtc_node.node > /tmp/addon-dependencies
+            cat /tmp/addon-dependencies
+            readelf --version-info build/Release/webrtc_node.node
+            ! grep -E "Shared library:.*(libssl|libcrypto)" /tmp/addon-dependencies
+            test "$(grep -Ec "OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.a$" build/CMakeCache.txt)" = 2
+            if [ "${{ matrix.libc }}" = glibc ]; then
+              test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.31"
+              newest="$(readelf --version-info build/Release/webrtc_node.node | grep -oE "GLIBC_[0-9.]+" | sed "s/GLIBC_//" | sort -Vu | tail -1)"
+              test "$(printf "%s\n" "$newest" 2.31 | sort -V | tail -1)" = 2.31
+            fi
+          '
 
       - uses: actions/upload-artifact@v7
         with:
@@ -89,7 +96,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -102,9 +109,21 @@ jobs:
 
       - run: npm run build -- --arch=${{ matrix.arch }} --CDWEBRTC_NODE_STATIC_OPENSSL=ON
 
+      - name: Verify static OpenSSL selection
+        shell: bash
+        run: |
+          test "$(grep -Ec 'OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.(a|lib)$' build/CMakeCache.txt)" = 2
+
+      - run: npm run native:check
+      - run: npm test
+      - run: npm run api:check
+      - run: npm run types:check
+
       - run: npm run prebuild:package -- --platform=darwin --arch=${{ matrix.arch }}
 
       - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
+
+      - run: npm exec -c "node scripts/validate-prebuild-install.js"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -129,7 +148,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -142,32 +161,54 @@ jobs:
 
       - run: npm run build -- --arch=${{ matrix.arch }} --CDWEBRTC_NODE_STATIC_OPENSSL=ON
 
+      - name: Verify static OpenSSL selection
+        shell: bash
+        run: |
+          test "$(grep -Ec 'OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.(a|lib)$' build/CMakeCache.txt)" = 2
+
+      - run: npm run native:check
+      - run: npm test
+      - run: npm run api:check
+      - run: npm run types:check
+
       - run: npm run prebuild:package -- --platform=win32 --arch=${{ matrix.arch }}
 
       - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
+
+      - run: npm exec -c "node scripts/validate-prebuild-install.js"
 
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
           path: prebuild-artifacts/*
 
-  publish:
-    name: Publish npm package
+  source-fallback:
+    name: Linux ARM64 musl source fallback
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+      - name: Verify unsupported prebuild falls back to source
+        run: |
+          docker build --no-cache --pull -f build-containers/Dockerfile.alpine --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20 -t webrtc-node-fallback .
+          docker run --rm -v "$PWD:/usr/app" -w /usr/app webrtc-node-fallback sh -lc 'npm ci --ignore-scripts && npm exec -c "node scripts/validate-prebuild-install.js --source-fallback"'
+
+  validate:
+    name: Validate prebuild assets
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
     needs:
       - prebuild-linux
       - prebuild-macos
       - prebuild-windows
+      - source-fallback
     timeout-minutes: 20
-    environment: npm
 
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -199,33 +240,64 @@ jobs:
             exit 1
           fi
 
-      - name: Upload prebuild release assets
+  publish:
+    name: Publish npm package
+    if: github.event_name == 'release'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: prebuild-*
+          path: prebuild-artifacts
+          merge-multiple: true
+      - run: npm ci --ignore-scripts
+      - run: npm run prebuild:check
+
+      - name: Refuse an existing npm version or release asset
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          tag="$RELEASE_TAG"
-          if [ "$EVENT_NAME" != "release" ]; then
-            tag="v$(node -p "require('./package.json').version")"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${version}`);
+          if (response.status !== 404) throw new Error(`Publication requires an unused npm version; registry returned ${response.status}`);
+          NODE
+          if [ "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" != "0" ]; then
+            echo "Release already has assets; inspect publication state before retrying."
+            exit 1
           fi
-          gh release view "$tag" >/dev/null
-          gh release upload "$tag" prebuild-artifacts/* --clobber
+
+      - name: Upload prebuild release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" prebuild-artifacts/*
 
       - name: Publish to npm
-        if: github.event_name != 'workflow_dispatch' || inputs.publish_npm
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_NPM_TAG: ${{ inputs.npm_tag }}
           RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -euo pipefail
-          npm_tag="$INPUT_NPM_TAG"
-          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
-            npm_tag="latest"
-            if [ "$RELEASE_PRERELEASE" = "true" ]; then
-              npm_tag="next"
-            fi
+          npm_tag="latest"
+          if [ "$RELEASE_PRERELEASE" = "true" ]; then
+            npm_tag="next"
           fi
           npm publish --access public --tag "$npm_tag" --provenance

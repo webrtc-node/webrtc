@@ -10,3 +10,4 @@ Project-facing docs:
 - [Development](development.md)
 - [Intentional Divergences](divergences.md)
 - [Nonstandard libdatachannel Extensions](nonstandard.md)
+- [Releasing](releasing.md)
