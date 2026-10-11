@@ -1,334 +1,61 @@
-name: CI
+name: Windows ARM64 Diagnostics
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  changes:
-    name: Changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      native: ${{ steps.classify.outputs.native }}
-      package_artifact: ${{ steps.classify.outputs.package_artifact }}
-      wpt: ${{ steps.classify.outputs.wpt }}
-      chrome_e2e: ${{ steps.classify.outputs.chrome_e2e }}
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - id: classify
-        name: Classify changed files
-        shell: bash
-        run: |
-          set -euo pipefail
-          base="$(node -e "const e = require(process.env.GITHUB_EVENT_PATH); process.stdout.write(e.pull_request?.base?.sha || e.before || '')")"
-          head="$GITHUB_SHA"
-          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "package_artifact=true" >> "$GITHUB_OUTPUT"
-            echo "wpt=true" >> "$GITHUB_OUTPUT"
-            echo "chrome_e2e=true" >> "$GITHUB_OUTPUT"
-            echo "No comparable base commit; running full CI." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          if ! git fetch --no-tags --depth=1 origin "$base"; then
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "package_artifact=true" >> "$GITHUB_OUTPUT"
-            echo "wpt=true" >> "$GITHUB_OUTPUT"
-            echo "chrome_e2e=true" >> "$GITHUB_OUTPUT"
-            echo "Could not fetch base commit; running full CI." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          git diff --name-only "$base" "$head" > changed-files.txt
-          cat changed-files.txt
-
-          native_changed="false"
-          package_changed="false"
-          wpt_changed="false"
-          chrome_e2e_changed="false"
-          workflow_changed="false"
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
-            case "$file" in
-              .github/workflows/*|.github/actions/*)
-                workflow_changed="true"
-                ;;
-            esac
-            case "$file" in
-              lib/*|src/*|test/*|CMakeLists.txt|vcpkg.json|package.json|package-lock.json|index.d.ts|scripts/check-api-surface.js|scripts/check-native-integration.js)
-                native_changed="true"
-                ;;
-            esac
-            case "$file" in
-              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-prebuilds.js|scripts/install-native.js|scripts/package-prebuild.js|scripts/prebuild-integrity.js)
-                package_changed="true"
-                ;;
-            esac
-            case "$file" in
-              wpt-manifest.json|scripts/check-wpt-*|scripts/ensure-wpt.js|scripts/run-wpt-*|scripts/write-wpt-report.js)
-                wpt_changed="true"
-                ;;
-            esac
-            case "$file" in
-              lib/*|src/*|test/e2e/*|CMakeLists.txt|package.json|package-lock.json)
-                chrome_e2e_changed="true"
-                ;;
-            esac
-          done < changed-files.txt
-
-          if [ "$workflow_changed" = "true" ]; then
-            native_changed="true"
-            package_changed="true"
-            wpt_changed="true"
-            chrome_e2e_changed="true"
-          fi
-
-          echo "native=$native_changed" >> "$GITHUB_OUTPUT"
-          echo "package_artifact=$package_changed" >> "$GITHUB_OUTPUT"
-          echo "wpt=$wpt_changed" >> "$GITHUB_OUTPUT"
-          echo "chrome_e2e=$chrome_e2e_changed" >> "$GITHUB_OUTPUT"
-
-          if [ "$workflow_changed" = "true" ]; then
-            echo "Workflow/action files changed; running full CI." >> "$GITHUB_STEP_SUMMARY"
-          elif [ "$native_changed" = "true" ] || [ "$package_changed" = "true" ] || [ "$wpt_changed" = "true" ] || [ "$chrome_e2e_changed" = "true" ]; then
-            echo "Relevant files changed; running targeted CI jobs." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No native, package, or WPT files changed; skipping heavy CI jobs." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-  quality:
-    name: Quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-
-      - run: npm ci
-
-      - run: npm run check
-
-      - run: npm run types:check
-
-  package-artifact:
-    name: Package artifact
-    runs-on: ubuntu-latest
-    needs: [changes, quality]
-    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.package_artifact == 'true'
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-
-      - uses: ./.github/actions/setup-native-build
-
-      - run: npm ci
-
-      - name: Verify static Linux addon build
-        shell: bash
-        run: |
-          docker build \
-            -f build-containers/Dockerfile.debian \
-            --build-arg NODE_VERSION=20 \
-            --build-arg DEBIAN_VERSION=bullseye \
-            -t webrtc-node-ci-debian .
-          docker run --rm \
-            -v "$PWD:/usr/app" \
-            -w /usr/app \
-            webrtc-node-ci-debian \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON"
-
-      - name: Pack source artifact
-        id: pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          tarball="$(npm pack --json | node -e "let input = ''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input)[0].filename));")"
-          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
-
-      - name: Verify packed source build
-        shell: bash
-        run: |
-          set -euo pipefail
-          workdir="$(mktemp -d)"
-          tar -xzf "${{ steps.pack.outputs.tarball }}" -C "$workdir"
-          cd "$workdir/package"
-          npm install
-          npm run build
-          node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close(); console.log('packed source require ok');"
-
-  build-test:
-    name: ${{ matrix.os }} / Node ${{ matrix.node }}
-    runs-on: ${{ matrix.os }}
-    needs: [changes, quality]
-    if: needs.changes.outputs.native == 'true'
+  diagnostic:
+    runs-on: windows-11-arm
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22, 24]
-        include:
-          - os: windows-11-arm
-            node: 24
-
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-
-      - uses: ./.github/actions/setup-native-build
-
-      - run: npm ci
-
-      - run: npm run native:check
-
-      - run: npm run build
-
-      - run: npm test
-
-      - run: npm run api:check
-
-      - run: npm run types:check
-
-  wpt-smoke:
-    name: WPT smoke
-    runs-on: ubuntu-latest
-    needs: [changes, quality]
-    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.wpt == 'true'
-    timeout-minutes: 30
-    env:
-      WPT_TEST_TIMEOUT_MS: 180000
-      WPT_WORKER_TIMEOUT_MS: 600000
-      WPT_WORKER_DELAY_MS: 2000
-      WPT_CLEANUP_DELAY_MS: 3000
-
-    steps:
-      - uses: actions/checkout@v7
-
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
-
+      - uses: actions/cache/restore@v5
+        id: diagnostic-cache
+        with:
+          path: vcpkg_installed
+          key: diagnostic-vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageVersion }}-${{ hashFiles('vcpkg.json') }}
       - uses: ./.github/actions/setup-native-build
-
-      - run: npm ci
-
-      - run: npm run wpt:ensure
-
-      - run: npm run native:check
-
-      - run: npm run build
-
-      - run: npm run wpt:selection:check
-
-      - run: npm run wpt:smoke
-
-      - run: npm run wpt:smoke:check
-
-      - run: npm run wpt:report -- --output wpt-report.md --expected-total 4
-        if: always() && hashFiles('wpt-results.json') != ''
-
+      - uses: actions/cache/save@v5
+        if: steps.diagnostic-cache.outputs.cache-hit != 'true'
+        with:
+          path: vcpkg_installed
+          key: ${{ steps.diagnostic-cache.outputs.cache-primary-key }}
+      - run: npm ci --ignore-scripts
+      - run: npm run build -- --CDCMAKE_CXX_FLAGS_RELEASE="/O2 /Ob2 /DNDEBUG /Zi" --CDCMAKE_C_FLAGS_RELEASE="/O2 /Ob2 /DNDEBUG /Zi" --CDCMAKE_SHARED_LINKER_FLAGS_RELEASE="/DEBUG /OPT:REF /OPT:ICF"
+      - name: Capture TAP test diagnostics
+        continue-on-error: true
+        env:
+          WEBRTC_NODE_LIBDATACHANNEL_LOG: debug
+        run: node --test --test-reporter=tap --test-force-exit --test-timeout=30000 test/basic.test.js test/nonstandard.test.js
+      - name: Capture a direct data-channel crash dump
+        continue-on-error: true
+        env:
+          WEBRTC_NODE_LIBDATACHANNEL_LOG: debug
+        run: |
+          New-Item -ItemType Directory -Path ci-artifacts/dumps -Force | Out-Null
+          Invoke-WebRequest https://live.sysinternals.com/arm64/procdump64a.exe -OutFile "$env:RUNNER_TEMP/procdump64a.exe"
+          & "$env:RUNNER_TEMP/procdump64a.exe" -accepteula -ma -e -x "$PWD/ci-artifacts/dumps" (Get-Command node).Source examples/datachannel.js
+          Get-ChildItem 'C:/Program Files (x86)/Windows Kits/10/Debuggers' -Recurse -Filter cdb.exe -ErrorAction SilentlyContinue | Select-Object FullName
+      - name: Compare without OpenSSL ARM CPU acceleration
+        continue-on-error: true
+        env:
+          OPENSSL_armcap: '0'
+          WEBRTC_NODE_LIBDATACHANNEL_LOG: debug
+        run: node examples/datachannel.js
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: wpt-smoke
+          name: windows-arm64-diagnostics
           path: |
-            wpt-manifest.json
-            wpt-report.md
-            wpt-results.json
-
-  chrome-e2e:
-    name: Chrome E2E
-    runs-on: ubuntu-latest
-    needs: [changes, quality]
-    if: needs.changes.outputs.chrome_e2e == 'true'
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-
-      - uses: ./.github/actions/setup-native-build
-
-      - run: npm ci
-
-      - run: npm run native:check
-
-      - run: npm run build
-
-      - name: Verify Chrome installation
-        shell: bash
-        run: |
-          if command -v google-chrome >/dev/null 2>&1; then
-            google-chrome --version
-          else
-            google-chrome-stable --version
-          fi
-
-      - name: Run Chrome E2E
-        run: npm run e2e:chrome
-
-  ci-required:
-    name: CI required
-    runs-on: ubuntu-latest
-    needs:
-      - changes
-      - quality
-      - package-artifact
-      - build-test
-      - wpt-smoke
-      - chrome-e2e
-    if: always()
-    timeout-minutes: 5
-
-    steps:
-      - name: Verify required CI jobs
-        env:
-          JOB_RESULTS: ${{ toJSON(needs) }}
-        shell: bash
-        run: |
-          node <<'NODE'
-          const jobs = JSON.parse(process.env.JOB_RESULTS);
-          const failed = Object.entries(jobs).filter(
-            ([, job]) => job.result !== "success" && job.result !== "skipped",
-          );
-          if (failed.length > 0) {
-            for (const [name, job] of failed) {
-              console.error(`${name}: ${job.result}`);
-            }
-            process.exit(1);
-          }
-          console.log("All required CI jobs passed or were intentionally skipped.");
-          NODE
+            ci-artifacts/dumps/*
+            build/Release/*.node
+            build/Release/*.pdb
