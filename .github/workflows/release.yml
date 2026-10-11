@@ -1,19 +1,7 @@
-name: Release
+name: Prebuild Validation
 
 on:
   workflow_dispatch:
-    inputs:
-      npm_tag:
-        description: npm distribution tag (used only when publish_npm is enabled)
-        required: true
-        default: next
-      publish_npm:
-        description: Publish to npm after uploading prebuild assets (explicit opt-in)
-        required: true
-        type: boolean
-        default: false
-  release:
-    types: [published]
 
 permissions:
   contents: read
@@ -52,11 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.ref }}
 
       - name: Build Linux prebuild
         run: |
-          docker build \
+          docker build --no-cache --pull \
             -f "${{ matrix.dockerfile }}" \
             ${{ matrix.build_args }} \
             -t "${{ matrix.image }}" .
@@ -70,6 +58,25 @@ jobs:
         with:
           name: prebuild-${{ matrix.target }}
           path: prebuild-artifacts/*
+
+      - name: Inspect Linux release addon and exchange a data-channel message
+        run: |
+          docker run --rm -v "$PWD:/usr/app" -w /usr/app "${{ matrix.image }}" sh -lc 'set -eu
+            cmake --version
+            getconf GNU_LIBC_VERSION || true
+            readelf -h build/Release/webrtc_node.node
+            readelf -d build/Release/webrtc_node.node
+            readelf --version-info build/Release/webrtc_node.node
+            ldd build/Release/webrtc_node.node > /tmp/addon-dependencies
+            cat /tmp/addon-dependencies
+            ! grep -E "libssl|libcrypto|not found" /tmp/addon-dependencies
+            grep -E "OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.a$" build/CMakeCache.txt
+            npm run native:check
+            npm run api:check
+            npm run types:check
+            npm test
+            npm run example:datachannel
+          '
 
   prebuild-macos:
     name: Prebuild ${{ matrix.target }}
@@ -89,7 +96,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v6
         with:
@@ -129,7 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v6
         with:
@@ -151,81 +158,20 @@ jobs:
           name: prebuild-${{ matrix.target }}
           path: prebuild-artifacts/*
 
-  publish:
-    name: Publish npm package
+  validate:
+    name: Validate aggregated prebuilds
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-    needs:
-      - prebuild-linux
-      - prebuild-macos
-      - prebuild-windows
-    timeout-minutes: 20
-    environment: npm
-
+    needs: [prebuild-linux, prebuild-macos, prebuild-windows]
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
-
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          package-manager-cache: false
-          registry-url: https://registry.npmjs.org
-
       - uses: actions/download-artifact@v8
         with:
           pattern: prebuild-*
           path: prebuild-artifacts
           merge-multiple: true
-
       - run: npm ci --ignore-scripts
-
       - run: npm run prebuild:check
-
       - run: npm run native:check
-
-      - name: Verify release tag
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          expected="v$(node -p "require('./package.json').version")"
-          if [ "$EVENT_NAME" = "release" ] && [ "$RELEASE_TAG" != "$expected" ]; then
-            echo "Release tag $RELEASE_TAG does not match package version $expected"
-            exit 1
-          fi
-
-      - name: Upload prebuild release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          tag="$RELEASE_TAG"
-          if [ "$EVENT_NAME" != "release" ]; then
-            tag="v$(node -p "require('./package.json').version")"
-          fi
-          gh release view "$tag" >/dev/null
-          gh release upload "$tag" prebuild-artifacts/* --clobber
-
-      - name: Publish to npm
-        if: github.event_name != 'workflow_dispatch' || inputs.publish_npm
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_NPM_TAG: ${{ inputs.npm_tag }}
-          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
-        run: |
-          set -euo pipefail
-          npm_tag="$INPUT_NPM_TAG"
-          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
-            npm_tag="latest"
-            if [ "$RELEASE_PRERELEASE" = "true" ]; then
-              npm_tag="next"
-            fi
-          fi
-          npm publish --access public --tag "$npm_tag" --provenance
