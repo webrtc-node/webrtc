@@ -2,324 +2,90 @@ name: Release
 
 on:
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
   contents: read
 
+concurrency:
+  group: npm-recovery-v0.2.2
+  cancel-in-progress: false
+
 jobs:
-  prebuild-linux:
-    name: Prebuild ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64-glibc
-            os: ubuntu-latest
-            arch: x64
-            dockerfile: build-containers/Dockerfile.debian
-            image: webrtc-node-prebuild-debian
-            build_args: --build-arg NODE_VERSION=20 --build-arg DEBIAN_VERSION=bullseye
-            libc: glibc
-          - target: linux-x64-musl
-            os: ubuntu-latest
-            arch: x64
-            dockerfile: build-containers/Dockerfile.alpine
-            image: webrtc-node-prebuild-alpine
-            build_args: --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20
-            libc: musl
-          - target: linux-arm64-glibc
-            os: ubuntu-24.04-arm
-            arch: arm64
-            dockerfile: build-containers/Dockerfile.debian
-            image: webrtc-node-prebuild-debian-arm64
-            build_args: --build-arg NODE_VERSION=20 --build-arg DEBIAN_VERSION=bullseye
-            libc: glibc
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-
-      - name: Build Linux prebuild
-        run: |
-          docker build --no-cache --pull \
-            -f "${{ matrix.dockerfile }}" \
-            ${{ matrix.build_args }} \
-            -t "${{ matrix.image }}" .
-          docker run --rm \
-            -v "$PWD:/usr/app" \
-            -w /usr/app \
-            "${{ matrix.image }}" \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run native:check && npm test && npm run api:check && npm run types:check && npm run prebuild:package -- --platform=linux --arch=${{ matrix.arch }} --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\" && npm exec -c \"node scripts/validate-prebuild-install.js\""
-
-      - name: Inspect Linux addon linkage
-        run: |
-          docker run --rm -v "$PWD:/usr/app" -w /usr/app "${{ matrix.image }}" sh -lc 'set -eu
-            cmake --version
-            readelf -h build/Release/webrtc_node.node
-            readelf -d build/Release/webrtc_node.node > /tmp/addon-dependencies
-            cat /tmp/addon-dependencies
-            readelf --version-info build/Release/webrtc_node.node
-            ! grep -E "Shared library:.*(libssl|libcrypto)" /tmp/addon-dependencies
-            test "$(grep -Ec "OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.a$" build/CMakeCache.txt)" = 2
-            if [ "${{ matrix.libc }}" = glibc ]; then
-              test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.31"
-              newest="$(readelf --version-info build/Release/webrtc_node.node | grep -oE "GLIBC_[0-9.]+" | sed "s/GLIBC_//" | sort -Vu | tail -1)"
-              test "$(printf "%s\n" "$newest" 2.31 | sort -V | tail -1)" = 2.31
-            fi
-          '
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*
-
-  prebuild-macos:
-    name: Prebuild ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-15-intel
-            target: darwin-x64
-            arch: x64
-          - os: macos-15
-            target: darwin-arm64
-            arch: arm64
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-
-      - uses: ./.github/actions/setup-native-build
-
-      - run: npm ci --ignore-scripts
-
-      - run: npm run build -- --arch=${{ matrix.arch }} --CDWEBRTC_NODE_STATIC_OPENSSL=ON
-
-      - name: Verify static OpenSSL selection
-        shell: bash
-        run: |
-          test "$(grep -Ec 'OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.(a|lib)$' build/CMakeCache.txt)" = 2
-
-      - name: Inspect macOS addon linkage
-        run: |
-          otool -L build/Release/webrtc_node.node | tee /tmp/addon-dependencies
-          ! grep -Ei '/(libssl|libcrypto)[^/]*\.dylib' /tmp/addon-dependencies
-
-      - run: npm run native:check
-      - run: npm test
-      - run: npm run api:check
-      - run: npm run types:check
-
-      - run: npm run prebuild:package -- --platform=darwin --arch=${{ matrix.arch }}
-
-      - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
-
-      - run: npm exec -c "node scripts/validate-prebuild-install.js"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*
-
-  prebuild-windows:
-    name: Prebuild ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: win32-x64
-            arch: x64
-          - os: windows-11-arm
-            target: win32-arm64
-            arch: arm64
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-
-      - uses: ./.github/actions/setup-native-build
-
-      - run: npm ci --ignore-scripts
-
-      - run: npm run build -- --arch=${{ matrix.arch }} --CDWEBRTC_NODE_STATIC_OPENSSL=ON
-
-      - name: Verify static OpenSSL selection
-        shell: pwsh
-        run: |
-          $cache = Get-Content build/CMakeCache.txt
-          foreach ($library in @('LIB_EAY_RELEASE', 'SSL_EAY_RELEASE')) {
-            if (-not ($cache -match "^${library}:FILEPATH=.*vcpkg_installed/${{ matrix.arch }}-windows-static/lib/lib(crypto|ssl)\.lib$")) {
-              throw "Expected a static vcpkg release library for $library"
-            }
-          }
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-          $vsRoot = & $vswhere -latest -products '*' -property installationPath
-          $dumpbin = Get-ChildItem (Join-Path $vsRoot 'VC/Tools/MSVC') -Filter dumpbin.exe -Recurse |
-            Where-Object { $_.FullName -match 'bin\\Host(x64|arm64)\\${{ matrix.arch }}\\dumpbin.exe$' } |
-            Select-Object -First 1
-          if (-not $dumpbin) { throw 'dumpbin was not found' }
-          $dependencies = & $dumpbin.FullName /DEPENDENTS build/Release/webrtc_node.node
-          if ($LASTEXITCODE -ne 0) { throw 'dumpbin failed' }
-          $dependencies
-          if ($dependencies -match '(?i)(libcrypto|libssl|ssleay|libeay).*\.dll') {
-            throw 'The release addon must not depend on an OpenSSL DLL'
-          }
-
-      - run: npm run native:check
-      - run: npm test
-      - run: npm run api:check
-      - run: npm run types:check
-
-      - run: npm run prebuild:package -- --platform=win32 --arch=${{ matrix.arch }}
-
-      - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
-
-      - run: npm exec -c "node scripts/validate-prebuild-install.js"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: prebuild-${{ matrix.target }}
-          path: prebuild-artifacts/*
-
-  source-fallback:
-    name: Linux ARM64 musl source fallback
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-      - name: Verify unsupported prebuild falls back to source
-        run: |
-          docker build --no-cache --pull -f build-containers/Dockerfile.alpine --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20 -t webrtc-node-fallback .
-          docker run --rm -v "$PWD:/usr/app" -w /usr/app webrtc-node-fallback sh -lc 'npm ci --ignore-scripts && npm exec -c "node scripts/validate-prebuild-install.js --source-fallback"'
-
-  validate:
-    name: Validate prebuild assets
-    runs-on: ubuntu-latest
-    needs:
-      - prebuild-linux
-      - prebuild-macos
-      - prebuild-windows
-      - source-fallback
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          package-manager-cache: false
-          registry-url: https://registry.npmjs.org
-
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: prebuild-*
-          path: prebuild-artifacts
-          merge-multiple: true
-
-      - run: npm ci --ignore-scripts
-
-      - run: npm run prebuild:check
-
-      - run: npm run native:check
-
-      - name: Verify release tag
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          expected="v$(node -p "require('./package.json').version")"
-          if [ "$EVENT_NAME" = "release" ] && [ "$RELEASE_TAG" != "$expected" ]; then
-            echo "Release tag $RELEASE_TAG does not match package version $expected"
-            exit 1
-          fi
-
   publish:
-    name: Publish npm package
-    if: github.event_name == 'release'
-    needs: validate
+    name: Recover npm 0.2.2 publication
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: npm
     permissions:
-      contents: write
+      contents: read
       id-token: write
-
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: v0.2.2
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           package-manager-cache: false
-          registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: prebuild-*
-          path: prebuild-artifacts
-          merge-multiple: true
+
+      - name: Verify immutable release commit and package
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 228e0501dbbaf61732cb3991fe5a7a959fd36b10
+          test "$(node -p "const p = require('./package.json'); p.name + '@' + p.version")" = '@webrtc-node/webrtc@0.2.2'
+          test "$(node -p "require('./package-lock.json').packages[''].version")" = 0.2.2
+
+      - name: Verify and download existing release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v0.2.2 --json assets > /tmp/release-assets.json
+          gh release download v0.2.2 --dir prebuild-artifacts
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const { createHash } = require('node:crypto');
+          const fs = require('node:fs');
+          const hashes = {
+            'darwin-arm64': 'd0848da98fbbf421e9079e152b2eea6abfa974b57c1b54e1dedd0b317489d119',
+            'darwin-x64': 'adf1c445af01c505c7174b1762d47f26e5c7efcb456cceb5e5d76a69955f9210',
+            'linux-arm64-glibc': '556655f705a13efc8cb3d33e1d7baadd81bed0d84c4e579a3dbe0c2125930efe',
+            'linux-x64-glibc': '7d60c610607c2143d95b7617492ef328ee3608f5f026acb942d7526547f84793',
+            'linux-x64-musl': '298fe9d1d91fb2a3f244f42b11f40d795b3cb3b36947dba2396f72501c0b7e53',
+            'win32-arm64': '3c51634146a0c7a1bb0d64853886edb5f0f035e7d997f5ba78312109790e2b31',
+            'win32-x64': '44c2bccb933fb0ffcb9cb38df730176103d5230ffc092dd7f1823cfc46a5d485',
+          };
+          const { assets } = JSON.parse(fs.readFileSync('/tmp/release-assets.json', 'utf8'));
+          assert.equal(assets.length, 14);
+          for (const [target, hash] of Object.entries(hashes)) {
+            const name = `webrtc-node-v0.2.2-napi-v8-${target}.tar.gz`;
+            assert.equal(assets.find(asset => asset.name === name)?.digest, `sha256:${hash}`);
+            assert.ok(assets.find(asset => asset.name === `${name}.sha256`));
+            assert.equal(createHash('sha256').update(fs.readFileSync(`prebuild-artifacts/${name}`)).digest('hex'), hash);
+          }
+          NODE
+
       - run: npm ci --ignore-scripts
       - run: npm run prebuild:check
+      - run: npm run native:check
 
-      - name: Refuse an existing npm version or release asset
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+      - name: Refuse an existing npm version
         run: |
-          set -euo pipefail
           node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
-          const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${version}`);
-          if (response.status !== 404) throw new Error(`Publication requires an unused npm version; registry returned ${response.status}`);
+          const response = await fetch('https://registry.npmjs.org/@webrtc-node%2Fwebrtc/0.2.2');
+          if (response.status !== 404) throw new Error(`Expected an unpublished version; registry returned ${response.status}`);
           NODE
-          if [ "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" != "0" ]; then
-            echo "Release already has assets; inspect publication state before retrying."
-            exit 1
-          fi
 
-      - name: Upload prebuild release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" prebuild-artifacts/*
+      - name: Publish validated package to npm
+        run: npm publish --access public --tag latest --provenance
 
-      - name: Publish to npm
-        env:
-          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+      - name: Verify exact npm version and latest
         run: |
-          set -euo pipefail
-          npm_tag="latest"
-          if [ "$RELEASE_PRERELEASE" = "true" ]; then
-            npm_tag="next"
-          fi
-          npm publish --access public --tag "$npm_tag" --provenance
+          node --input-type=module <<'NODE'
+          const response = await fetch('https://registry.npmjs.org/@webrtc-node%2Fwebrtc');
+          if (!response.ok) throw new Error(`Registry returned ${response.status}`);
+          const metadata = await response.json();
+          if (metadata.versions['0.2.2']?.version !== '0.2.2' || metadata['dist-tags'].latest !== '0.2.2') {
+            throw new Error('Published version or latest does not match 0.2.2');
+          }
+          NODE
