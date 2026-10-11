@@ -30,7 +30,7 @@ jobs:
           path: vcpkg_installed
           key: ${{ steps.diagnostic-cache.outputs.cache-primary-key }}
       - run: npm ci --ignore-scripts
-      - run: npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON
+      - run: npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON --CDLIBDATACHANNEL_PINNED_COMMIT=6b1e2e620f1e37f0eafeee702eaea0043cb305fd
       - run: node examples/datachannel.js
       - run: npm test
       - run: npm run api:check
