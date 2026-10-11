@@ -15,6 +15,11 @@ npm run build
 thread-safe callback dispatch. The build uses `cmake-js` and links
 `LibDataChannel::LibDataChannelStatic`.
 
+The audited native dependency is libdatachannel v0.24.6, pinned to
+`6b1e2e620f1e37f0eafeee702eaea0043cb305fd`. It includes fixes for DTLS startup
+ordering, TURN handshake deadlocks, and ICE option separators. The CMake pin
+and `wpt-manifest.json` dependency metadata must stay in sync.
+
 If a local `libdatachannel/` checkout exists, CMake verifies it against the
 pinned commit. Otherwise it fetches the pinned upstream commit with
 `FetchContent`.
