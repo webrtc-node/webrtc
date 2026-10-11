@@ -162,9 +162,26 @@ jobs:
       - run: npm run build -- --arch=${{ matrix.arch }} --CDWEBRTC_NODE_STATIC_OPENSSL=ON
 
       - name: Verify static OpenSSL selection
-        shell: bash
+        shell: pwsh
         run: |
-          test "$(grep -Ec 'OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.(a|lib)$' build/CMakeCache.txt)" = 2
+          $cache = Get-Content build/CMakeCache.txt
+          foreach ($library in @('LIB_EAY_RELEASE', 'SSL_EAY_RELEASE')) {
+            if (-not ($cache -match "^${library}:FILEPATH=.*vcpkg_installed/${{ matrix.arch }}-windows-static/lib/lib(crypto|ssl)\.lib$")) {
+              throw "Expected a static vcpkg release library for $library"
+            }
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsRoot = & $vswhere -latest -products '*' -property installationPath
+          $dumpbin = Get-ChildItem (Join-Path $vsRoot 'VC/Tools/MSVC') -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName -match 'bin\\Host(x64|arm64)\\${{ matrix.arch }}\\dumpbin.exe$' } |
+            Select-Object -First 1
+          if (-not $dumpbin) { throw 'dumpbin was not found' }
+          $dependencies = & $dumpbin.FullName /DEPENDENTS build/Release/webrtc_node.node
+          if ($LASTEXITCODE -ne 0) { throw 'dumpbin failed' }
+          $dependencies
+          if ($dependencies -match '(?i)(libcrypto|libssl|ssleay|libeay).*\.dll') {
+            throw 'The release addon must not depend on an OpenSSL DLL'
+          }
 
       - run: npm run native:check
       - run: npm test
