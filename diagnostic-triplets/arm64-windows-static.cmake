@@ -1,0 +1,7 @@
+set(VCPKG_TARGET_ARCHITECTURE arm64)
+set(VCPKG_CRT_LINKAGE static)
+set(VCPKG_LIBRARY_LINKAGE static)
+
+if(PORT STREQUAL "openssl")
+  set(VCPKG_C_FLAGS_RELEASE "/Od")
+endif()

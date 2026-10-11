@@ -18,19 +18,11 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache/restore@v5
-        id: diagnostic-cache
-        with:
-          path: vcpkg_installed
-          key: diagnostic-vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageVersion }}-${{ hashFiles('vcpkg.json') }}
+      - shell: pwsh
+        run: '"VCPKG_OVERLAY_TRIPLETS=$PWD/diagnostic-triplets" >> $env:GITHUB_ENV'
       - uses: ./.github/actions/setup-native-build
-      - uses: actions/cache/save@v5
-        if: steps.diagnostic-cache.outputs.cache-hit != 'true'
-        with:
-          path: vcpkg_installed
-          key: ${{ steps.diagnostic-cache.outputs.cache-primary-key }}
       - run: npm ci --ignore-scripts
-      - run: npm run build -- --CDLIBDATACHANNEL_PINNED_COMMIT=502ae351495792192ef21788e093b48e34ab393e
+      - run: npm run build
       - run: node examples/datachannel.js
       - run: npm test
       - run: npm run api:check
