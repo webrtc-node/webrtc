@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
 
       - name: Build Linux prebuild
         run: |
@@ -65,17 +65,17 @@ jobs:
             cmake --version
             getconf GNU_LIBC_VERSION || true
             readelf -h build/Release/webrtc_node.node
-            readelf -d build/Release/webrtc_node.node
-            readelf --version-info build/Release/webrtc_node.node
-            ldd build/Release/webrtc_node.node > /tmp/addon-dependencies
+            readelf -d build/Release/webrtc_node.node > /tmp/addon-dependencies
             cat /tmp/addon-dependencies
-            ! grep -E "libssl|libcrypto|not found" /tmp/addon-dependencies
+            readelf --version-info build/Release/webrtc_node.node
+            ! grep -E "Shared library:.*(libssl|libcrypto)" /tmp/addon-dependencies
             grep -E "OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.a$" build/CMakeCache.txt
             npm run native:check
             npm run api:check
             npm run types:check
             npm test
             npm run example:datachannel
+            npm exec -- node scripts/validate-prebuild-install.js
           '
 
   prebuild-macos:
@@ -96,7 +96,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -112,6 +112,8 @@ jobs:
       - run: npm run prebuild:package -- --platform=darwin --arch=${{ matrix.arch }}
 
       - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
+
+      - run: npm exec -- node scripts/validate-prebuild-install.js
 
       - uses: actions/upload-artifact@v7
         with:
@@ -136,7 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -152,6 +154,8 @@ jobs:
       - run: npm run prebuild:package -- --platform=win32 --arch=${{ matrix.arch }}
 
       - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
+
+      - run: npm exec -- node scripts/validate-prebuild-install.js
 
       - uses: actions/upload-artifact@v7
         with:
@@ -175,3 +179,16 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run prebuild:check
       - run: npm run native:check
+
+  arm64-musl-fallback:
+    name: ARM64 musl source fallback
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Exercise unsupported prebuild target source fallback
+        run: |
+          docker build --no-cache --pull -f build-containers/Dockerfile.alpine --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20 -t webrtc-node-arm64-musl .
+          docker run --rm -v "$PWD:/usr/app" -w /usr/app webrtc-node-arm64-musl sh -lc 'npm ci --ignore-scripts && npm exec -- node scripts/validate-prebuild-install.js --source-fallback'
