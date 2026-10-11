@@ -56,7 +56,7 @@ to a `cmake-js` source build.
 
 | OS | Prebuild targets | Node 20 | Node 22 | Node 24 |
 | --- | --- | --- | --- | --- |
-| Linux | x64 glibc, x64 musl | ✅ | ✅ | ✅ |
+| Linux | x64 glibc, x64 musl, arm64 glibc | ✅ | ✅ | ✅ |
 | macOS | x64, arm64 | ✅ | ✅ | ✅ |
 | Windows | x64, arm64 | ✅ | ✅ | ✅ |
 

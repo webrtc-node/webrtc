@@ -62,16 +62,21 @@ jobs:
   linux:
     name: ${{ matrix.target }}
     needs: package
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: linux-x64-glibc
+            os: ubuntu-latest
             image: node:24-bookworm
           - target: linux-x64-musl
+            os: ubuntu-latest
             image: node:24-alpine
+          - target: linux-arm64-glibc
+            os: ubuntu-24.04-arm
+            image: node:24-bookworm
 
     steps:
       - name: Install published package

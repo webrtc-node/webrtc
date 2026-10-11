@@ -21,22 +21,33 @@ permissions:
 jobs:
   prebuild-linux:
     name: Prebuild ${{ matrix.target }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: linux-x64-glibc
+            os: ubuntu-latest
+            arch: x64
             dockerfile: build-containers/Dockerfile.debian
             image: webrtc-node-prebuild-debian
             build_args: --build-arg NODE_VERSION=20 --build-arg DEBIAN_VERSION=bullseye
             libc: glibc
           - target: linux-x64-musl
+            os: ubuntu-latest
+            arch: x64
             dockerfile: build-containers/Dockerfile.alpine
             image: webrtc-node-prebuild-alpine
             build_args: --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20
             libc: musl
+          - target: linux-arm64-glibc
+            os: ubuntu-24.04-arm
+            arch: arm64
+            dockerfile: build-containers/Dockerfile.debian
+            image: webrtc-node-prebuild-debian-arm64
+            build_args: --build-arg NODE_VERSION=20 --build-arg DEBIAN_VERSION=bullseye
+            libc: glibc
 
     steps:
       - uses: actions/checkout@v7
@@ -53,7 +64,7 @@ jobs:
             -v "$PWD:/usr/app" \
             -w /usr/app \
             "${{ matrix.image }}" \
-            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:package -- --platform=linux --arch=x64 --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\""
+            sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON && npm run prebuild:package -- --platform=linux --arch=${{ matrix.arch }} --libc=${{ matrix.libc }} && node -e \"const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();\""
 
       - uses: actions/upload-artifact@v7
         with:

@@ -10,6 +10,7 @@ const prebuildsDir = path.join(root, "prebuild-artifacts");
 const requiredTargets = [
   "linux-x64-glibc",
   "linux-x64-musl",
+  "linux-arm64-glibc",
   "darwin-x64",
   "darwin-arm64",
   "win32-x64",

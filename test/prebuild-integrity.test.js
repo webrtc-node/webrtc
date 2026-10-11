@@ -24,10 +24,10 @@ function peBinary(machine) {
   return buffer;
 }
 
-function elfBinary(libcName) {
+function elfBinary(libcName, machine = 62) {
   const buffer = Buffer.alloc(256);
   Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1]).copy(buffer);
-  buffer.writeUInt16LE(62, 18);
+  buffer.writeUInt16LE(machine, 18);
   buffer.write(libcName, 64, "ascii");
   return buffer;
 }
@@ -150,6 +150,29 @@ test("prebuild validator distinguishes glibc and musl binaries", async (t) => {
       libcTag: "glibc",
     }),
     /expected glibc linkage/,
+  );
+});
+
+test("prebuild validator accepts Linux arm64 glibc and rejects mismatches", async (t) => {
+  const arm64 = await archiveFixture(t, elfBinary("libc.so.6", 183));
+  const addonPath = await validateArchiveFile({
+    ...arm64,
+    platform: "linux",
+    arch: "arm64",
+    libcTag: "glibc",
+  });
+  fs.rmSync(path.dirname(addonPath), { recursive: true, force: true });
+
+  const x64Binary = await archiveFixture(t, elfBinary("libc.so.6", 62));
+  await assert.rejects(
+    validateArchiveFile({ ...x64Binary, platform: "linux", arch: "arm64", libcTag: "glibc" }),
+    /target mismatch/,
+  );
+
+  const musl = await archiveFixture(t, elfBinary("libc.musl-aarch64.so.1", 183));
+  await assert.rejects(
+    validateArchiveFile({ ...musl, platform: "linux", arch: "arm64", libcTag: "musl" }),
+    /unsupported Linux libc target musl for arm64/,
   );
 });
 

@@ -47,6 +47,12 @@ function expectedBinary(platform, arch, libcTag) {
     }
     return { format: "ELF", machine: 62, libcTag };
   }
+  if (platform === "linux" && arch === "arm64") {
+    if (libcTag !== "glibc") {
+      throw new Error(`unsupported Linux libc target ${libcTag || "unknown"} for arm64`);
+    }
+    return { format: "ELF", machine: 183, libcTag };
+  }
   if (platform === "win32" && arch === "x64") {
     return { format: "PE", machine: 0x8664 };
   }
