@@ -17,7 +17,7 @@ permissions:
 jobs:
   package:
     name: Resolve package
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -47,7 +47,7 @@ jobs:
           fi
 
           for attempt in 1 2 3 4 5 6; do
-            if npm view "$spec" version; then
+            if version="$(npm view "$spec" version)"; then
               break
             fi
             if [ "$attempt" = "6" ]; then
@@ -56,6 +56,7 @@ jobs:
             sleep $((attempt * 10))
           done
 
+          spec="@webrtc-node/webrtc@$version"
           echo "spec=$spec" >> "$GITHUB_OUTPUT"
           echo "Testing $spec" >> "$GITHUB_STEP_SUMMARY"
 
@@ -79,11 +80,15 @@ jobs:
             image: node:24-bookworm
 
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - name: Install published package
         env:
           PACKAGE_SPEC: ${{ needs.package.outputs.spec }}
         run: |
           docker run --rm \
+            -v "$PWD/examples/datachannel.js:/smoke-source.js:ro" \
             -e PACKAGE_SPEC \
             -e WEBRTC_NODE_PREBUILD_ONLY=1 \
             "${{ matrix.image }}" \
@@ -102,6 +107,8 @@ jobs:
               done
               node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const pc = new RTCPeerConnection(); pc.close(); console.log(\"cjs ok\");"
               node --input-type=module -e "import { RTCPeerConnection } from \"@webrtc-node/webrtc\"; const pc = new RTCPeerConnection(); pc.close(); console.log(\"esm ok\");"
+              sed "s|require(\"..\")|require(\"@webrtc-node/webrtc\")|" /smoke-source.js > smoke.cjs
+              node smoke.cjs
             '
 
   hosted:
@@ -123,6 +130,9 @@ jobs:
             os: windows-11-arm
 
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -149,3 +159,5 @@ jobs:
           done
           node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close(); console.log('cjs ok');"
           node --input-type=module -e "import { RTCPeerConnection } from '@webrtc-node/webrtc'; const pc = new RTCPeerConnection(); pc.close(); console.log('esm ok');"
+          sed 's|require("..")|require("@webrtc-node/webrtc")|' "$GITHUB_WORKSPACE/examples/datachannel.js" > smoke.cjs
+          node smoke.cjs
