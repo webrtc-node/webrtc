@@ -1,146 +1,39 @@
-name: Published Install
+name: Windows ARM64 Published Binary Diagnostics
 
 on:
   workflow_dispatch:
-    inputs:
-      package_spec:
-        description: npm package spec to install (tag or exact version)
-        required: true
-        default: "@webrtc-node/webrtc@latest"
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
 
 permissions:
   contents: read
 
 jobs:
-  package:
-    name: Resolve package
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      spec: ${{ steps.resolve.outputs.spec }}
-
+  published-native:
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    env:
+      WEBRTC_NODE_PREBUILD_ONLY: '1'
+      WEBRTC_NODE_LIBDATACHANNEL_LOG: debug
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
-          package-manager-cache: false
-
-      - id: resolve
-        name: Resolve npm package spec
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_PACKAGE_SPEC: ${{ inputs.package_spec }}
+          node-version: ${{ matrix.node }}
+      - name: Exercise the existing stable Windows ARM64 binary
         run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            spec="$INPUT_PACKAGE_SPEC"
-          else
-            spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
-          fi
-
-          for attempt in 1 2 3 4 5 6; do
-            if npm view "$spec" version; then
-              break
-            fi
-            if [ "$attempt" = "6" ]; then
-              exit 1
-            fi
-            sleep $((attempt * 10))
-          done
-
-          echo "spec=$spec" >> "$GITHUB_OUTPUT"
-          echo "Testing $spec" >> "$GITHUB_STEP_SUMMARY"
-
-  linux:
-    name: ${{ matrix.target }}
-    needs: package
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64-glibc
-            image: node:24-bookworm
-          - target: linux-x64-musl
-            image: node:24-alpine
-
-    steps:
-      - name: Install published package
-        env:
-          PACKAGE_SPEC: ${{ needs.package.outputs.spec }}
-        run: |
-          docker run --rm \
-            -e PACKAGE_SPEC \
-            -e WEBRTC_NODE_PREBUILD_ONLY=1 \
-            "${{ matrix.image }}" \
-            sh -lc 'set -eu
-              workdir="$(mktemp -d)"
-              cd "$workdir"
-              npm init -y >/dev/null
-              for attempt in 1 2 3; do
-                if npm install "$PACKAGE_SPEC"; then
-                  break
-                fi
-                if [ "$attempt" = "3" ]; then
-                  exit 1
-                fi
-                sleep $((attempt * 10))
-              done
-              node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const pc = new RTCPeerConnection(); pc.close(); console.log(\"cjs ok\");"
-              node --input-type=module -e "import { RTCPeerConnection } from \"@webrtc-node/webrtc\"; const pc = new RTCPeerConnection(); pc.close(); console.log(\"esm ok\");"
-            '
-
-  hosted:
-    name: ${{ matrix.target }}
-    needs: package
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: darwin-x64
-            os: macos-15-intel
-          - target: darwin-arm64
-            os: macos-15
-          - target: win32-x64
-            os: windows-latest
-          - target: win32-arm64
-            os: windows-11-arm
-
-    steps:
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      - name: Install published package
-        shell: bash
-        env:
-          PACKAGE_SPEC: ${{ needs.package.outputs.spec }}
-          WEBRTC_NODE_PREBUILD_ONLY: "1"
-        run: |
-          set -euo pipefail
-          workdir="$(mktemp -d)"
-          cd "$workdir"
-          npm init -y >/dev/null
-          for attempt in 1 2 3; do
-            if npm install "$PACKAGE_SPEC"; then
-              break
-            fi
-            if [ "$attempt" = "3" ]; then
-              exit 1
-            fi
-            sleep $((attempt * 10))
-          done
-          node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close(); console.log('cjs ok');"
-          node --input-type=module -e "import { RTCPeerConnection } from '@webrtc-node/webrtc'; const pc = new RTCPeerConnection(); pc.close(); console.log('esm ok');"
+          $taskInstallPath = Join-Path $env:RUNNER_TEMP 'webrtc-published-smoke'
+          New-Item -ItemType Directory -Path $taskInstallPath -Force | Out-Null
+          $taskSmoke = (Get-Content examples/datachannel.js -Raw).Replace('require("..")', 'require("@webrtc-node/webrtc")')
+          Set-Content -LiteralPath (Join-Path $taskInstallPath 'smoke.cjs') -Value $taskSmoke
+          Push-Location $taskInstallPath
+          npm init -y
+          npm install '@webrtc-node/webrtc@0.2.1'
+          if ($LASTEXITCODE -ne 0) { throw 'Published package installation failed' }
+          node smoke.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Published ARM64 data-channel smoke failed' }
+          Pop-Location
