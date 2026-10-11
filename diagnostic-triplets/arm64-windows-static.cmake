@@ -4,4 +4,5 @@ set(VCPKG_LIBRARY_LINKAGE static)
 
 if(PORT STREQUAL "openssl")
   set(VCPKG_C_FLAGS_RELEASE "/Od")
+  set(VCPKG_CXX_FLAGS_RELEASE "/Od")
 endif()
