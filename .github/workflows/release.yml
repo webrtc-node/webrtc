@@ -114,6 +114,11 @@ jobs:
         run: |
           test "$(grep -Ec 'OPENSSL_(CRYPTO|SSL)_LIBRARY:FILEPATH=.*\.(a|lib)$' build/CMakeCache.txt)" = 2
 
+      - name: Inspect macOS addon linkage
+        run: |
+          otool -L build/Release/webrtc_node.node | tee /tmp/addon-dependencies
+          ! grep -Ei '/(libssl|libcrypto)[^/]*\.dylib' /tmp/addon-dependencies
+
       - run: npm run native:check
       - run: npm test
       - run: npm run api:check
