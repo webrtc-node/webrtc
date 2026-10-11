@@ -1,4 +1,4 @@
-name: Windows ARM64 Published Binary Diagnostics
+name: Windows ARM64 Release Build Comparison
 
 on:
   workflow_dispatch:
@@ -7,39 +7,31 @@ permissions:
   contents: read
 
 jobs:
-  published-native:
+  diagnostic:
     runs-on: windows-11-arm
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [20, 22, 24]
-    env:
-      WEBRTC_NODE_PREBUILD_ONLY: '1'
-      WEBRTC_NODE_LIBDATACHANNEL_LOG: debug
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node }}
-      - name: Exercise the existing stable Windows ARM64 binary
-        run: |
-          $taskInstallPath = Join-Path $env:RUNNER_TEMP 'webrtc-published-smoke'
-          New-Item -ItemType Directory -Path $taskInstallPath -Force | Out-Null
-          $taskSmoke = (Get-Content examples/datachannel.js -Raw).Replace('require("..")', 'require("@webrtc-node/webrtc")')
-          Set-Content -LiteralPath (Join-Path $taskInstallPath 'smoke.cjs') -Value $taskSmoke
-          Push-Location $taskInstallPath
-          npm init -y
-          npm install '@webrtc-node/webrtc@0.2.1'
-          if ($LASTEXITCODE -ne 0) { throw 'Published package installation failed' }
-          node smoke.cjs
-          if ($LASTEXITCODE -ne 0) { throw 'Published ARM64 data-channel smoke failed' }
-          Pop-Location
-          npm ci --ignore-scripts
-          if ($LASTEXITCODE -ne 0) { throw 'Source dependency installation failed' }
-          $env:WEBRTC_NODE_NATIVE_PATH = Join-Path $taskInstallPath 'node_modules/@webrtc-node/webrtc/build/Release/webrtc_node.node'
-          Remove-Item Env:WEBRTC_NODE_LIBDATACHANNEL_LOG
-          node --test --test-reporter=tap --test-force-exit --test-timeout=30000 test/basic.test.js test/nonstandard.test.js
-          if ($LASTEXITCODE -ne 0) { throw 'Current facade tests with published addon failed' }
+          node-version: 20
+          cache: npm
+      - uses: actions/cache/restore@v5
+        id: diagnostic-cache
+        with:
+          path: vcpkg_installed
+          key: diagnostic-vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageVersion }}-${{ hashFiles('vcpkg.json') }}
+      - uses: ./.github/actions/setup-native-build
+      - uses: actions/cache/save@v5
+        if: steps.diagnostic-cache.outputs.cache-hit != 'true'
+        with:
+          path: vcpkg_installed
+          key: ${{ steps.diagnostic-cache.outputs.cache-primary-key }}
+      - run: npm ci --ignore-scripts
+      - run: npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON
+      - run: node examples/datachannel.js
+      - run: npm test
+      - run: npm run api:check
+      - run: npm run types:check
