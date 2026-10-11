@@ -75,7 +75,7 @@ jobs:
             npm run types:check
             npm test
             npm run example:datachannel
-            npm exec -- node scripts/validate-prebuild-install.js
+            npm exec -c "node scripts/validate-prebuild-install.js"
           '
 
   prebuild-macos:
@@ -113,7 +113,7 @@ jobs:
 
       - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
 
-      - run: npm exec -- node scripts/validate-prebuild-install.js
+      - run: npm exec -c "node scripts/validate-prebuild-install.js"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -155,7 +155,7 @@ jobs:
 
       - run: node -e "const { RTCPeerConnection } = require('./'); const pc = new RTCPeerConnection(); pc.close();"
 
-      - run: npm exec -- node scripts/validate-prebuild-install.js
+      - run: npm exec -c "node scripts/validate-prebuild-install.js"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -191,4 +191,4 @@ jobs:
       - name: Exercise unsupported prebuild target source fallback
         run: |
           docker build --no-cache --pull -f build-containers/Dockerfile.alpine --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20 -t webrtc-node-arm64-musl .
-          docker run --rm -v "$PWD:/usr/app" -w /usr/app webrtc-node-arm64-musl sh -lc 'npm ci --ignore-scripts && npm exec -- node scripts/validate-prebuild-install.js --source-fallback'
+          docker run --rm -v "$PWD:/usr/app" -w /usr/app webrtc-node-arm64-musl sh -lc 'npm ci --ignore-scripts && npm exec -c "node scripts/validate-prebuild-install.js --source-fallback"'
