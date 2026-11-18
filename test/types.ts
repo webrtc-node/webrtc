@@ -34,6 +34,11 @@ target.addEventListener("custom", {
   },
 });
 
+const capturingListener = (received: Event) => received.preventDefault();
+target.addEventListener("custom", capturingListener, { capture: true, once: true });
+target.removeEventListener("custom", capturingListener, { capture: true });
+target.removeEventListener("custom", capturingListener, true);
+
 const dispatched: boolean = target.dispatchEvent(event);
 
 const message = new MessageEvent<string>("message", { data: "hello" });
@@ -57,6 +62,15 @@ const certificatePromise: Promise<RTCCertificate> = RTCPeerConnection.generateCe
 // @ts-expect-error string-form certificate algorithms are not supported.
 RTCPeerConnection.generateCertificate("ECDSA");
 const pc = new RTCPeerConnection();
+const iterableConfiguration = {
+  iceServers: new Set([{ urls: new Set(["stun:example.org"]) }]),
+  certificates: new Set<RTCCertificate>(),
+};
+const iterablePeer = new RTCPeerConnection(iterableConfiguration);
+iterablePeer.setConfiguration(iterableConfiguration);
+const returnedServers: import("..").RTCIceServer[] | undefined =
+  iterablePeer.getConfiguration().iceServers;
+void returnedServers;
 pc.setConfiguration({ iceServers: [{ urls: "stun:stun.example.org" }], iceCandidatePoolSize: 0 });
 const configuration = pc.getConfiguration();
 const icePolicy: "all" | "relay" | undefined = configuration.iceTransportPolicy;

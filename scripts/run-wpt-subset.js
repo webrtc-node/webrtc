@@ -390,7 +390,7 @@ const defaultSpecs = [
 const specs = isWorker
   ? [JSON.parse(fs.readFileSync(workerSpecFile, "utf8"))]
   : process.argv.length > 2
-    ? process.argv.slice(2).map(parseSpec)
+    ? process.argv.slice(2).flatMap(parseSpec)
     : defaultSpecs;
 const results = [];
 let streamedResults = false;
@@ -401,21 +401,22 @@ function parseSpec(value) {
   const file = queryIndex === -1 ? fileAndSearch : fileAndSearch.slice(0, queryIndex);
   const search = queryIndex === -1 ? undefined : fileAndSearch.slice(queryIndex);
   if (filter) {
-    return {
-      file,
-      search,
-      include: [filter],
-    };
+    return [
+      {
+        file,
+        search,
+        includeExact: [filter],
+      },
+    ];
   }
 
-  return cloneDefaultSpecForExplicitFile(file, search) || { file, search };
+  const selected = defaultSpecs.filter(
+    (spec) => spec.file === file && (search === undefined || (spec.search || undefined) === search),
+  );
+  return selected.length ? selected.map(cloneDefaultSpec) : [{ file, search }];
 }
 
-function cloneDefaultSpecForExplicitFile(file, search) {
-  const defaultSpec = defaultSpecs.find(
-    (spec) => spec.file === file && (spec.search || undefined) === search,
-  );
-  if (!defaultSpec) return null;
+function cloneDefaultSpec(defaultSpec) {
   return {
     ...defaultSpec,
     include: defaultSpec.include ? [...defaultSpec.include] : undefined,
@@ -697,6 +698,7 @@ async function runFile(spec) {
     String,
     Boolean,
     document: documentShim,
+    onmessage: null,
     Math,
     RegExp,
     URL,

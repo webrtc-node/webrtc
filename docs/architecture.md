@@ -16,6 +16,25 @@ The native ICE UDP mux wrapper follows the same rule and unregisters its
 callback before releasing the dispatcher. Environment cleanup closes remaining
 listeners before libdatachannel global cleanup.
 
+Each Node environment owns its constructor references, peers, and UDP mux
+listeners. Worker shutdown closes only that environment's resources; global
+libdatachannel cleanup waits until the last environment exits. The typed
+thread-safe dispatcher also reclaims queued payloads when Node can no longer
+run JavaScript. The build enables node-addon-api's
+`NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS` handling for callbacks interrupted by
+Worker termination.
+
+A lazy native send worker belongs to each environment. It processes string and
+binary payloads in FIFO order and never calls JavaScript directly. Environment
+cleanup cancels unstarted work and joins the worker before closing the remaining
+native peers. Peer shutdown cancels that peer's queued sends; individual channel
+close is queued behind previously accepted sends, including empty messages.
+
+Native peer methods reject calls after shutdown, and failed peer construction
+surfaces a JavaScript error. The facade aborts queued offer/answer creation and
+candidate additions when the peer closes, leaving those promises pending as
+required by WebRTC.
+
 ## JavaScript Facade
 
 `lib/index.js` implements the W3C-facing behavior:
@@ -29,6 +48,44 @@ listeners before libdatachannel global cleanup.
 
 Keep browser-compatible behavior in JavaScript unless native behavior is
 required for correctness.
+
+Offer/answer creation, description application, and ICE candidate additions share
+a per-peer operations queue. Each operation validates signaling state when its
+turn begins, using arguments converted when the method was called. A failed
+operation releases the next one; closing the peer leaves active and queued
+promises pending. Internal replay of buffered same-process ICE candidates stays
+within the active operation to avoid waiting on its own queue.
+
+Configuration conversion snapshots dictionary members and consumes iterable
+sequences once, closing iterators when element conversion fails. Validation
+finishes before the stored configuration changes. Candidate SDP insertion rejects
+embedded control characters and writes a single canonical candidate line, so a
+candidate string cannot inject additional SDP attributes.
+
+Event dispatch reports listener exceptions asynchronously through Node so they
+do not unwind cleanup or message-delivery code. Binary input conversion uses
+intrinsic buffer/view metadata across JavaScript realms. Detached inputs produce
+empty messages; shared and resizable inputs fail before queue admission,
+following WebIDL buffer-source conversion.
+
+String and binary sends validate their state and size, copy the JavaScript
+payload, and enqueue native work before returning. SCTP, DTLS, and socket sends
+run on the native send worker. Payload conversion and copying still consume
+JavaScript-thread time. This addresses the synchronous transport work described
+in [the send-burst latency report](https://github.com/webrtc-node/webrtc/issues/46).
+
+The native backlog is limited to 64 MiB and 65,536 jobs per environment,
+including in-flight work. State, size, and queue capacity are checked before
+allocating the native payload copy. An immediate send that exceeds either limit
+throws `OperationError` without increasing the public `bufferedAmount`. Close jobs can
+still enter a full queue. Native `bufferedAmount` includes pending send payloads
+until their handoff to SCTP completes, so the facade's drain polling cannot
+mistake an unprocessed send for an empty transport. Later transport failures
+are dispatched through the existing data-channel error event path.
+
+The queue implementation lives in `src/native/send_queue.hpp`. Its native
+regression tests hold the worker behind a gate to verify capacity limits,
+payload admission, close ordering, and shutdown without timing-dependent load.
 
 The typed `nonstandard` namespace is the boundary for the small set of
 libdatachannel-specific operations exposed for advanced integrations. It does

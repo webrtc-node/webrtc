@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
+const vm = require("node:vm");
 const {
   DEFAULT_TIMEOUT,
   RTCPeerConnection,
@@ -90,6 +91,189 @@ test("Node offerer interoperates with Chrome for text, binary, and close", async
         null,
         { timeout: DEFAULT_TIMEOUT },
       );
+    } finally {
+      await closePair(page, peerConnection);
+    }
+  });
+});
+
+test("buffer sources match Chrome for detached, shared, and resizable inputs", async () => {
+  await withPage(async (page) => {
+    const { channel, peerConnection } = await connectNodeOfferer(page);
+    try {
+      const foreign = vm.runInNewContext(`[
+        Uint8Array.of(1, 2, 3).buffer,
+        new Uint8Array(Uint8Array.of(0, 4, 5, 0).buffer, 1, 2),
+        new DataView(Uint8Array.of(0, 6, 7, 0).buffer, 1, 2)
+      ]`);
+      for (const data of foreign) channel.send(data);
+      const detached = new ArrayBuffer(4);
+      const emptyInputs = [detached, new Uint8Array(detached), new DataView(detached)];
+      structuredClone(detached, { transfer: [detached] });
+      for (const data of emptyInputs) channel.send(data);
+      for (const kind of ["detached-buffer", "detached-view", "detached-dataview"]) {
+        const message = waitForMessage(channel, (data) => typeof data !== "string");
+        assert.equal(
+          await page.evaluate((value) => window.chromeE2E.sendBufferSource(value), kind),
+          null,
+        );
+        assert.deepEqual(bytesOf(await message), []);
+      }
+      const shared = new SharedArrayBuffer(4);
+      const resizable = new ArrayBuffer(4, { maxByteLength: 8 });
+      for (const [kind, data] of [
+        ["shared-view", new Uint8Array(shared)],
+        ["shared-dataview", new DataView(shared)],
+        ["resizable-buffer", resizable],
+        ["resizable-view", new Uint8Array(resizable)],
+        ["resizable-dataview", new DataView(resizable)],
+      ]) {
+        assert.throws(() => channel.send(data), TypeError);
+        assert.equal(
+          await page.evaluate((value) => window.chromeE2E.sendBufferSource(value), kind),
+          "TypeError",
+        );
+      }
+      channel.send("after buffer sources");
+      await page.waitForFunction(
+        () => window.chromeE2E.snapshot().strings.includes("after buffer sources"),
+        null,
+        { timeout: DEFAULT_TIMEOUT },
+      );
+      const { binaries } = await page.evaluate(() => window.chromeE2E.snapshot());
+      assert.deepEqual(
+        binaries,
+        [[1, 2, 3], [4, 5], [6, 7], [], [], []].map((bytes) => ({
+          kind: "ArrayBuffer",
+          ...binarySignature(Uint8Array.from(bytes)),
+        })),
+      );
+    } finally {
+      await closePair(page, peerConnection);
+    }
+  });
+});
+
+test("pipelined signaling interoperates with Chrome in both offerer directions", async () => {
+  for (const nodeOfferer of [true, false]) {
+    await withPage(async (page) => {
+      const peerConnection = new RTCPeerConnection();
+      try {
+        let channel;
+        if (nodeOfferer) {
+          channel = peerConnection.createDataChannel("pipeline");
+          const [, offer] = await Promise.all([
+            peerConnection.createOffer(),
+            gatherLocalDescription(peerConnection, { type: "offer" }),
+          ]);
+          const answer = await page.evaluate(
+            (value) => window.chromeE2E.acceptOffer(value, true),
+            offer,
+          );
+          await peerConnection.setRemoteDescription(answer);
+        } else {
+          const incoming = waitFor(peerConnection, "datachannel");
+          const offer = await page.evaluate(() =>
+            window.chromeE2E.createOffer("pipeline", {}, true),
+          );
+          const [, , answer] = await Promise.all([
+            peerConnection.setRemoteDescription(offer),
+            peerConnection.createAnswer(),
+            gatherLocalDescription(peerConnection, { type: "answer" }),
+          ]);
+          await page.evaluate((value) => window.chromeE2E.acceptAnswer(value), answer);
+          channel = (await incoming).channel;
+        }
+        await waitForOpen(channel);
+        channel.send("node pipeline");
+        await page.waitForFunction(
+          () => window.chromeE2E.snapshot().strings.includes("node pipeline"),
+          null,
+          { timeout: DEFAULT_TIMEOUT },
+        );
+        const message = waitForMessage(channel, (value) => value === "chrome pipeline");
+        await page.evaluate(() => window.chromeE2E.sendString("chrome pipeline"));
+        assert.equal(await message, "chrome pipeline");
+      } finally {
+        await closePair(page, peerConnection);
+      }
+    });
+  }
+});
+
+function probeConfigurationInputs() {
+  const inputs = {
+    iterable: () => ({
+      iceServers: new Set([Object.create({ urls: new Set(["stun:example.org"]) })]),
+    }),
+    enumeration: () => ({ iceTransportPolicy: { toString: () => "relay" } }),
+    fraction: () => ({ iceCandidatePoolSize: 1.9 }),
+    negativeFraction: () => ({ iceCandidatePoolSize: -0.9 }),
+    bigint: () => ({ iceCandidatePoolSize: 1n }),
+    certificate: () => ({ certificates: [{}] }),
+    requiredUrl: () => ({ iceServers: [{ urls: undefined }] }),
+    emptyPort: () => ({ iceServers: [{ urls: "stun:example.org:" }] }),
+    emptyQuery: () => ({ iceServers: [{ urls: "stun:example.org?" }] }),
+  };
+  const results = {};
+  for (const [name, configuration] of Object.entries(inputs)) {
+    try {
+      const peer = new RTCPeerConnection(configuration());
+      try {
+        const config = peer.getConfiguration();
+        results[name] = {
+          pool: config.iceCandidatePoolSize,
+          policy: config.iceTransportPolicy,
+          urls: config.iceServers.map((server) => server.urls),
+        };
+      } finally {
+        peer.close();
+      }
+    } catch (error) {
+      results[name] = error.name;
+    }
+  }
+  return results;
+}
+
+test("configuration and candidate validation match Chrome without disrupting connected channels", async () => {
+  await withPage(async (page) => {
+    assert.deepEqual(probeConfigurationInputs(), await page.evaluate(probeConfigurationInputs));
+    const { channel, peerConnection } = await connectNodeOfferer(page);
+    try {
+      const before = peerConnection.remoteDescription.sdp;
+      const browserBefore = await page.evaluate(() => window.chromeE2E.remoteDescription().sdp);
+      const line = "candidate:1 1 udp 2113929471 127.0.0.1 12345 typ host";
+      for (const suffix of ["\r\na=ice-pwd:injected", "\na=x-injected:yes", "\0", "\t"]) {
+        const candidate = { candidate: line + suffix, sdpMLineIndex: 0 };
+        await assert.rejects(peerConnection.addIceCandidate(candidate), { name: "OperationError" });
+        const browserError = await page.evaluate(async (value) => {
+          try {
+            await window.chromeE2E.addRemoteCandidate(value);
+            return "accepted";
+          } catch (error) {
+            return error.name;
+          }
+        }, candidate);
+        assert.equal(browserError, "OperationError");
+        assert.equal(peerConnection.remoteDescription.sdp, before);
+        assert.equal(
+          await page.evaluate(() => window.chromeE2E.remoteDescription().sdp),
+          browserBefore,
+        );
+      }
+      const candidate = { candidate: `${line}\r\n`, sdpMLineIndex: 0 };
+      await peerConnection.addIceCandidate(candidate);
+      await page.evaluate((value) => window.chromeE2E.addRemoteCandidate(value), candidate);
+      channel.send("after invalid inputs");
+      await page.waitForFunction(
+        () => window.chromeE2E.snapshot().strings.includes("after invalid inputs"),
+        null,
+        { timeout: DEFAULT_TIMEOUT },
+      );
+      const received = waitForMessage(channel, (value) => value === "still connected");
+      await page.evaluate(() => window.chromeE2E.sendString("still connected"));
+      assert.equal(await received, "still connected");
     } finally {
       await closePair(page, peerConnection);
     }

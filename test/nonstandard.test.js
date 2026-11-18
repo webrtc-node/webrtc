@@ -7,6 +7,51 @@ const path = require("node:path");
 const test = require("node:test");
 const { RTCCertificate, RTCPeerConnection, nonstandard } = require("..");
 
+test("native peer methods and accessors reject calls after close", () => {
+  const peer = new nonstandard.native.NativePeerConnection({}, () => {});
+  peer.close();
+  peer.close();
+  const operations = [
+    () => peer.createDataChannel("closed"),
+    () => peer.createOffer(),
+    () => peer.createAnswer(),
+    () => peer.setLocalDescription(),
+    () => peer.setRemoteDescription({ type: "offer", sdp: "" }),
+    () => peer.addRemoteCandidate({ candidate: "", sdpMid: "0" }),
+    () => peer.gatherLocalCandidates(),
+    () => peer.localDescription(),
+    () => peer.remoteDescription(),
+    () => peer.remoteFingerprint(),
+    () => peer.selectedCandidatePair(),
+    () => peer.connectionState,
+    () => peer.iceConnectionState,
+    () => peer.iceGatheringState,
+    () => peer.signalingState,
+    () => peer.remoteMaxMessageSize,
+    () => peer.maxDataChannelId,
+  ];
+  for (const operation of operations) {
+    assert.throws(operation, /Native peer connection is closed/);
+  }
+});
+
+test("failed native peer construction throws a JavaScript error and permits later construction", () => {
+  assert.throws(
+    () =>
+      new nonstandard.native.NativePeerConnection(
+        { iceServers: [{ urls: ["invalid:server"] }] },
+        () => {},
+      ),
+    Error,
+  );
+  const peer = new nonstandard.native.NativePeerConnection({}, () => {});
+  try {
+    assert.equal(peer.createOffer().type, "offer");
+  } finally {
+    peer.close();
+  }
+});
+
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

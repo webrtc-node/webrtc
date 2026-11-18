@@ -37,7 +37,7 @@ forbidMatch("NAN namespace usage", addon, /\bNan::/);
 forbidMatch("non-Node-API module initializer", addon, /\bNODE_MODULE\s*\(/);
 forbidMatch("direct addon OpenSSL include", addon, /#include\s+[<"]openssl\//);
 
-requireMatch("ThreadSafeFunction creation", addon, /Napi::ThreadSafeFunction::New/);
+requireMatch("typed thread-safe dispatch", addon, /Napi::TypedThreadSafeFunction</);
 requireMatch("nonblocking callback dispatch", addon, /\.NonBlockingCall\s*\(/);
 requireMatch("dispatcher release", addon, /\.Release\s*\(/);
 
@@ -80,6 +80,11 @@ requireMatch(
   /set\s*\(\s*NO_WEBSOCKET\s+ON\s+CACHE\s+BOOL\s+""\s+FORCE\s*\)/,
 );
 requireMatch("Node-API version definition", cmake, /NAPI_VERSION=\$\{WEBRTC_NODE_NAPI_VERSION\}/);
+requireMatch(
+  "terminating Worker exception handling",
+  cmake,
+  /\bNODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS\b/,
+);
 requireMatch("static libdatachannel target", cmake, /LibDataChannel::LibDataChannelStatic/);
 
 const localLibDataChannel = path.join(root, "libdatachannel");

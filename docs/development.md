@@ -15,10 +15,14 @@ npm run build
 thread-safe callback dispatch. The build uses `cmake-js` and links
 `LibDataChannel::LibDataChannelStatic`.
 
-The audited native dependency is libdatachannel v0.24.6, pinned to
-`6b1e2e620f1e37f0eafeee702eaea0043cb305fd`. It includes fixes for DTLS startup
-ordering, TURN handshake deadlocks, and ICE option separators. The CMake pin
-and `wpt-manifest.json` dependency metadata must stay in sync.
+The audited native dependency is development snapshot
+`2afeedc70878043bcd59d2d726e1476824f687c3`, which descends from
+libdatachannel v0.24.6 and retains the message-handoff optimizations. The CMake
+pin and `wpt-manifest.json` dependency metadata must stay in sync.
+
+`npm test` also builds and runs the small native send-queue test executable.
+These C++ tests cover queue saturation and teardown with a blocked worker; the
+Node tests separately exercise payload conversion and real transport delivery.
 
 If a local `libdatachannel/` checkout exists, CMake verifies it against the
 pinned commit. Otherwise it fetches the pinned upstream commit with
@@ -44,14 +48,10 @@ npm run wpt:smoke
 npm run wpt:smoke:check
 ```
 
-Run the full selected WPT suite before claiming conformance changes:
-
-```sh
-npm run wpt:ensure
-npm run wpt:test
-npm run wpt:check:strict
-npm run wpt:report -- --output wpt-report.md
-```
+Use focused WPT targets and the smoke subset locally. Full selected WPT runs
+belong in GitHub Actions; run them locally only when explicitly requested. Use
+the Conformance workflow's strict results before claiming full selected-suite
+conformance.
 
 The default `CI` workflow keeps pull requests fast by always running the
 Quality job, then classifying changed files into native, package-artifact, WPT,
@@ -85,7 +85,7 @@ transport state. One lifetime scenario deliberately cycles negotiated,
 partial-reliability, buffered, and ordinary channels in the same process.
 
 The full selected WPT matrix is in the `Conformance` workflow, which runs on
-manual dispatch and a weekly schedule. Each OS/Node job runs three
+manual dispatch, a weekly schedule, and version tags. Each OS/Node job runs three
 deterministic weighted WPT shards concurrently, preserving file-level execution
 where tests share setup, then merges them into one strict 620-subtest result
 artifact.
@@ -100,8 +100,25 @@ npm run wpt:test -- webrtc/RTCDataChannel-close.html
 npm run wpt:test -- "webrtc/RTCDataChannel-send.html#Sending in ondatachannel should work"
 ```
 
-Bare file targets use manifest include/exclude rules. A `file#subtest` selector
-runs one exact WPT subtest.
+Bare file targets use all selected query variants and their include/exclude
+rules. Add `?rest` or `?interop-2026` to select one variant. A `file#subtest`
+selector runs one exact WPT subtest.
+
+## Send-burst latency
+
+From a source checkout, measure public `send()` burst duration and time to yield
+the event loop with:
+
+```sh
+npm run benchmark:send -- --peers=4 --messages=1000 --size=256 --rounds=8
+```
+
+The receiver for each peer runs in a separate Node Worker, so messages travel
+through the native transport. The benchmark checks binary sequence numbers,
+waits for every receiver after each burst, and reports send-loop, event-loop
+yield, and end-to-end delivery timings. It measures local loopback behavior;
+use representative peer counts, payload sizes, and network paths for production
+capacity decisions. Timing values are informational rather than CI thresholds.
 
 ## Formatting and Linting
 
