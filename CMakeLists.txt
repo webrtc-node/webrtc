@@ -45,8 +45,8 @@ execute_process(
 string(REPLACE "\"" "" NODE_ADDON_API_DIR "${NODE_ADDON_API_DIR}")
 string(REPLACE "\\" "/" NODE_ADDON_API_DIR "${NODE_ADDON_API_DIR}")
 
-# Audited development snapshot; retain the message-handoff optimizations.
-set(LIBDATACHANNEL_PINNED_COMMIT "2afeedc70878043bcd59d2d726e1476824f687c3" CACHE STRING
+# Released libdatachannel v0.24.6.
+set(LIBDATACHANNEL_PINNED_COMMIT "6b1e2e620f1e37f0eafeee702eaea0043cb305fd" CACHE STRING
     "Audited libdatachannel commit for this binding.")
 
 set(LIBDATACHANNEL_REPOSITORY "https://github.com/paullouisageneau/libdatachannel.git" CACHE STRING

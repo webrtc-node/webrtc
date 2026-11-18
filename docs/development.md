@@ -15,10 +15,11 @@ npm run build
 thread-safe callback dispatch. The build uses `cmake-js` and links
 `LibDataChannel::LibDataChannelStatic`.
 
-The audited native dependency is development snapshot
-`2afeedc70878043bcd59d2d726e1476824f687c3`, which descends from
-libdatachannel v0.24.6 and retains the message-handoff optimizations. The CMake
-pin and `wpt-manifest.json` dependency metadata must stay in sync.
+The native dependency is released libdatachannel v0.24.6
+(`6b1e2e620f1e37f0eafeee702eaea0043cb305fd`). The CMake pin and
+`wpt-manifest.json` dependency metadata must stay in sync. Dependency upgrades
+must pass the packed-source build on the oldest supported Linux toolchain as
+well as the native runtime checks.
 
 `npm test` also builds and runs the small native send-queue test executable.
 These C++ tests cover queue saturation and teardown with a blocked worker; the
