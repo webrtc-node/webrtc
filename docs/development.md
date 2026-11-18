@@ -91,6 +91,13 @@ deterministic weighted WPT shards concurrently, preserving file-level execution
 where tests share setup, then merges them into one strict 620-subtest result
 artifact.
 
+For a runner-specific failure, the same workflow accepts a `selector` containing
+a file or `file#subtest`. Focused mode uses the selected runner and Node version,
+can repeat the target up to 100 times, and stops on the first failure. It disables
+worker retries and cleanup delays to exercise teardown races and uploads each
+attempt's result plus the native addon (with Windows debug symbols). Leaving
+`selector` empty runs the full matrix with its normal cleanup delays.
+
 By default, WPT is fetched into the ignored `wpt/` cache. Set `WPT_DIR` to use a
 different pinned checkout.
 
