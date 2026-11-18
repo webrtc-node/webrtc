@@ -30,6 +30,23 @@ function waitFor(target, type) {
   });
 }
 
+test("SCTP limits wait for the paired peer to apply its remote description", async (t) => {
+  const [offerer, answerer] = peers(t);
+  offerer.createDataChannel("early-ice");
+  await offerer.setLocalDescription();
+  await answerer.setRemoteDescription(offerer.localDescription);
+  await answerer.setLocalDescription();
+  assert.equal(answerer._pairedPeer, offerer);
+  assert.equal(offerer.remoteDescription, null);
+
+  // ICE can become usable before both JavaScript description operations finish.
+  answerer._iceConnectionState = "connected";
+  answerer._sctpConnectedTransitionReady = true;
+  answerer._updateSctpTransport();
+  assert.equal(answerer.sctp.state, "connecting");
+  assert.equal(answerer.sctp.maxChannels, null);
+});
+
 test("pipelined offer, answer, and description operations negotiate a usable data channel", async (t) => {
   const [offerer, answerer] = peers(t);
   const local = offerer.createDataChannel("pipeline");
