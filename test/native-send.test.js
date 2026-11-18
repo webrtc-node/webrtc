@@ -232,6 +232,23 @@ test("terminating a Worker with a native send backlog preserves other environmen
   assert.equal(child.stderr, "");
 });
 
+test("terminating receivers during native message bursts preserves the shared addon", async (t) => {
+  const { RTCPeerConnection } = require("..");
+  const survivor = new RTCPeerConnection();
+  t.after(() => survivor.close());
+  for (let cycle = 0; cycle < 12; cycle++) {
+    const remote = await connectRemotePeer();
+    try {
+      remote.channel.send("ready");
+      await remote.request("received", { count: 1 });
+      for (let index = 0; index < 1000; index++) remote.channel.send(`message ${index}`);
+    } finally {
+      await remote.close();
+    }
+    assert.equal((await survivor.createOffer()).type, "offer");
+  }
+});
+
 test("terminating the last addon environment permits a fresh environment to initialize", () => {
   const root = path.resolve(__dirname, "..");
   const workerScript = `

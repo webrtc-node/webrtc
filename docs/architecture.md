@@ -20,7 +20,9 @@ Each Node environment owns its constructor references, peers, and UDP mux
 listeners. Worker shutdown closes only that environment's resources; global
 libdatachannel cleanup waits until the last environment exits. The typed
 thread-safe dispatcher also reclaims queued payloads when Node can no longer
-run JavaScript. The build enables node-addon-api's
+run JavaScript. A `napi_closing` result retires the dispatcher handle immediately,
+including its release operation, because Node has consumed that acquisition.
+The build enables node-addon-api's
 `NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS` handling for callbacks interrupted by
 Worker termination.
 

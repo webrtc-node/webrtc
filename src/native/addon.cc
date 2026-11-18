@@ -55,6 +55,7 @@ class NativeDispatcher {
 	}
 	using Function = Napi::TypedThreadSafeFunction<void, Job, Dispatch>;
 	Function function;
+	bool released = false;
 
 public:
 	static NativeDispatcher New(Napi::Env env, Napi::Function callback, const char *name) {
@@ -64,16 +65,27 @@ public:
 	}
 	template <typename Data, typename Callback>
 	napi_status NonBlockingCall(Data *data, Callback callback) {
+		if (released)
+			return napi_closing;
 		auto job = std::make_unique<Job>([data, callback](Napi::Env env, Napi::Function fn) {
 			callback(env, fn, data);
 		});
 		auto status = function.NonBlockingCall(job.get());
 		if (status == napi_ok)
 			job.release();
+		// Node consumes our acquisition when environment shutdown returns napi_closing.
+		// The handle must never be used again, including by Release().
+		else if (status == napi_closing)
+			released = true;
 		return status;
 	}
 	void Unref(Napi::Env env) { function.Unref(env); }
-	void Release() { function.Release(); }
+	void Release() {
+		if (!released) {
+			released = true;
+			function.Release();
+		}
+	}
 };
 
 std::atomic<uint32_t> nextChannelId{1};
