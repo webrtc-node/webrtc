@@ -26,6 +26,12 @@ The build enables node-addon-api's
 `NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS` handling for callbacks interrupted by
 Worker termination.
 
+Environment cleanup runs before Node's thread-safe function cleanup hooks, so
+native producers stop while their dispatcher handles are still valid. Peer close
+retains each teardown thread until it has been joined, including thread-local
+destruction. Environment cleanup joins that work before releasing the final
+libdatachannel environment.
+
 A lazy native send worker belongs to each environment. It processes string and
 binary payloads in FIFO order and never calls JavaScript directly. Environment
 cleanup cancels unstarted work and joins the worker before closing the remaining

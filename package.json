@@ -45,6 +45,7 @@
     "src/native/certificate.cc",
     "src/native/certificate.hpp",
     "src/native/send_queue.hpp",
+    "src/native/teardown_tasks.hpp",
     "CMakeLists.txt",
     "index.d.ts"
   ],

@@ -3,6 +3,7 @@
 
 #include "certificate.hpp"
 #include "send_queue.hpp"
+#include "teardown_tasks.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -32,14 +33,19 @@ struct ChannelBinding;
 struct EventDispatcher;
 struct IceUdpMuxBinding;
 struct PeerBinding;
+struct EnvironmentState;
+void CleanupEnvironment(EnvironmentState *state);
 
 using webrtc_node::SendQueue;
+using webrtc_node::TeardownTasks;
 
 struct EnvironmentState {
 	Napi::FunctionReference dataChannelConstructor;
 	std::vector<std::weak_ptr<PeerBinding>> peers;
 	std::vector<std::weak_ptr<IceUdpMuxBinding>> listeners;
 	std::shared_ptr<SendQueue> sendQueue = std::make_shared<SendQueue>();
+	std::shared_ptr<TeardownTasks> teardownTasks = std::make_shared<TeardownTasks>();
+	Napi::Env::CleanupHook<decltype(&CleanupEnvironment), EnvironmentState> cleanupHook;
 };
 
 std::mutex environmentMutex;
@@ -61,6 +67,11 @@ public:
 	static NativeDispatcher New(Napi::Env env, Napi::Function callback, const char *name) {
 		NativeDispatcher dispatcher;
 		dispatcher.function = Function::New(env, callback, name, 0, 1);
+		// Cleanup hooks run in reverse registration order. Stop our producers before
+		// Node closes any of the thread-safe function handles they can still call.
+		auto *state = env.GetInstanceData<EnvironmentState>();
+		state->cleanupHook.Remove(env);
+		state->cleanupHook = env.AddCleanupHook(CleanupEnvironment, state);
 		return dispatcher;
 	}
 	template <typename Data, typename Callback>
@@ -1159,10 +1170,12 @@ rtc::DataChannelInit ToRtcInit(const ChannelOptions &options) {
 struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 	static std::shared_ptr<PeerBinding> Create(rtc::Configuration config,
 	                                           std::shared_ptr<EventDispatcher> dispatcher,
-	                                           std::shared_ptr<SendQueue> sendQueue) {
+	                                           std::shared_ptr<SendQueue> sendQueue,
+	                                           std::shared_ptr<TeardownTasks> teardownTasks) {
 		auto binding =
 		    std::shared_ptr<PeerBinding>(new PeerBinding(
-		        std::move(config), std::move(dispatcher), std::move(sendQueue)));
+		        std::move(config), std::move(dispatcher), std::move(sendQueue),
+		        std::move(teardownTasks)));
 		binding->AttachCallbacks();
 		return binding;
 	}
@@ -1213,9 +1226,10 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 
 private:
 	PeerBinding(rtc::Configuration config, std::shared_ptr<EventDispatcher> dispatcher_,
-	            std::shared_ptr<SendQueue> sendQueue_)
+	            std::shared_ptr<SendQueue> sendQueue_, std::shared_ptr<TeardownTasks> teardownTasks_)
 	    : peerConnection(std::make_shared<rtc::PeerConnection>(std::move(config))),
-	      dispatcher(std::move(dispatcher_)), sendQueue(std::move(sendQueue_)) {}
+	      dispatcher(std::move(dispatcher_)), sendQueue(std::move(sendQueue_)),
+	      teardownTasks(std::move(teardownTasks_)) {}
 
 	void Emit(NativeEvent event) {
 		std::lock_guard<std::mutex> lock(callbacksMutex);
@@ -1273,9 +1287,9 @@ private:
 		if (!work)
 			return;
 
-		std::thread([work = std::move(*work)]() mutable {
+		teardownTasks->Start([work = std::move(*work)]() mutable {
 			RunPeerTeardown(std::move(work));
-		}).detach();
+		});
 	}
 
 	void AttachCallbacks() {
@@ -1361,6 +1375,7 @@ private:
 
 	std::atomic<bool> shutdown{false};
 	std::shared_ptr<SendQueue> sendQueue;
+	std::shared_ptr<TeardownTasks> teardownTasks;
 	bool callbacksActive = true;
 	std::mutex callbacksMutex;
 	std::mutex channelsMutex;
@@ -1424,7 +1439,8 @@ public:
 		try {
 			auto dispatcher = EventDispatcher::Create(env, info[1].As<Napi::Function>());
 			binding_ = PeerBinding::Create(ParseConfiguration(info), dispatcher,
-			                             env.GetInstanceData<EnvironmentState>()->sendQueue);
+			                             env.GetInstanceData<EnvironmentState>()->sendQueue,
+			                             env.GetInstanceData<EnvironmentState>()->teardownTasks);
 			RegisterPeerBinding(env, binding_);
 		} catch (const Napi::Error &) {
 			throw;
@@ -1719,6 +1735,16 @@ void ConfigureLibDataChannelLogging() {
 void CleanupNative(EnvironmentState *state) {
 	CloseAllPeerBindings(state);
 	CloseAllIceUdpMuxBindings(state);
+	state->teardownTasks->Join();
+}
+
+void CleanupEnvironment(EnvironmentState *state) {
+	state->sendQueue->Stop();
+	CleanupNative(state);
+	state->dataChannelConstructor.Reset();
+	std::lock_guard lock(environmentMutex);
+	if (--environmentCount == 0)
+		rtc::Cleanup().wait();
 }
 
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
@@ -1733,14 +1759,7 @@ Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
 	exports.Set("generateCertificate", Napi::Function::New(env, GenerateCertificate));
 	exports.Set("importCertificate", Napi::Function::New(env, ImportCertificate));
 	++environmentCount;
-	env.AddCleanupHook([state]() {
-		state->sendQueue->Stop();
-		CleanupNative(state);
-		state->dataChannelConstructor.Reset();
-		std::lock_guard lock(environmentMutex);
-		if (--environmentCount == 0)
-			rtc::Cleanup().wait();
-	});
+	state->cleanupHook = env.AddCleanupHook(CleanupEnvironment, state);
 	exports.Set("cleanup", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
 		            CleanupNative(info.Env().GetInstanceData<EnvironmentState>());
 		            return info.Env().Undefined();

@@ -1,4 +1,5 @@
 #include "send_queue.hpp"
+#include "teardown_tasks.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -9,6 +10,7 @@
 #include <vector>
 
 using webrtc_node::SendQueue;
+using webrtc_node::TeardownTasks;
 using namespace std::chrono_literals;
 
 namespace {
@@ -156,6 +158,32 @@ void ShutdownDiscardsAndJoins() {
 	fixture.queue.Stop();
 }
 
+void TeardownJoinsThroughThreadExit() {
+	Gate exitGate;
+	TeardownTasks tasks;
+	struct OpenOnExit {
+		Gate &gate;
+		~OpenOnExit() { gate.Open(); }
+	} openOnExit{exitGate};
+	struct ThreadExit {
+		Gate *gate;
+		~ThreadExit() { gate->Block(); }
+	};
+	tasks.Start([&]() {
+		thread_local ThreadExit cleanup{&exitGate};
+	});
+	exitGate.WaitUntilStarted();
+	auto joined = std::async(std::launch::async, [&]() { tasks.Join(); });
+	const bool waited = joined.wait_for(50ms) == std::future_status::timeout;
+	exitGate.Open();
+	joined.get();
+	Require(waited, "Teardown returned while thread-local destructors were still running");
+	std::atomic<bool> ran{false};
+	tasks.Start([&]() { ran.store(true); });
+	tasks.Join();
+	Require(ran.load(), "Explicit cleanup prevented later teardown work");
+}
+
 } // namespace
 
 int main() {
@@ -163,7 +191,8 @@ int main() {
 		ByteLimitAndPayloadAdmission();
 		EmptyMessagesRespectJobLimit();
 		ShutdownDiscardsAndJoins();
-		std::cout << "Native send queue: 3 cases passed\n";
+		TeardownJoinsThroughThreadExit();
+		std::cout << "Native send queue and teardown: 4 cases passed\n";
 		return 0;
 	} catch (const std::exception &error) {
 		std::cerr << error.what() << '\n';
