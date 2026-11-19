@@ -6,6 +6,9 @@ const path = require("node:path");
 const testFile = path.join(__dirname, "chrome.test.js");
 const scenarios = [
   "Node offerer interoperates with Chrome for text, binary, and close",
+  "buffer sources match Chrome for detached, shared, and resizable inputs",
+  "pipelined signaling interoperates with Chrome in both offerer directions",
+  "configuration and candidate validation match Chrome without disrupting connected channels",
   "Chrome offerer interoperates with Node for text, binary, and close",
   "negotiated channels and reliability options match Chrome",
   "Unicode and ordered bursts preserve message contents",

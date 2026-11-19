@@ -17,6 +17,139 @@ const {
 const root = path.resolve(__dirname, "..");
 const shardRunner = path.join(__dirname, "fixtures", "wpt-shard-runner.js");
 
+function runSelectionFixture(file, script, selector, expectedTotal) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "webrtc-node-wpt-selection-"));
+  try {
+    for (const child of ["common", "resources", "webrtc"])
+      fs.mkdirSync(path.join(directory, child));
+    fs.writeFileSync(path.join(directory, "common", "gc.js"), "");
+    fs.writeFileSync(path.join(directory, "resources", "testharness.js"), "");
+    fs.writeFileSync(path.join(directory, "webrtc", file), `<script>${script}</script>`);
+    const results = path.join(directory, "results.json");
+    const child = spawnSync(
+      process.execPath,
+      [path.join(root, "scripts", "run-wpt-subset.js"), selector],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          WPT_DIR: directory,
+          WPT_WORKER_RESULTS: results,
+          WPT_IN_PROCESS: "1",
+          WPT_CLEANUP_DELAY_MS: "1",
+          WPT_EXPECTED_TOTAL: String(expectedTotal),
+        },
+        encoding: "utf8",
+        timeout: 10000,
+        windowsHide: true,
+      },
+    );
+    assert.equal(child.error, undefined);
+    assert.equal(child.status, 0, child.stdout + child.stderr);
+    return JSON.parse(fs.readFileSync(results, "utf8"));
+  } finally {
+    assert.equal(path.dirname(directory), path.resolve(os.tmpdir()));
+    assert.ok(path.basename(directory).startsWith("webrtc-node-wpt-selection-"));
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test("bare WPT file targets preserve query variants and media exclusions", () => {
+  const summary = runSelectionFixture(
+    "RTCConfiguration-iceTransportPolicy.html",
+    `
+    test(() => assert_true(['?rest', '?interop-2026'].includes(location.search)), 'selected configuration check');
+    if (location.search !== '?interop-2026') {
+      test(() => assert_unreached('media test must be excluded'), 'iceTransportPolicy relay should prevent candidate gathering');
+    }
+  `,
+    "webrtc/RTCConfiguration-iceTransportPolicy.html",
+    2,
+  );
+  assert.equal(summary.pass, 2);
+  assert.deepEqual(summary.results.map(({ file }) => file).sort(), [
+    "webrtc/RTCConfiguration-iceTransportPolicy.html?interop-2026",
+    "webrtc/RTCConfiguration-iceTransportPolicy.html?rest",
+  ]);
+});
+
+test("bare WPT file targets retain separate include lists for each selected variant", () => {
+  const summary = runSelectionFixture(
+    "RTCPeerConnection-operations.https.html",
+    `
+    test(() => assert_equals(location.search, '?interop-2026'), 'createAnswer uses operations chain');
+    test(() => assert_equals(location.search, '?rest'), 'createOffer uses operations chain');
+    test(() => assert_unreached('unselected test must not run'), 'replaceTrack uses operations chain');
+  `,
+    "webrtc/RTCPeerConnection-operations.https.html",
+    2,
+  );
+  assert.equal(summary.pass, 2);
+});
+
+test("explicit WPT subtest targets do not include tests with longer matching names", () => {
+  const summary = runSelectionFixture(
+    "selection.html",
+    `
+    test(() => {}, 'target');
+    test(() => assert_unreached('prefix match must not run'), 'target with a longer name');
+  `,
+    "webrtc/selection.html#target",
+    1,
+  );
+  assert.equal(summary.pass, 1);
+});
+
+test("WPT sandbox initializes the Window message handler for strict-mode tests", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "webrtc-node-wpt-sandbox-"));
+  try {
+    for (const child of ["common", "resources", "webrtc"]) {
+      fs.mkdirSync(path.join(directory, child));
+    }
+    fs.writeFileSync(path.join(directory, "common", "gc.js"), "");
+    fs.writeFileSync(path.join(directory, "resources", "testharness.js"), "");
+    fs.writeFileSync(
+      path.join(directory, "webrtc", "RTCDataChannel-send.html"),
+      `<script>
+        'use strict';
+        test(() => {
+          assert_equals(window.onmessage, null);
+          const handler = () => {};
+          onmessage = handler;
+          assert_equals(window.onmessage, handler);
+        }, 'Sending in ondatachannel should work');
+      </script>`,
+    );
+    const results = path.join(directory, "results.json");
+    const child = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "scripts", "run-wpt-subset.js"),
+        "webrtc/RTCDataChannel-send.html#Sending in ondatachannel should work",
+      ],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          WPT_DIR: directory,
+          WPT_WORKER_RESULTS: results,
+          WPT_IN_PROCESS: "1",
+          WPT_CLEANUP_DELAY_MS: "1",
+          WPT_EXPECTED_TOTAL: "1",
+        },
+        encoding: "utf8",
+        timeout: 10000,
+        windowsHide: true,
+      },
+    );
+    assert.equal(child.error, undefined);
+    assert.equal(child.status, 0, child.stdout + child.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(results, "utf8")).pass, 1);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function runShardedFixture(mode) {
   const output = path.join(
     os.tmpdir(),

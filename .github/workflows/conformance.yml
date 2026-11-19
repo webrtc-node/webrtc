@@ -2,6 +2,25 @@ name: Conformance
 
 on:
   workflow_dispatch:
+    inputs:
+      selector:
+        description: Optional file or file#subtest for a focused diagnostic run
+        type: string
+        default: ""
+      runner:
+        description: Runner for focused diagnostic runs
+        type: choice
+        options: [windows-latest, ubuntu-latest, macos-latest]
+        default: windows-latest
+      node:
+        description: Node version for focused diagnostic runs
+        type: choice
+        options: ["20", "22", "24", "26"]
+        default: "26"
+      repetitions:
+        description: Focused attempts (1–100); stop on the first failure
+        type: number
+        default: 1
   schedule:
     - cron: "0 4 * * 0"
   push:
@@ -12,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.selector && format('{0}-node-{1}', inputs.runner, inputs.node) || 'full' }}
   cancel-in-progress: true
 
 jobs:
@@ -36,6 +55,7 @@ jobs:
       - run: npm run types:check
 
   wpt-full:
+    if: inputs.selector == ''
     name: ${{ matrix.os }} / Node ${{ matrix.node }} / WPT
     runs-on: ${{ matrix.os }}
     needs: quality
@@ -44,7 +64,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22, 24]
+        node: [20, 22, 24, 26]
     env:
       WPT_TEST_TIMEOUT_MS: 180000
       WPT_WORKER_TIMEOUT_MS: 600000
@@ -92,3 +112,75 @@ jobs:
             wpt-manifest.json
             wpt-report.md
             wpt-results.json
+
+  wpt-focused:
+    name: Focused WPT / ${{ inputs.runner }} / Node ${{ inputs.node }}
+    if: github.event_name == 'workflow_dispatch' && inputs.selector != ''
+    runs-on: ${{ inputs.runner }}
+    needs: quality
+    timeout-minutes: 45
+    env:
+      WPT_TEST_TIMEOUT_MS: 180000
+      WPT_WORKER_TIMEOUT_MS: 600000
+      WPT_WORKER_RETRIES: 0
+      WPT_WORKER_DELAY_MS: 0
+      WPT_CLEANUP_DELAY_MS: 0
+      WPT_SELECTOR: ${{ inputs.selector }}
+      WPT_REPETITIONS: ${{ inputs.repetitions }}
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node }}
+          cache: npm
+      - uses: ./.github/actions/setup-native-build
+      - run: npm ci
+      - run: npm run native:check
+      - run: npm run build
+        if: runner.os != 'Windows'
+      - name: Build Windows diagnostic symbols
+        if: runner.os == 'Windows'
+        run: >-
+          npm run build --
+          "--CDCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Zi"
+          "--CDCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Zi"
+          "--CDCMAKE_SHARED_LINKER_FLAGS_RELEASE=/DEBUG"
+      - run: npm run wpt:ensure
+      - name: Repeat focused WPT target
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { spawnSync } = require('node:child_process');
+          const count = Number(process.env.WPT_REPETITIONS);
+          if (!Number.isInteger(count) || count < 1 || count > 100) {
+            throw new Error('repetitions must be an integer from 1 to 100');
+          }
+          const output = path.resolve('ci-artifacts/wpt-focused');
+          fs.mkdirSync(output, { recursive: true });
+          for (let attempt = 1; attempt <= count; attempt++) {
+            console.log(`Focused attempt ${attempt}/${count}: ${process.env.WPT_SELECTOR}`);
+            const result = spawnSync(process.execPath, ['scripts/run-wpt-subset.js', process.env.WPT_SELECTOR], {
+              stdio: 'inherit',
+              env: { ...process.env, WPT_WORKER_RESULTS: path.join(output, `attempt-${attempt}.json`) },
+            });
+            if (result.error) console.error(result.error);
+            if (result.status !== 0 || result.signal || result.error) process.exit(1);
+            const summary = JSON.parse(fs.readFileSync(path.join(output, `attempt-${attempt}.json`), 'utf8'));
+            if (!Number.isInteger(summary.total) || summary.total < 1 || summary.fail !== 0 ||
+                summary.results.some(test => test.status !== 'PASS' || test.retries)) {
+              throw new Error('Focused attempt must contain passing tests with zero retries');
+            }
+          }
+          NODE
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: wpt-focused-${{ inputs.runner }}-node-${{ inputs.node }}
+          path: |
+            ci-artifacts/wpt-focused/
+            wpt-manifest.json
+            build/Release/webrtc_node.node
+            build/Release/webrtc_node.pdb

@@ -86,6 +86,7 @@
     "resources/testharness.js",
     "webrtc/RTCPeerConnection-helper.js",
     "webrtc/RTCDataChannel-helper.js",
+    "webrtc/RTCDataChannel-send.html#window-onmessage-global",
     "webrtc/RTCConfiguration-bundlePolicy.html#media-candidate-gathering-cases",
     "webrtc/RTCConfiguration-iceTransportPolicy.html#media-candidate-gathering-and-restart-cases",
     "webrtc/RTCConfiguration-rtcpMuxPolicy.html#media-sdp-rtcp-mux-validation-cases",

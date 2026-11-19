@@ -85,10 +85,12 @@ interoperability, signaling, ICE, buffering, message, or close-propagation
 changes, run `npm run e2e:chrome`. Match additional checks to the risk and
 scope of the change.
 
-Full conformance validation is intentionally separate from ordinary push/PR CI:
+Use focused WPT targets and smoke checks for local validation. Full selected WPT
+validation belongs in the GitHub Actions `Conformance` workflow (manual, weekly,
+and version-tag runs). Do not run the full selected suite locally unless the
+user explicitly requests it. The full CI validation commands are:
 
 ```sh
-npm run wpt:test
 npm run wpt:test:sharded
 npm run wpt:check:strict
 ```
@@ -110,7 +112,8 @@ For native transport and teardown diagnostics, set
 
 Before changing WebRTC semantics, read the relevant WPT test and nearby facade
 code. Add or update local `node:test` coverage for regressions, run the smallest
-relevant WPT target, then run the selected WPT suite before claiming conformance.
+relevant WPT target and smoke checks locally. Leave the full selected suite to
+GitHub Actions and use its results before claiming full selected-suite conformance.
 
 When changing public API, update `lib/index.js`, `index.d.ts`,
 `scripts/check-api-surface.js` if needed, local tests, and the WPT manifest or

@@ -53,7 +53,11 @@ export interface EventListenerObject<E extends Event = Event> {
 
 export type EventListener<E extends Event = Event> = ((event: E) => void) | EventListenerObject<E>;
 
-export interface AddEventListenerOptions {
+export interface EventListenerOptions {
+  capture?: boolean;
+}
+
+export interface AddEventListenerOptions extends EventListenerOptions {
   once?: boolean;
 }
 
@@ -63,7 +67,11 @@ export class EventTarget {
     callback: EventListener | null,
     options?: AddEventListenerOptions | boolean,
   ): void;
-  removeEventListener(type: string, callback: EventListener | null): void;
+  removeEventListener(
+    type: string,
+    callback: EventListener | null,
+    options?: EventListenerOptions | boolean,
+  ): void;
   dispatchEvent(event: Event): boolean;
 }
 
@@ -80,6 +88,16 @@ export interface RTCIceServer {
   urls: string | string[];
   username?: string;
   credential?: string;
+}
+
+export interface RTCConfigurationInput
+  extends Omit<RTCConfiguration, "iceServers" | "certificates"> {
+  iceServers?: Iterable<RTCIceServerInput>;
+  certificates?: Iterable<RTCCertificate>;
+}
+
+export interface RTCIceServerInput extends Omit<RTCIceServer, "urls"> {
+  urls: string | Iterable<string>;
 }
 
 export interface RTCDataChannelInit {
@@ -281,7 +299,7 @@ export class RTCSctpTransport extends EventTarget {
 
 export class RTCPeerConnection extends EventTarget {
   static generateCertificate(algorithm: RTCCertificateKeygenAlgorithm): Promise<RTCCertificate>;
-  constructor(configuration?: RTCConfiguration);
+  constructor(configuration?: RTCConfigurationInput);
   readonly localDescription: RTCSessionDescription | null;
   readonly currentLocalDescription: RTCSessionDescription | null;
   readonly pendingLocalDescription: RTCSessionDescription | null;
@@ -328,7 +346,7 @@ export class RTCPeerConnection extends EventTarget {
   setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>;
   addIceCandidate(candidate?: RTCIceCandidateInit | RTCIceCandidate | null): Promise<void>;
   getConfiguration(): RTCConfiguration;
-  setConfiguration(configuration?: RTCConfiguration): void;
+  setConfiguration(configuration?: RTCConfigurationInput): void;
   restartIce(): void;
   close(): void;
 }

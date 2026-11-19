@@ -388,6 +388,129 @@ test("unclosed native peer with a data channel does not keep Node alive", async 
   assert.deepEqual(result, { code: 0, signal: null, output: "" });
 });
 
+test("Worker cleanup preserves peers and constructors in other environments", async () => {
+  const root = path.resolve(__dirname, "..");
+  const workerScript = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    const { RTCPeerConnection } = require(workerData);
+    const pc = new RTCPeerConnection();
+    pc.createDataChannel('worker');
+    parentPort.on('message', async () => {
+      await pc.createOffer();
+      pc.close();
+      parentPort.close();
+    });
+    parentPort.postMessage('ready');
+  `;
+  const script = `
+    const assert = require('node:assert/strict');
+    const { once } = require('node:events');
+    const { Worker } = require('node:worker_threads');
+    const { RTCPeerConnection } = require(${JSON.stringify(root)});
+    (async () => {
+      const pc = new RTCPeerConnection();
+      pc.createDataChannel('main');
+      for (let i = 0; i < 3; i++) {
+        const worker = new Worker(${JSON.stringify(workerScript)}, {
+          eval: true, workerData: ${JSON.stringify(root)}
+        });
+        await once(worker, 'message');
+        assert.equal(pc.createDataChannel('during-' + i).label, 'during-' + i);
+        const exited = once(worker, 'exit');
+        worker.postMessage('close');
+        assert.equal((await exited)[0], 0);
+        assert.equal((await pc.createOffer()).type, 'offer');
+        assert.equal(pc.createDataChannel('after-' + i).label, 'after-' + i);
+      }
+      pc.close();
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `;
+  assert.deepEqual(await runNodeScript(script, 15000), { code: 0, signal: null, output: "" });
+});
+
+test("terminating a Worker with pending native callbacks leaves the main peer usable", async () => {
+  const root = path.resolve(__dirname, "..");
+  const workerScript = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    const { RTCPeerConnection } = require(workerData);
+    (async () => {
+      const peers = [];
+      for (let i = 0; i < 8; i++) {
+        const pc = new RTCPeerConnection();
+        peers.push(pc);
+        pc.createDataChannel('pending-' + i);
+        await pc.setLocalDescription(await pc.createOffer());
+      }
+      parentPort.postMessage('ready');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+    })();
+  `;
+  const script = `
+    const assert = require('node:assert/strict');
+    const { once } = require('node:events');
+    const { Worker } = require('node:worker_threads');
+    const { RTCPeerConnection } = require(${JSON.stringify(root)});
+    (async () => {
+      const pc = new RTCPeerConnection();
+      pc.createDataChannel('survivor');
+      for (let i = 0; i < 3; i++) {
+        const worker = new Worker(${JSON.stringify(workerScript)}, {
+          eval: true, workerData: ${JSON.stringify(root)}
+        });
+        await once(worker, 'message');
+        assert.equal(await worker.terminate(), 1);
+        assert.equal((await pc.createOffer()).type, 'offer');
+      }
+      pc.close();
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `;
+  assert.deepEqual(await runNodeScript(script, 20000), { code: 0, signal: null, output: "" });
+});
+
+test("closing during queued peer operations aborts without accessing a closed native peer", async () => {
+  const root = path.resolve(__dirname, "..");
+  const script = `
+    const assert = require('node:assert/strict');
+    const { setTimeout: delay } = require('node:timers/promises');
+    const { RTCPeerConnection } = require(${JSON.stringify(root)});
+    (async () => {
+      for (const nativeBacked of [false, true]) {
+        const pc = new RTCPeerConnection();
+        if (nativeBacked) pc.createDataChannel('offer');
+        const pending = pc.createOffer();
+        pc.close();
+        assert.equal(await Promise.race([
+          pending.then(() => 'resolved', () => 'rejected'), delay(30, 'pending')
+        ]), 'pending');
+        if (!nativeBacked) assert.equal(pc._native, null);
+      }
+      const offerer = new RTCPeerConnection();
+      const answerer = new RTCPeerConnection();
+      offerer.createDataChannel('answer');
+      const offer = await offerer.createOffer();
+      await answerer.setRemoteDescription(offer);
+      const pending = answerer.createAnswer();
+      answerer.close();
+      offerer.close();
+      assert.equal(await Promise.race([
+        pending.then(() => 'resolved', () => 'rejected'), delay(30, 'pending')
+      ]), 'pending');
+      for (const candidate of ['', 'candidate:1 1 udp 2113929471 127.0.0.1 12345 typ host']) {
+        const pc = new RTCPeerConnection();
+        await pc.setRemoteDescription(offer);
+        const previousSdp = pc.remoteDescription.sdp;
+        const pending = pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
+        pc.close();
+        assert.equal(await Promise.race([
+          pending.then(() => 'resolved', () => 'rejected'), delay(30, 'pending')
+        ]), 'pending');
+        assert.equal(pc.remoteDescription.sdp, previousSdp);
+      }
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `;
+  assert.deepEqual(await runNodeScript(script), { code: 0, signal: null, output: "" });
+});
+
 test("native close suppression is restart-scoped and one-shot", () => {
   const pc = new RTCPeerConnection();
   const dc = pc.createDataChannel("close-suppression");
@@ -544,6 +667,28 @@ test("RTCDataChannel synthetic paired bufferedAmount decreases in send order", a
   assert.deepEqual(await messagesPromise, ["a", "b"]);
   assert.deepEqual(observedBufferedAmounts, [2, 1]);
   assert.equal(local.bufferedAmount, 0);
+});
+
+test("synthetic paired binary sends copy bytes without calling source buffer properties", async (t) => {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  t.after(() => closeAll(offerer, answerer));
+  const local = offerer.createDataChannel("paired-copy");
+  local._assignId(1);
+  local._readyState = "open";
+  const remote = answerer._createSyntheticIncomingDataChannel(local, 1);
+  remote._readyState = "open";
+  const messages = collectMessages(remote, 1);
+  const buffer = Uint8Array.of(0, 1, 2, 3, 0).buffer;
+  Object.defineProperty(buffer, "slice", {
+    get() {
+      throw new Error("unexpected ArrayBuffer.slice getter");
+    },
+  });
+  local.send(new DataView(buffer, 1, 3));
+  new Uint8Array(buffer).fill(0xff);
+  const [received] = await messages;
+  assert.deepEqual(Array.from(new Uint8Array(received)), [1, 2, 3]);
 });
 
 test("RTCDataChannelEvent requires and exposes a channel", () => {
@@ -989,6 +1134,36 @@ test("native message batches do not overtake queued messages", async (t) => {
     received,
     [...queuedEvents, ...nativeBatch].map((event) => event.data),
   );
+});
+
+test("paired delivery yields after bufferedamountlow before delivering the triggering message", async (t) => {
+  const senderPeer = new RTCPeerConnection();
+  const receiverPeer = new RTCPeerConnection();
+  t.after(() => closeAll(senderPeer, receiverPeer));
+  for (const batch of [false, true]) {
+    const sender = senderPeer.createDataChannel("sender");
+    const receiver = receiverPeer.createDataChannel("receiver");
+    sender._readyState = "open";
+    receiver._readyState = "open";
+    sender._pairedChannel = receiver;
+    receiver._pairedChannel = sender;
+    sender._bufferedAmount = 10;
+    sender._pendingBufferedAmountDecrease = 10;
+    sender._pendingPairedDeliveryBytes = 10;
+    sender.bufferedAmountLowThreshold = 5;
+    const low = waitFor(sender, "bufferedamountlow");
+    const events = ["hello", "world"].map((data) => ({ binary: false, data }));
+    if (batch) {
+      receiver.onmessage = () => {};
+      assert.equal(receiver._dispatchNativeMessageBatch(events), true);
+    } else {
+      receiver._queueMessageEvents(events);
+    }
+    await low;
+    assert.deepEqual(await collectMessages(receiver, 2), ["hello", "world"]);
+    assert.equal(sender.bufferedAmount, 0);
+    assert.equal(sender._pendingPairedDeliveryBytes, 0);
+  }
 });
 
 test("message listener added during onmessage receives later burst messages", async (t) => {

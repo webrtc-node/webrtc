@@ -45,6 +45,7 @@ execute_process(
 string(REPLACE "\"" "" NODE_ADDON_API_DIR "${NODE_ADDON_API_DIR}")
 string(REPLACE "\\" "/" NODE_ADDON_API_DIR "${NODE_ADDON_API_DIR}")
 
+# Released libdatachannel v0.24.6.
 set(LIBDATACHANNEL_PINNED_COMMIT "6b1e2e620f1e37f0eafeee702eaea0043cb305fd" CACHE STRING
     "Audited libdatachannel commit for this binding.")
 
@@ -151,6 +152,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   NAPI_VERSION=${WEBRTC_NODE_NAPI_VERSION}
+  # Worker termination can interrupt a callback while JavaScript is disabled.
+  NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS
   RTC_STATIC
 )
 
@@ -174,4 +177,11 @@ if(MSVC)
   target_compile_options(${PROJECT_NAME} PRIVATE /EHsc /bigobj)
 else()
   target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/native-send-queue.cc")
+  find_package(Threads REQUIRED)
+  add_executable(webrtc_node_send_queue_test EXCLUDE_FROM_ALL test/native-send-queue.cc)
+  target_include_directories(webrtc_node_send_queue_test PRIVATE src/native)
+  target_link_libraries(webrtc_node_send_queue_test PRIVATE Threads::Threads)
 endif()

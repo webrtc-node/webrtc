@@ -44,11 +44,14 @@
     "src/native/addon.cc",
     "src/native/certificate.cc",
     "src/native/certificate.hpp",
+    "src/native/send_queue.hpp",
+    "src/native/teardown_tasks.hpp",
     "CMakeLists.txt",
     "index.d.ts"
   ],
   "scripts": {
     "build": "cmake-js compile",
+    "benchmark:send": "node scripts/benchmark-send-bursts.js",
     "check": "biome check .",
     "clean": "cmake-js clean",
     "e2e:chrome": "node test/e2e/run-chrome.js",
@@ -61,7 +64,7 @@
     "prebuild:package": "node scripts/package-prebuild.js",
     "prebuild:check": "node scripts/check-prebuilds.js",
     "api:check": "node scripts/check-api-surface.js",
-    "test": "node --test --test-force-exit --test-timeout=30000 test/basic.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
+    "test": "node --test --test-force-exit --test-timeout=60000 test/basic.test.js test/events.test.js test/signaling.test.js test/inputs.test.js test/native-send.test.js test/native-send-queue.test.js test/nonstandard.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
     "types:check": "tsc -p tsconfig.types.json",
     "wpt:ensure": "node scripts/ensure-wpt.js",
     "wpt:smoke": "node scripts/run-wpt-smoke.js",

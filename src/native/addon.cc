@@ -2,6 +2,8 @@
 #include <rtc/rtc.hpp>
 
 #include "certificate.hpp"
+#include "send_queue.hpp"
+#include "teardown_tasks.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -31,6 +33,71 @@ struct ChannelBinding;
 struct EventDispatcher;
 struct IceUdpMuxBinding;
 struct PeerBinding;
+struct EnvironmentState;
+void CleanupEnvironment(EnvironmentState *state);
+
+using webrtc_node::SendQueue;
+using webrtc_node::TeardownTasks;
+
+struct EnvironmentState {
+	Napi::FunctionReference dataChannelConstructor;
+	std::vector<std::weak_ptr<PeerBinding>> peers;
+	std::vector<std::weak_ptr<IceUdpMuxBinding>> listeners;
+	std::shared_ptr<SendQueue> sendQueue = std::make_shared<SendQueue>();
+	std::shared_ptr<TeardownTasks> teardownTasks = std::make_shared<TeardownTasks>();
+	Napi::Env::CleanupHook<decltype(&CleanupEnvironment), EnvironmentState> cleanupHook;
+};
+
+std::mutex environmentMutex;
+size_t environmentCount = 0;
+
+// Unlike the untyped wrapper, dispatch also runs with a null environment so
+// queued native payloads are reclaimed when Node discards callbacks at exit.
+class NativeDispatcher {
+	using Job = std::function<void(Napi::Env, Napi::Function)>;
+	static void Dispatch(Napi::Env env, Napi::Function callback, void *, Job *job) {
+		std::unique_ptr<Job> owned(job);
+		(*owned)(env, callback);
+	}
+	using Function = Napi::TypedThreadSafeFunction<void, Job, Dispatch>;
+	Function function;
+	bool released = false;
+
+public:
+	static NativeDispatcher New(Napi::Env env, Napi::Function callback, const char *name) {
+		NativeDispatcher dispatcher;
+		dispatcher.function = Function::New(env, callback, name, 0, 1);
+		// Cleanup hooks run in reverse registration order. Stop our producers before
+		// Node closes any of the thread-safe function handles they can still call.
+		auto *state = env.GetInstanceData<EnvironmentState>();
+		state->cleanupHook.Remove(env);
+		state->cleanupHook = env.AddCleanupHook(CleanupEnvironment, state);
+		return dispatcher;
+	}
+	template <typename Data, typename Callback>
+	napi_status NonBlockingCall(Data *data, Callback callback) {
+		if (released)
+			return napi_closing;
+		auto job = std::make_unique<Job>([data, callback](Napi::Env env, Napi::Function fn) {
+			callback(env, fn, data);
+		});
+		auto status = function.NonBlockingCall(job.get());
+		if (status == napi_ok)
+			job.release();
+		// Node consumes our acquisition when environment shutdown returns napi_closing.
+		// The handle must never be used again, including by Release().
+		else if (status == napi_closing)
+			released = true;
+		return status;
+	}
+	void Unref(Napi::Env env) { function.Unref(env); }
+	void Release() {
+		if (!released) {
+			released = true;
+			function.Release();
+		}
+	}
+};
 
 std::atomic<uint32_t> nextChannelId{1};
 constexpr auto PEER_CLOSE_TIMEOUT = std::chrono::seconds(5);
@@ -201,6 +268,7 @@ struct ChannelOptions {
 };
 
 struct NativeEvent {
+	std::shared_ptr<EventDispatcher> dispatcher;
 	std::string target;
 	std::string type;
 	uint32_t channelId = 0;
@@ -247,6 +315,7 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 	}
 
 	void EmitDirect(NativeEvent event) {
+		event.dispatcher = shared_from_this();
 		auto *queued = new NativeEvent(std::move(event));
 		std::lock_guard<std::mutex> lock(lifecycleMutex);
 		if (!active) {
@@ -271,7 +340,7 @@ struct EventDispatcher : public std::enable_shared_from_this<EventDispatcher> {
 
 private:
 	EventDispatcher(Napi::Env env, Napi::Function callback)
-	    : tsfn(Napi::ThreadSafeFunction::New(env, callback, "webrtc-node events", 0, 1)) {
+	    : tsfn(NativeDispatcher::New(env, callback, "webrtc-node events")) {
 		tsfn.Unref(env);
 	}
 
@@ -317,11 +386,20 @@ private:
 	                           std::shared_ptr<EventDispatcher> *dispatcher) {
 		std::shared_ptr<EventDispatcher> scoped = std::move(*dispatcher);
 		delete dispatcher;
+		if (!env || !callback)
+			return;
 		scoped->Drain(env, callback);
 	}
 
 	static void DispatchDirect(Napi::Env env, Napi::Function callback, NativeEvent *event) {
 		std::unique_ptr<NativeEvent> scoped(event);
+		if (!env || !callback)
+			return;
+		{
+			std::lock_guard lock(scoped->dispatcher->lifecycleMutex);
+			if (!scoped->dispatcher->active)
+				return;
+		}
 		callback.Call({EventToObject(env, *scoped)});
 	}
 
@@ -345,7 +423,7 @@ private:
 	std::mutex lifecycleMutex;
 	std::vector<NativeEvent> pendingEvents;
 	bool dispatchScheduled = false;
-	Napi::ThreadSafeFunction tsfn;
+	NativeDispatcher tsfn;
 };
 
 struct IceUdpMuxDispatch {
@@ -421,7 +499,7 @@ private:
 	IceUdpMuxBinding(Napi::Env env, Napi::Function callback, uint16_t port_,
 	                 std::optional<std::string> address_)
 	    : port(port_), address(std::move(address_)),
-	      tsfn(Napi::ThreadSafeFunction::New(env, callback, "webrtc-node ICE UDP mux", 0, 1)) {
+	      tsfn(NativeDispatcher::New(env, callback, "webrtc-node ICE UDP mux")) {
 		tsfn.Unref(env);
 	}
 
@@ -435,6 +513,8 @@ private:
 
 	static void Dispatch(Napi::Env env, Napi::Function callback, IceUdpMuxDispatch *dispatch) {
 		std::unique_ptr<IceUdpMuxDispatch> scoped(dispatch);
+		if (!env || !callback)
+			return;
 		{
 			std::lock_guard<std::mutex> lock(scoped->binding->lifecycleMutex);
 			if (!scoped->binding->active)
@@ -454,32 +534,20 @@ private:
 	bool active = true;
 	bool tsfnReleased = false;
 	mutable std::mutex lifecycleMutex;
-	Napi::ThreadSafeFunction tsfn;
+	NativeDispatcher tsfn;
 	std::unique_ptr<rtc::IceUdpMuxListener> iceUdpMuxListener;
 };
 
-std::mutex &IceUdpMuxRegistryMutex() {
-	static std::mutex mutex;
-	return mutex;
-}
-
-std::vector<std::weak_ptr<IceUdpMuxBinding>> &IceUdpMuxRegistry() {
-	static std::vector<std::weak_ptr<IceUdpMuxBinding>> registry;
-	return registry;
-}
-
-void RegisterIceUdpMuxBinding(const std::shared_ptr<IceUdpMuxBinding> &binding) {
-	std::lock_guard<std::mutex> lock(IceUdpMuxRegistryMutex());
-	auto &registry = IceUdpMuxRegistry();
+void RegisterIceUdpMuxBinding(Napi::Env env, const std::shared_ptr<IceUdpMuxBinding> &binding) {
+	auto &registry = env.GetInstanceData<EnvironmentState>()->listeners;
 	registry.erase(std::remove_if(registry.begin(), registry.end(),
 	                              [](const auto &entry) { return entry.expired(); }),
 	               registry.end());
 	registry.push_back(binding);
 }
 
-std::optional<uint16_t> ActiveIceUdpMuxPort() {
-	std::lock_guard<std::mutex> lock(IceUdpMuxRegistryMutex());
-	auto &registry = IceUdpMuxRegistry();
+std::optional<uint16_t> ActiveIceUdpMuxPort(Napi::Env env) {
+	auto &registry = env.GetInstanceData<EnvironmentState>()->listeners;
 	std::optional<uint16_t> port;
 	registry.erase(std::remove_if(registry.begin(), registry.end(),
 	                              [&port](const auto &entry) {
@@ -496,18 +564,13 @@ std::optional<uint16_t> ActiveIceUdpMuxPort() {
 	return port;
 }
 
-void CloseAllIceUdpMuxBindings() {
-	std::vector<std::shared_ptr<IceUdpMuxBinding>> bindings;
-	{
-		std::lock_guard<std::mutex> lock(IceUdpMuxRegistryMutex());
-		for (auto &entry : IceUdpMuxRegistry()) {
-			if (auto binding = entry.lock())
-				bindings.push_back(std::move(binding));
-		}
-		IceUdpMuxRegistry().clear();
+void CloseAllIceUdpMuxBindings(EnvironmentState *state) {
+	auto entries = std::move(state->listeners);
+	state->listeners.clear();
+	for (auto &entry : entries) {
+		if (auto binding = entry.lock())
+			binding->Close();
 	}
-	for (auto &binding : bindings)
-		binding->Close();
 }
 
 class NativeIceUdpMuxListener : public Napi::ObjectWrap<NativeIceUdpMuxListener> {
@@ -544,7 +607,7 @@ public:
 		try {
 			binding_ = IceUdpMuxBinding::Create(env, info[1].As<Napi::Function>(),
 			                                   static_cast<uint16_t>(port), std::move(address));
-			RegisterIceUdpMuxBinding(binding_);
+			RegisterIceUdpMuxBinding(env, binding_);
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 		}
@@ -580,10 +643,11 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 
 	static std::shared_ptr<ChannelBinding> Create(std::shared_ptr<rtc::DataChannel> dataChannel,
 	                                              std::shared_ptr<EventDispatcher> dispatcher,
+	                                              std::shared_ptr<SendQueue> sendQueue,
 	                                              ChannelOptions options,
 	                                              ClosedCallback closedCallback) {
 		auto binding = std::shared_ptr<ChannelBinding>(new ChannelBinding(
-		    std::move(dataChannel), std::move(dispatcher), std::move(options),
+		    std::move(dataChannel), std::move(dispatcher), std::move(sendQueue), std::move(options),
 		    std::move(closedCallback)));
 		binding->AttachCallbacks();
 		return binding;
@@ -603,19 +667,37 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 		return options;
 	}
 
+	template <typename Producer> bool Send(size_t size, Producer produce) {
+		if (closeRequested.load() || sendsCancelled.load() || !dataChannel->isOpen())
+			throw std::runtime_error("DataChannel is not open");
+		if (size > dataChannel->maxMessageSize())
+			throw std::invalid_argument("Message size exceeds limit");
+		sendQueue->EnqueueProduced(size, [&]() {
+			auto send = std::make_shared<QueuedSend>(shared_from_this(), produce(), size);
+			return [send]() { send->Run(); };
+		});
+		return true;
+	}
+
+	size_t BufferedAmount() const {
+		// Read our backlog first: a handoff to SCTP must never expose a false zero.
+		const size_t pending = pendingSendBytes.load();
+		return pending + dataChannel->bufferedAmount();
+	}
+
 	void Close() {
-		auto dc = dataChannel;
-		if (!dc)
+		if (closeRequested.exchange(true))
 			return;
-		std::thread([dc = std::move(dc)]() {
+		sendQueue->Enqueue([dc = dataChannel]() {
 			try {
 				dc->close();
 			} catch (...) {
 			}
-		}).detach();
+		}, 0, true);
 	}
 
 	void Destroy() {
+		sendsCancelled.store(true);
 		{
 			std::lock_guard<std::mutex> lock(callbacksMutex);
 			if (!callbacksActive)
@@ -633,11 +715,41 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	ChannelOptions options;
 
 private:
+	struct QueuedSend {
+		std::shared_ptr<ChannelBinding> binding;
+		rtc::message_variant data;
+		size_t size;
+
+		QueuedSend(std::shared_ptr<ChannelBinding> binding_, rtc::message_variant data_, size_t size_)
+		    : binding(std::move(binding_)), data(std::move(data_)), size(size_) {
+			binding->pendingSendBytes.fetch_add(size);
+		}
+		~QueuedSend() { binding->pendingSendBytes.fetch_sub(size); }
+
+		void Run() {
+			if (binding->sendsCancelled.load())
+				return;
+			try {
+				// A false result means SCTP buffered the accepted message; never resend it.
+				binding->dataChannel->send(std::move(data));
+			} catch (const std::exception &error) {
+				NativeEvent event;
+				event.target = "datachannel";
+				event.type = "error";
+				event.channelId = binding->id;
+				event.error = error.what();
+				binding->Emit(std::move(event));
+			}
+		}
+	};
+
 	ChannelBinding(std::shared_ptr<rtc::DataChannel> dataChannel_,
-	               std::shared_ptr<EventDispatcher> dispatcher_, ChannelOptions options_,
+	               std::shared_ptr<EventDispatcher> dispatcher_, std::shared_ptr<SendQueue> sendQueue_,
+	               ChannelOptions options_,
 	               ClosedCallback closedCallback_)
 	    : id(AllocateChannelId()), dataChannel(std::move(dataChannel_)),
 	      dispatcher(std::move(dispatcher_)), options(std::move(options_)),
+	      sendQueue(std::move(sendQueue_)),
 	      closedCallback(std::move(closedCallback_)) {}
 
 	void Emit(NativeEvent event) {
@@ -662,6 +774,7 @@ private:
 
 		dataChannel->onClosed([weak]() {
 			if (auto self = weak.lock()) {
+				self->sendsCancelled.store(true);
 				NativeEvent event;
 				event.target = "datachannel";
 				event.type = "close";
@@ -712,14 +825,16 @@ private:
 	}
 
 	bool callbacksActive = true;
+	std::shared_ptr<SendQueue> sendQueue;
+	std::atomic<size_t> pendingSendBytes{0};
+	std::atomic<bool> closeRequested{false};
+	std::atomic<bool> sendsCancelled{false};
 	std::mutex callbacksMutex;
 	ClosedCallback closedCallback;
 };
 
 class NativeDataChannel : public Napi::ObjectWrap<NativeDataChannel> {
 public:
-	static Napi::FunctionReference constructor;
-
 	static void Init(Napi::Env env, Napi::Object exports) {
 		Napi::Function func = DefineClass(
 		    env, "NativeDataChannel",
@@ -743,8 +858,7 @@ public:
 		        InstanceAccessor("isClosed", &NativeDataChannel::GetIsClosed, nullptr),
 		        InstanceAccessor("maxMessageSize", &NativeDataChannel::GetMaxMessageSize, nullptr),
 		    });
-		constructor = Napi::Persistent(func);
-		constructor.SuppressDestruct();
+		env.GetInstanceData<EnvironmentState>()->dataChannelConstructor = Napi::Persistent(func);
 		exports.Set("NativeDataChannel", func);
 	}
 
@@ -752,7 +866,7 @@ public:
 		auto *payload = new std::shared_ptr<ChannelBinding>(std::move(binding));
 		auto external = Napi::External<std::shared_ptr<ChannelBinding>>::New(
 		    env, payload, [](Napi::Env, std::shared_ptr<ChannelBinding> *data) { delete data; });
-		return constructor.New({external});
+		return env.GetInstanceData<EnvironmentState>()->dataChannelConstructor.New({external});
 	}
 
 	NativeDataChannel(const Napi::CallbackInfo &info) : Napi::ObjectWrap<NativeDataChannel>(info) {
@@ -767,8 +881,16 @@ private:
 	Napi::Value SendString(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			std::string value = info[0].ToString().Utf8Value();
-			bool sent = binding_->dataChannel->send(value);
+			Napi::String value = info[0].ToString();
+			size_t size;
+			if (napi_get_value_string_utf8(env, value, nullptr, 0, &size) != napi_ok)
+				throw Napi::Error::New(env);
+			bool sent = binding_->Send(size, [&]() {
+				std::string data(size, '\0');
+				if (napi_get_value_string_utf8(env, value, data.data(), size + 1, nullptr) != napi_ok)
+					throw Napi::Error::New(env);
+				return rtc::message_variant(std::move(data));
+			});
 			return Napi::Boolean::New(env, sent);
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -783,7 +905,13 @@ private:
 				throw std::invalid_argument("sendBinary expects a Uint8Array");
 			auto view = info[0].As<Napi::Uint8Array>();
 			const auto *bytes = reinterpret_cast<const rtc::byte *>(view.Data());
-			bool sent = binding_->dataChannel->send(bytes, view.ByteLength());
+			const size_t size = view.ByteLength();
+			bool sent = binding_->Send(size, [&]() {
+				rtc::binary data(size);
+				if (!data.empty())
+					std::memcpy(data.data(), bytes, data.size());
+				return rtc::message_variant(std::move(data));
+			});
 			return Napi::Boolean::New(env, sent);
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -851,7 +979,7 @@ private:
 	}
 
 	Napi::Value GetBufferedAmount(const Napi::CallbackInfo &info) {
-		return Napi::Number::New(info.Env(), binding_->dataChannel->bufferedAmount());
+		return Napi::Number::New(info.Env(), binding_->BufferedAmount());
 	}
 
 	Napi::Value GetIsOpen(const Napi::CallbackInfo &info) {
@@ -866,8 +994,6 @@ private:
 		return Napi::Number::New(info.Env(), binding_->dataChannel->maxMessageSize());
 	}
 };
-
-Napi::FunctionReference NativeDataChannel::constructor;
 
 Napi::Object EventDispatcher::EventToObject(Napi::Env env, NativeEvent &event) {
 	Napi::Object object = Napi::Object::New(env);
@@ -944,7 +1070,7 @@ rtc::Configuration ParseConfiguration(const Napi::CallbackInfo &info) {
 	if (input.Has("enableIceUdpMux") && input.Get("enableIceUdpMux").IsBoolean())
 		config.enableIceUdpMux = input.Get("enableIceUdpMux").ToBoolean().Value();
 	if (config.enableIceUdpMux) {
-		if (auto port = ActiveIceUdpMuxPort()) {
+		if (auto port = ActiveIceUdpMuxPort(info.Env())) {
 			config.portRangeBegin = *port;
 			config.portRangeEnd = *port;
 		}
@@ -1043,9 +1169,13 @@ rtc::DataChannelInit ToRtcInit(const ChannelOptions &options) {
 
 struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 	static std::shared_ptr<PeerBinding> Create(rtc::Configuration config,
-	                                           std::shared_ptr<EventDispatcher> dispatcher) {
+	                                           std::shared_ptr<EventDispatcher> dispatcher,
+	                                           std::shared_ptr<SendQueue> sendQueue,
+	                                           std::shared_ptr<TeardownTasks> teardownTasks) {
 		auto binding =
-		    std::shared_ptr<PeerBinding>(new PeerBinding(std::move(config), std::move(dispatcher)));
+		    std::shared_ptr<PeerBinding>(new PeerBinding(
+		        std::move(config), std::move(dispatcher), std::move(sendQueue),
+		        std::move(teardownTasks)));
 		binding->AttachCallbacks();
 		return binding;
 	}
@@ -1058,7 +1188,7 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 		}
 		std::weak_ptr<PeerBinding> weak = shared_from_this();
 		auto channel = ChannelBinding::Create(
-		    std::move(dataChannel), dispatcher, std::move(options),
+		    std::move(dataChannel), dispatcher, sendQueue, std::move(options),
 		    [weak](uint32_t id, const ChannelBinding *expected) {
 			    if (auto self = weak.lock())
 				    self->RemoveChannel(id, expected);
@@ -1095,9 +1225,11 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 	std::shared_ptr<EventDispatcher> dispatcher;
 
 private:
-	PeerBinding(rtc::Configuration config, std::shared_ptr<EventDispatcher> dispatcher_)
+	PeerBinding(rtc::Configuration config, std::shared_ptr<EventDispatcher> dispatcher_,
+	            std::shared_ptr<SendQueue> sendQueue_, std::shared_ptr<TeardownTasks> teardownTasks_)
 	    : peerConnection(std::make_shared<rtc::PeerConnection>(std::move(config))),
-	      dispatcher(std::move(dispatcher_)) {}
+	      dispatcher(std::move(dispatcher_)), sendQueue(std::move(sendQueue_)),
+	      teardownTasks(std::move(teardownTasks_)) {}
 
 	void Emit(NativeEvent event) {
 		std::lock_guard<std::mutex> lock(callbacksMutex);
@@ -1155,9 +1287,9 @@ private:
 		if (!work)
 			return;
 
-		std::thread([work = std::move(*work)]() mutable {
+		teardownTasks->Start([work = std::move(*work)]() mutable {
 			RunPeerTeardown(std::move(work));
-		}).detach();
+		});
 	}
 
 	void AttachCallbacks() {
@@ -1242,49 +1374,33 @@ private:
 	}
 
 	std::atomic<bool> shutdown{false};
+	std::shared_ptr<SendQueue> sendQueue;
+	std::shared_ptr<TeardownTasks> teardownTasks;
 	bool callbacksActive = true;
 	std::mutex callbacksMutex;
 	std::mutex channelsMutex;
 	std::unordered_map<uint32_t, std::shared_ptr<ChannelBinding>> channels;
 };
 
-std::mutex &PeerRegistryMutex() {
-	static std::mutex mutex;
-	return mutex;
-}
-
-std::vector<std::weak_ptr<PeerBinding>> &PeerRegistry() {
-	static std::vector<std::weak_ptr<PeerBinding>> registry;
-	return registry;
-}
-
-void RegisterPeerBinding(const std::shared_ptr<PeerBinding> &binding) {
-	std::lock_guard<std::mutex> lock(PeerRegistryMutex());
-	auto &registry = PeerRegistry();
+void RegisterPeerBinding(Napi::Env env, const std::shared_ptr<PeerBinding> &binding) {
+	auto &registry = env.GetInstanceData<EnvironmentState>()->peers;
 	registry.erase(std::remove_if(registry.begin(), registry.end(),
 	                              [](const auto &entry) { return entry.expired(); }),
 	               registry.end());
 	registry.push_back(binding);
 }
 
-void CloseAllPeerBindings() {
-	std::vector<std::shared_ptr<PeerBinding>> bindings;
-	{
-		std::lock_guard<std::mutex> lock(PeerRegistryMutex());
-		for (auto &entry : PeerRegistry()) {
-			if (auto binding = entry.lock())
-				bindings.push_back(std::move(binding));
-		}
-		PeerRegistry().clear();
+void CloseAllPeerBindings(EnvironmentState *state) {
+	auto entries = std::move(state->peers);
+	state->peers.clear();
+	for (auto &entry : entries) {
+		if (auto binding = entry.lock())
+			binding->DestroySync();
 	}
-	for (auto &binding : bindings)
-		binding->DestroySync();
 }
 
 class NativePeerConnection : public Napi::ObjectWrap<NativePeerConnection> {
 public:
-	static Napi::FunctionReference constructor;
-
 	static void Init(Napi::Env env, Napi::Object exports) {
 		Napi::Function func = DefineClass(
 		    env, "NativePeerConnection",
@@ -1312,8 +1428,6 @@ public:
 		        InstanceAccessor("maxDataChannelId", &NativePeerConnection::GetMaxDataChannelId,
 		                         nullptr),
 		    });
-		constructor = Napi::Persistent(func);
-		constructor.SuppressDestruct();
 		exports.Set("NativePeerConnection", func);
 	}
 
@@ -1322,9 +1436,17 @@ public:
 		Napi::Env env = info.Env();
 		if (info.Length() < 2 || !info[1].IsFunction())
 			throw Napi::TypeError::New(env, "NativePeerConnection requires an event callback");
-		auto dispatcher = EventDispatcher::Create(env, info[1].As<Napi::Function>());
-		binding_ = PeerBinding::Create(ParseConfiguration(info), dispatcher);
-		RegisterPeerBinding(binding_);
+		try {
+			auto dispatcher = EventDispatcher::Create(env, info[1].As<Napi::Function>());
+			binding_ = PeerBinding::Create(ParseConfiguration(info), dispatcher,
+			                             env.GetInstanceData<EnvironmentState>()->sendQueue,
+			                             env.GetInstanceData<EnvironmentState>()->teardownTasks);
+			RegisterPeerBinding(env, binding_);
+		} catch (const Napi::Error &) {
+			throw;
+		} catch (const std::exception &error) {
+			throw Napi::Error::New(env, error.what());
+		}
 	}
 
 	~NativePeerConnection() override {
@@ -1335,6 +1457,12 @@ public:
 private:
 	std::shared_ptr<PeerBinding> binding_;
 
+	std::shared_ptr<rtc::PeerConnection> RequirePeer(Napi::Env env) const {
+		if (!binding_ || !binding_->peerConnection)
+			throw Napi::Error::New(env, "Native peer connection is closed");
+		return binding_->peerConnection;
+	}
+
 	Napi::Value CreateDataChannel(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
@@ -1342,7 +1470,7 @@ private:
 			ChannelOptions options =
 			    ParseChannelOptions(info.Length() > 1 ? info[1] : env.Undefined());
 			auto dataChannel =
-			    binding_->peerConnection->createDataChannel(label, ToRtcInit(options));
+			    RequirePeer(info.Env())->createDataChannel(label, ToRtcInit(options));
 			auto channel = binding_->AddChannel(std::move(dataChannel), std::move(options));
 			return NativeDataChannel::NewInstance(env, std::move(channel));
 		} catch (const std::exception &e) {
@@ -1354,7 +1482,7 @@ private:
 	Napi::Value CreateOffer(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			return DescriptionToObject(env, binding_->peerConnection->createOffer());
+			return DescriptionToObject(env, RequirePeer(info.Env())->createOffer());
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 			return env.Undefined();
@@ -1364,7 +1492,7 @@ private:
 	Napi::Value CreateAnswer(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			return DescriptionToObject(env, binding_->peerConnection->createAnswer());
+			return DescriptionToObject(env, RequirePeer(info.Env())->createAnswer());
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 			return env.Undefined();
@@ -1380,7 +1508,7 @@ private:
 			rtc::LocalDescriptionInit init;
 			if (info.Length() > 1)
 				init = ParseLocalDescriptionInit(info[1]);
-			binding_->peerConnection->setLocalDescription(ParseDescriptionType(type), init);
+			RequirePeer(info.Env())->setLocalDescription(ParseDescriptionType(type), init);
 			return env.Undefined();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -1394,7 +1522,7 @@ private:
 			Napi::Object object = info[0].As<Napi::Object>();
 			std::string type = object.Get("type").ToString().Utf8Value();
 			std::string sdp = object.Get("sdp").ToString().Utf8Value();
-			binding_->peerConnection->setRemoteDescription(rtc::Description(sdp, type));
+			RequirePeer(info.Env())->setRemoteDescription(rtc::Description(sdp, type));
 			return env.Undefined();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -1411,7 +1539,7 @@ private:
 			if (object.Has("sdpMid") && !object.Get("sdpMid").IsNull() &&
 			    !object.Get("sdpMid").IsUndefined())
 				mid = object.Get("sdpMid").ToString().Utf8Value();
-			binding_->peerConnection->addRemoteCandidate(rtc::Candidate(candidate, mid));
+			RequirePeer(info.Env())->addRemoteCandidate(rtc::Candidate(candidate, mid));
 			return env.Undefined();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
@@ -1422,7 +1550,7 @@ private:
 	Napi::Value GatherLocalCandidates(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			binding_->peerConnection->gatherLocalCandidates();
+			RequirePeer(info.Env())->gatherLocalCandidates();
 		} catch (const std::exception &e) {
 			Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 		}
@@ -1432,7 +1560,7 @@ private:
 	Napi::Value LocalDescription(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			auto description = binding_->peerConnection->localDescription();
+			auto description = RequirePeer(info.Env())->localDescription();
 			if (!description)
 				return env.Null();
 			return DescriptionToObject(env, *description);
@@ -1445,7 +1573,7 @@ private:
 	Napi::Value RemoteDescription(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			auto description = binding_->peerConnection->remoteDescription();
+			auto description = RequirePeer(info.Env())->remoteDescription();
 			if (!description)
 				return env.Null();
 			return DescriptionToObject(env, *description);
@@ -1458,7 +1586,7 @@ private:
 	Napi::Value RemoteFingerprint(const Napi::CallbackInfo &info) {
 		Napi::Env env = info.Env();
 		try {
-			auto fingerprint = binding_->peerConnection->remoteFingerprint();
+			auto fingerprint = RequirePeer(info.Env())->remoteFingerprint();
 			if (!fingerprint.isValid())
 				return env.Null();
 			Napi::Object result = Napi::Object::New(env);
@@ -1477,7 +1605,7 @@ private:
 		try {
 			rtc::Candidate local;
 			rtc::Candidate remote;
-			if (!binding_->peerConnection->getSelectedCandidatePair(&local, &remote))
+			if (!RequirePeer(info.Env())->getSelectedCandidatePair(&local, &remote))
 				return env.Null();
 			Napi::Object pair = Napi::Object::New(env);
 			pair.Set("local", CandidateToObject(env, local));
@@ -1499,31 +1627,29 @@ private:
 	}
 
 	Napi::Value GetConnectionState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->state()));
+		return Napi::String::New(info.Env(), ToString(RequirePeer(info.Env())->state()));
 	}
 
 	Napi::Value GetIceConnectionState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->iceState()));
+		return Napi::String::New(info.Env(), ToString(RequirePeer(info.Env())->iceState()));
 	}
 
 	Napi::Value GetIceGatheringState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->gatheringState()));
+		return Napi::String::New(info.Env(), ToString(RequirePeer(info.Env())->gatheringState()));
 	}
 
 	Napi::Value GetSignalingState(const Napi::CallbackInfo &info) {
-		return Napi::String::New(info.Env(), ToString(binding_->peerConnection->signalingState()));
+		return Napi::String::New(info.Env(), ToString(RequirePeer(info.Env())->signalingState()));
 	}
 
 	Napi::Value GetRemoteMaxMessageSize(const Napi::CallbackInfo &info) {
-		return Napi::Number::New(info.Env(), binding_->peerConnection->remoteMaxMessageSize());
+		return Napi::Number::New(info.Env(), RequirePeer(info.Env())->remoteMaxMessageSize());
 	}
 
 	Napi::Value GetMaxDataChannelId(const Napi::CallbackInfo &info) {
-		return Napi::Number::New(info.Env(), binding_->peerConnection->maxDataChannelId());
+		return Napi::Number::New(info.Env(), RequirePeer(info.Env())->maxDataChannelId());
 	}
 };
-
-Napi::FunctionReference NativePeerConnection::constructor;
 
 Napi::Value GenerateCertificate(const Napi::CallbackInfo &info) {
 	Napi::Env env = info.Env();
@@ -1606,22 +1732,36 @@ void ConfigureLibDataChannelLogging() {
 		rtc::InitLogger(rtc::LogLevel::Error);
 }
 
-void CleanupNative() {
-	CloseAllPeerBindings();
-	CloseAllIceUdpMuxBindings();
-	rtc::Cleanup().wait();
+void CleanupNative(EnvironmentState *state) {
+	CloseAllPeerBindings(state);
+	CloseAllIceUdpMuxBindings(state);
+	state->teardownTasks->Join();
+}
+
+void CleanupEnvironment(EnvironmentState *state) {
+	state->sendQueue->Stop();
+	CleanupNative(state);
+	state->dataChannelConstructor.Reset();
+	std::lock_guard lock(environmentMutex);
+	if (--environmentCount == 0)
+		rtc::Cleanup().wait();
 }
 
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
-	ConfigureLibDataChannelLogging();
+	std::lock_guard lock(environmentMutex);
+	auto *state = new EnvironmentState();
+	env.SetInstanceData(state);
+	static std::once_flag logging;
+	std::call_once(logging, ConfigureLibDataChannelLogging);
 	NativeDataChannel::Init(env, exports);
 	NativeIceUdpMuxListener::Init(env, exports);
 	NativePeerConnection::Init(env, exports);
 	exports.Set("generateCertificate", Napi::Function::New(env, GenerateCertificate));
 	exports.Set("importCertificate", Napi::Function::New(env, ImportCertificate));
-	env.AddCleanupHook([]() { CleanupNative(); });
+	++environmentCount;
+	state->cleanupHook = env.AddCleanupHook(CleanupEnvironment, state);
 	exports.Set("cleanup", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
-		            CleanupNative();
+		            CleanupNative(info.Env().GetInstanceData<EnvironmentState>());
 		            return info.Env().Undefined();
 	            }));
 	return exports;

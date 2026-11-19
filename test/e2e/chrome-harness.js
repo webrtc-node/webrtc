@@ -220,10 +220,18 @@ async function installBrowserHarness(page) {
         installChannel(peerConnection.createDataChannel(options.label, options));
       },
 
-      async acceptOffer(offer) {
+      async acceptOffer(offer, pipelined = false) {
         const peerConnection = createPeerConnection();
-        await peerConnection.setRemoteDescription(offer);
-        await peerConnection.setLocalDescription(await peerConnection.createAnswer());
+        if (pipelined) {
+          await Promise.all([
+            peerConnection.setRemoteDescription(offer),
+            peerConnection.createAnswer(),
+            peerConnection.setLocalDescription({ type: "answer" }),
+          ]);
+        } else {
+          await peerConnection.setRemoteDescription(offer);
+          await peerConnection.setLocalDescription(await peerConnection.createAnswer());
+        }
         await waitForIceGathering(peerConnection);
         return peerConnection.localDescription.toJSON();
       },
@@ -235,10 +243,17 @@ async function installBrowserHarness(page) {
         return state.peerConnection.localDescription.toJSON();
       },
 
-      async createOffer(label, options = {}) {
+      async createOffer(label, options = {}, pipelined = false) {
         const peerConnection = createPeerConnection();
         installChannel(peerConnection.createDataChannel(label, options));
-        await peerConnection.setLocalDescription(await peerConnection.createOffer());
+        if (pipelined) {
+          await Promise.all([
+            peerConnection.createOffer(),
+            peerConnection.setLocalDescription({ type: "offer" }),
+          ]);
+        } else {
+          await peerConnection.setLocalDescription(await peerConnection.createOffer());
+        }
         await waitForIceGathering(peerConnection);
         return peerConnection.localDescription.toJSON();
       },
@@ -273,6 +288,10 @@ async function installBrowserHarness(page) {
         await state.peerConnection.addIceCandidate(candidate);
       },
 
+      remoteDescription() {
+        return state.peerConnection.remoteDescription.toJSON();
+      },
+
       async acceptRenegotiation(offer) {
         await state.peerConnection.setRemoteDescription(offer);
         await state.peerConnection.setLocalDescription(await state.peerConnection.createAnswer());
@@ -297,6 +316,26 @@ async function installBrowserHarness(page) {
 
       sendBinary(bytes) {
         state.channels[0].send(Uint8Array.from(bytes));
+      },
+
+      sendBufferSource(kind) {
+        const buffer = kind.startsWith("shared")
+          ? new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true }).buffer
+          : kind.startsWith("resizable")
+            ? new ArrayBuffer(4, { maxByteLength: 8 })
+            : new ArrayBuffer(4);
+        const data = kind.endsWith("dataview")
+          ? new DataView(buffer)
+          : kind.endsWith("view")
+            ? new Uint8Array(buffer)
+            : buffer;
+        if (kind.startsWith("detached")) structuredClone(buffer, { transfer: [buffer] });
+        try {
+          state.channels[0].send(data);
+          return null;
+        } catch (error) {
+          return error.name;
+        }
       },
 
       sendBinaryAsBlob(bytes) {

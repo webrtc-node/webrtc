@@ -7,7 +7,7 @@ This project targets the WebRTC data-channel profile exposed through
 `RTCPeerConnection` and `RTCDataChannel`.
 
 The current selected suite contains **620 expected-passing WPT subtests**. CI
-validates this suite on Linux, macOS, and Windows across Node 20, 22, and 24 in
+validates this suite on Linux, macOS, and Windows across Node 20, 22, 24, and 26 in
 the Conformance workflow. Ordinary push and pull-request CI runs a faster WPT
 smoke check.
 
@@ -36,13 +36,21 @@ Node.js, backed by a selected WPT conformance suite.
 ```sh
 npm run wpt:ensure
 npm run wpt:selection:check
-npm run wpt:test
-npm run wpt:check:strict
-npm run wpt:report -- --output wpt-report.md
+npm run wpt:smoke
+npm run wpt:smoke:check
+npm run wpt:test -- "webrtc/RTCDataChannel-send.html#Datachannel should be able to send simple string and receive as string"
 ```
 
-`wpt:test` writes `wpt-results.json`. `wpt:check:strict` requires every selected
-subtest to pass and fails if a worker retry was needed.
+Use focused targets and smoke checks locally. Leave the full selected suite to
+the GitHub Actions Conformance workflow, which runs manually, weekly, and on
+version tags. Full local runs require an explicit request.
+
+`wpt:test` writes `wpt-results.json`. In full CI runs, `wpt:check:strict` requires
+every selected subtest to pass and fails if a worker retry was needed.
+
+The runner supplies the browser-environment shims listed in the manifest,
+including an initially null `Window.onmessage` binding for strict-mode WPT
+scripts. It leaves the pinned external WPT checkout unchanged.
 
 Hosted Conformance uses `npm run wpt:test:sharded` with three deterministic
 weighted shards running concurrently inside each OS/Node job. Ordinary WPT
