@@ -10,6 +10,7 @@
 #include <vector>
 
 using webrtc_node::SendQueue;
+using webrtc_node::PeerSendHandoff;
 using webrtc_node::TeardownTasks;
 using namespace std::chrono_literals;
 
@@ -184,6 +185,75 @@ void TeardownJoinsThroughThreadExit() {
 	Require(ran.load(), "Explicit cleanup prevented later teardown work");
 }
 
+void PeerCloseWaitsOnlyForItsOwnSends() {
+	PeerSendHandoff peer;
+	std::atomic<bool> handedOff{false};
+	Gate ownSend;
+	Gate unrelated;
+	struct OpenOnExit {
+		Gate &gate;
+		~OpenOnExit() { gate.Open(); }
+	};
+	BlockedQueue fixture;
+	OpenOnExit openOwnSendOnExit{ownSend};
+	OpenOnExit openOnExit{unrelated};
+	fixture.Block(0);
+	fixture.queue.Enqueue([ticket = std::make_shared<PeerSendHandoff::Pending>(peer),
+	                       &peer, &handedOff, &ownSend]() {
+		ownSend.Block();
+		handedOff = peer.CanHandoff();
+	}, 0);
+	fixture.queue.Enqueue([&]() { unrelated.Block(); }, 0);
+
+	peer.Close(5s);
+	Require(!peer.Accepting(), "Closing peer still accepts new sends");
+	std::promise<void> started;
+	auto waiting = started.get_future();
+	auto teardown = std::async(std::launch::async, [&]() {
+		started.set_value();
+		peer.WaitForHandoff();
+		return handedOff.load();
+	});
+	waiting.get();
+	const bool queuedWait = teardown.wait_for(20ms) == std::future_status::timeout;
+	fixture.gate.Open();
+	ownSend.WaitUntilStarted();
+	const bool inflightWait = teardown.wait_for(20ms) == std::future_status::timeout;
+	ownSend.Open();
+	unrelated.WaitUntilStarted();
+	const bool finished = teardown.wait_for(1s) == std::future_status::ready;
+	unrelated.Open();
+	Require(queuedWait, "Peer close overtook a queued empty send");
+	Require(inflightWait, "Peer close overtook an in-flight send");
+	Require(finished, "Peer close waited on a different peer's queued job");
+	Require(teardown.get(), "Send was cancelled during the handoff window");
+}
+
+void PeerCloseExpiresWhileSendIsQueued() {
+	PeerSendHandoff peer;
+	std::atomic<bool> handedOff{false};
+	std::promise<void> resumed;
+	auto next = resumed.get_future();
+	BlockedQueue fixture;
+	fixture.Block(0);
+	fixture.queue.Enqueue([ticket = std::make_shared<PeerSendHandoff::Pending>(peer),
+	                       &peer, &handedOff]() { handedOff = peer.CanHandoff(); }, 1);
+	fixture.queue.Enqueue([&]() { resumed.set_value(); }, 0);
+
+	peer.Close(20ms);
+	peer.WaitForHandoff();
+	Require(!peer.CanHandoff(), "Bounded handoff returned before it expired");
+	fixture.gate.Open();
+	Require(next.wait_for(5s) == std::future_status::ready, "Shared send worker did not resume");
+	Require(!handedOff.load(), "Expired peer still handed off a queued send");
+
+	PeerSendHandoff destroyed;
+	PeerSendHandoff::Pending pending(destroyed);
+	destroyed.Close(0ms);
+	destroyed.WaitForHandoff();
+	Require(!destroyed.CanHandoff(), "Immediate cleanup permitted a send");
+}
+
 } // namespace
 
 int main() {
@@ -192,7 +262,9 @@ int main() {
 		EmptyMessagesRespectJobLimit();
 		ShutdownDiscardsAndJoins();
 		TeardownJoinsThroughThreadExit();
-		std::cout << "Native send queue and teardown: 4 cases passed\n";
+		PeerCloseWaitsOnlyForItsOwnSends();
+		PeerCloseExpiresWhileSendIsQueued();
+		std::cout << "Native send queue and teardown: 6 cases passed\n";
 		return 0;
 	} catch (const std::exception &error) {
 		std::cerr << error.what() << '\n';

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -10,6 +12,55 @@
 #include <utility>
 
 namespace webrtc_node {
+
+// Tracks a single peer's admitted sends, including empty and in-flight messages.
+class PeerSendHandoff {
+	using Clock = std::chrono::steady_clock;
+	using Tick = Clock::duration::rep;
+	static constexpr Tick OPEN = Clock::duration::max().count();
+	std::atomic<Tick> deadline{OPEN};
+	std::atomic<size_t> pending{0};
+	std::mutex completionMutex;
+	std::condition_variable completed;
+
+	void Complete() {
+		if (pending.fetch_sub(1) == 1 && !Accepting()) {
+			// Coordinate the last completion with the teardown wait. If this
+			// happened before Close(), the waiter will already see zero.
+			std::lock_guard lock(completionMutex);
+			completed.notify_one();
+		}
+	}
+
+public:
+	class Pending {
+		PeerSendHandoff &peer;
+
+	public:
+		explicit Pending(PeerSendHandoff &peer_) : peer(peer_) { ++peer.pending; }
+		Pending(const Pending &) = delete;
+		Pending &operator=(const Pending &) = delete;
+		~Pending() { peer.Complete(); }
+	};
+
+	bool Accepting() const { return deadline.load() == OPEN; }
+
+	bool CanHandoff() const {
+		const Tick until = deadline.load();
+		return until == OPEN || Clock::now().time_since_epoch().count() < until;
+	}
+
+	// Only the owning environment submits sends or starts close.
+	void Close(Clock::duration grace) {
+		deadline.store((Clock::now() + grace).time_since_epoch().count());
+	}
+
+	void WaitForHandoff() {
+		std::unique_lock lock(completionMutex);
+		const auto until = Clock::time_point(Clock::duration(deadline.load()));
+		completed.wait_until(lock, until, [&]() { return pending.load() == 0; });
+	}
+};
 
 class SendQueue {
 	struct Job {

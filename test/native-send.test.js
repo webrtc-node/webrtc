@@ -6,6 +6,7 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const test = require("node:test");
 const vm = require("node:vm");
+const { runBurst, MARKER } = require("./fixtures/peer-close-burst");
 const { connectRemotePeer } = require("./fixtures/remote-datachannel");
 
 test("binary sends accept cross-realm buffers and use intrinsic view boundaries", async (t) => {
@@ -175,6 +176,25 @@ test("a send exceeding native queue capacity fails without changing bufferedAmou
   assert.equal((await remote.request("received", { count: 1 })).count, 1);
 });
 
+test("peer close is immediate after a reliable burst across processes", async () => {
+  const result = await runBurst(path.resolve(__dirname, ".."));
+  assert.deepEqual(result.immediateState, {
+    peer: "closed",
+    signaling: "closed",
+    channel: "closed",
+  });
+  assert.deepEqual(result.rejections, []);
+  assert.equal(result.accepted, MARKER + 1);
+  assert.equal(result.remoteClosed, true);
+  // The native queue test controls handoff ordering. A live transport may lose
+  // the tail when peer close wins the race with delivery.
+  assert.ok(result.packets.length <= MARKER + 1);
+  assert.deepEqual(
+    result.packets,
+    Array.from({ length: result.packets.length }, (_, index) => index),
+  );
+});
+
 test("closing a peer with queued sends preserves other peers sharing its send worker", async (t) => {
   const closing = await connectRemotePeer();
   t.after(() => closing.close());
@@ -193,11 +213,12 @@ test("terminating a Worker with a native send backlog preserves other environmen
   const fixture = path.join(__dirname, "fixtures", "remote-datachannel.js");
   const workerScript = `
     const { parentPort, workerData } = require('node:worker_threads');
-    const { connectRemotePeer } = require(workerData);
+    const { connectRemotePeer } = require(workerData.fixture);
     (async () => {
       const remote = await connectRemotePeer();
       const payload = Buffer.alloc(262144);
       for (let index = 0; index < 100; index++) remote.channel.send(payload);
+      if (workerData.closeFirst) remote.peerConnection.close();
       parentPort.postMessage('ready');
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
     })();
@@ -210,9 +231,9 @@ test("terminating a Worker with a native send backlog preserves other environmen
     (async () => {
       const pc = new RTCPeerConnection();
       pc.createDataChannel('survivor');
-      for (let index = 0; index < 3; index++) {
+      for (const closeFirst of [false, true, false, true, false, true]) {
         const worker = new Worker(${JSON.stringify(workerScript)}, {
-          eval: true, workerData: ${JSON.stringify(fixture)}
+          eval: true, workerData: { fixture: ${JSON.stringify(fixture)}, closeFirst }
         });
         await once(worker, 'message');
         assert.equal(await worker.terminate(), 1);

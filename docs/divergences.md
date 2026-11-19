@@ -166,6 +166,15 @@ avoiding the known restart race without suppressing later closes indefinitely.
 Send-drain closes still wait for native delivery so queued messages are not
 truncated.
 
+Explicit `RTCPeerConnection.close()` closes the peer and its channels
+synchronously in JavaScript. The native teardown thread can defer transport
+shutdown for up to 50 ms to give sends already admitted to the native queue a
+chance to reach SCTP, as they did with synchronous native sends before 0.2.3.
+This is a best-effort handoff before the existing teardown. It does not wait for
+SCTP drain, acknowledgments, or remote delivery. Congestion, transport failure,
+or environment shutdown can still drop messages. Applications that need proof
+of delivery must acknowledge the message before calling peer close.
+
 ## Incoming data channel event timing
 
 libdatachannel can report an incoming data channel and its first channel events
