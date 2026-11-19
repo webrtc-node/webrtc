@@ -75,6 +75,44 @@ test("pipelined offer, answer, and description operations negotiate a usable dat
   assert.equal((await message).data, "pipelined negotiation works");
 });
 
+test("local descriptions dispatch their state changes before late native notifications", async (t) => {
+  const [offerer, answerer] = peers(t);
+  offerer.createDataChannel("signaling-event");
+  for (const peer of [offerer, answerer]) {
+    const handle = peer._handleNativeEvent.bind(peer);
+    peer._handleNativeEvent = (event) => {
+      if (event.type !== "signalingstatechange") handle(event);
+    };
+  }
+
+  const offerStates = [];
+  offerer.addEventListener("signalingstatechange", () => {
+    offerStates.push([offerer.signalingState, offerer.pendingLocalDescription?.type]);
+  });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  assert.deepEqual(offerStates, [["have-local-offer", "offer"]]);
+
+  await answerer.setRemoteDescription(offerer.localDescription);
+  const answerStates = [];
+  answerer.addEventListener("signalingstatechange", () => {
+    answerStates.push([answerer.signalingState, answerer.currentLocalDescription?.type]);
+  });
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription(answer);
+  assert.deepEqual(answerStates, [["stable", "answer"]]);
+
+  await offerer.setRemoteDescription(answerer.localDescription);
+  const notify = RTCPeerConnection.prototype._handleNativeEvent;
+  notify.call(offerer, { type: "signalingstatechange", state: "have-local-offer" });
+  notify.call(offerer, { type: "signalingstatechange", state: "stable" });
+  notify.call(answerer, { type: "signalingstatechange", state: "stable" });
+  assert.deepEqual(offerStates, [
+    ["have-local-offer", "offer"],
+    ["stable", undefined],
+  ]);
+  assert.deepEqual(answerStates, [["stable", "answer"]]);
+});
+
 test("parameterless local descriptions choose their type after preceding queued operations", async (t) => {
   for (const nativeBacked of [false, true]) {
     const [offerer, answerer] = peers(t);
