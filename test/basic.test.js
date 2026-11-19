@@ -1102,6 +1102,39 @@ test("data-channel opening burst is delivered after the datachannel event task",
   answerer.close();
 });
 
+test("remote peer failure does not discard messages already received", async (t) => {
+  for (const channelCloseFirst of [false, true]) {
+    const peer = new RTCPeerConnection();
+    t.after(() => closeAll(peer));
+    const channel = peer.createDataChannel("receive-before-close");
+    channel._readyState = "open";
+    const events = [];
+    channel.addEventListener("message", ({ data }) => events.push(data));
+    channel.addEventListener("error", ({ error }) => events.push(error.errorDetail));
+    channel.addEventListener("close", () => events.push("close"));
+    const closed = waitFor(channel, "close");
+    peer._handleNativeEvent({
+      target: "datachannel",
+      channelId: channel._native.bindingId,
+      type: "message",
+      binary: false,
+      data: "last message",
+    });
+    if (channelCloseFirst) {
+      peer._handleNativeEvent({
+        target: "datachannel",
+        channelId: channel._native.bindingId,
+        type: "close",
+      });
+    }
+    peer._handleNativeEvent({ type: "iceconnectionstatechange", state: "closed" });
+    peer._handleNativeEvent({ type: "connectionstatechange", state: "closed" });
+    assert.equal(channel.readyState, "closing");
+    await closed;
+    assert.deepEqual(events, ["last message", "sctp-failure", "close"]);
+  }
+});
+
 test("native message batches do not overtake queued messages", async (t) => {
   const peerConnection = new RTCPeerConnection();
   t.after(() => closeAllAndWait(peerConnection));
