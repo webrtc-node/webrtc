@@ -175,6 +175,11 @@ SCTP drain, acknowledgments, or remote delivery. Congestion, transport failure,
 or environment shutdown can still drop messages. Applications that need proof
 of delivery must acknowledge the message before calling peer close.
 
+On the receiver, terminal peer-state notifications use the same deferred
+channel close path as a native channel-close notification. This lets messages
+already queued for JavaScript dispatch run before the channel's terminal
+`error` and `close` events.
+
 ## Incoming data channel event timing
 
 libdatachannel can report an incoming data channel and its first channel events
