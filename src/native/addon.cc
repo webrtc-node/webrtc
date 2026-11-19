@@ -36,6 +36,7 @@ struct PeerBinding;
 struct EnvironmentState;
 void CleanupEnvironment(EnvironmentState *state);
 
+using webrtc_node::PeerSendHandoff;
 using webrtc_node::SendQueue;
 using webrtc_node::TeardownTasks;
 
@@ -101,6 +102,7 @@ public:
 
 std::atomic<uint32_t> nextChannelId{1};
 constexpr auto PEER_CLOSE_TIMEOUT = std::chrono::seconds(5);
+constexpr auto PEER_CLOSE_HANDOFF_GRACE = std::chrono::milliseconds(50);
 
 uint32_t AllocateChannelId() {
 	uint32_t id;
@@ -644,11 +646,12 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	static std::shared_ptr<ChannelBinding> Create(std::shared_ptr<rtc::DataChannel> dataChannel,
 	                                              std::shared_ptr<EventDispatcher> dispatcher,
 	                                              std::shared_ptr<SendQueue> sendQueue,
+	                                              std::shared_ptr<PeerSendHandoff> handoff,
 	                                              ChannelOptions options,
 	                                              ClosedCallback closedCallback) {
 		auto binding = std::shared_ptr<ChannelBinding>(new ChannelBinding(
-		    std::move(dataChannel), std::move(dispatcher), std::move(sendQueue), std::move(options),
-		    std::move(closedCallback)));
+		    std::move(dataChannel), std::move(dispatcher), std::move(sendQueue), std::move(handoff),
+		    std::move(options), std::move(closedCallback)));
 		binding->AttachCallbacks();
 		return binding;
 	}
@@ -668,7 +671,8 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	}
 
 	template <typename Producer> bool Send(size_t size, Producer produce) {
-		if (closeRequested.load() || sendsCancelled.load() || !dataChannel->isOpen())
+		if (closeRequested.load() || sendsCancelled.load() || !handoff->Accepting() ||
+		    !dataChannel->isOpen())
 			throw std::runtime_error("DataChannel is not open");
 		if (size > dataChannel->maxMessageSize())
 			throw std::invalid_argument("Message size exceeds limit");
@@ -686,7 +690,7 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	}
 
 	void Close() {
-		if (closeRequested.exchange(true))
+		if (closeRequested.exchange(true) || !handoff->Accepting())
 			return;
 		sendQueue->Enqueue([dc = dataChannel]() {
 			try {
@@ -696,8 +700,7 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 		}, 0, true);
 	}
 
-	void Destroy() {
-		sendsCancelled.store(true);
+	void DeactivateCallbacks() {
 		{
 			std::lock_guard<std::mutex> lock(callbacksMutex);
 			if (!callbacksActive)
@@ -717,17 +720,19 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 private:
 	struct QueuedSend {
 		std::shared_ptr<ChannelBinding> binding;
+		PeerSendHandoff::Pending pending;
 		rtc::message_variant data;
 		size_t size;
 
 		QueuedSend(std::shared_ptr<ChannelBinding> binding_, rtc::message_variant data_, size_t size_)
-		    : binding(std::move(binding_)), data(std::move(data_)), size(size_) {
+		    : binding(std::move(binding_)), pending(*binding->handoff), data(std::move(data_)),
+		      size(size_) {
 			binding->pendingSendBytes.fetch_add(size);
 		}
 		~QueuedSend() { binding->pendingSendBytes.fetch_sub(size); }
 
 		void Run() {
-			if (binding->sendsCancelled.load())
+			if (binding->sendsCancelled.load() || !binding->handoff->CanHandoff())
 				return;
 			try {
 				// A false result means SCTP buffered the accepted message; never resend it.
@@ -745,11 +750,12 @@ private:
 
 	ChannelBinding(std::shared_ptr<rtc::DataChannel> dataChannel_,
 	               std::shared_ptr<EventDispatcher> dispatcher_, std::shared_ptr<SendQueue> sendQueue_,
+	               std::shared_ptr<PeerSendHandoff> handoff_,
 	               ChannelOptions options_,
 	               ClosedCallback closedCallback_)
 	    : id(AllocateChannelId()), dataChannel(std::move(dataChannel_)),
 	      dispatcher(std::move(dispatcher_)), options(std::move(options_)),
-	      sendQueue(std::move(sendQueue_)),
+	      sendQueue(std::move(sendQueue_)), handoff(std::move(handoff_)),
 	      closedCallback(std::move(closedCallback_)) {}
 
 	void Emit(NativeEvent event) {
@@ -826,6 +832,7 @@ private:
 
 	bool callbacksActive = true;
 	std::shared_ptr<SendQueue> sendQueue;
+	std::shared_ptr<PeerSendHandoff> handoff;
 	std::atomic<size_t> pendingSendBytes{0};
 	std::atomic<bool> closeRequested{false};
 	std::atomic<bool> sendsCancelled{false};
@@ -1188,7 +1195,7 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 		}
 		std::weak_ptr<PeerBinding> weak = shared_from_this();
 		auto channel = ChannelBinding::Create(
-		    std::move(dataChannel), dispatcher, sendQueue, std::move(options),
+		    std::move(dataChannel), dispatcher, sendQueue, handoff, std::move(options),
 		    [weak](uint32_t id, const ChannelBinding *expected) {
 			    if (auto self = weak.lock())
 				    self->RemoveChannel(id, expected);
@@ -1202,7 +1209,7 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 				channels[channel->id] = channel;
 		}
 		if (closeChannel) {
-			channel->Destroy();
+			channel->DeactivateCallbacks();
 			CloseDataChannelForTeardown(channel->dataChannel);
 			return nullptr;
 		}
@@ -1211,12 +1218,12 @@ struct PeerBinding : public std::enable_shared_from_this<PeerBinding> {
 		return channel;
 	}
 
-	void ClosePeer() { ScheduleShutdown(); }
+	void ClosePeer() { ScheduleShutdown(PEER_CLOSE_HANDOFF_GRACE); }
 
-	void Destroy() { ScheduleShutdown(); }
+	void Destroy() { ScheduleShutdown(std::chrono::steady_clock::duration::zero()); }
 
 	void DestroySync() {
-		auto work = PrepareShutdown();
+		auto work = PrepareShutdown(std::chrono::steady_clock::duration::zero());
 		if (work)
 			RunPeerTeardown(std::move(*work));
 	}
@@ -1256,9 +1263,10 @@ private:
 			channels.erase(found);
 	}
 
-	std::optional<PeerTeardownWork> PrepareShutdown() {
+	std::optional<PeerTeardownWork> PrepareShutdown(std::chrono::steady_clock::duration grace) {
 		if (shutdown.exchange(true))
 			return std::nullopt;
+		handoff->Close(grace);
 
 		std::vector<std::shared_ptr<ChannelBinding>> channelSnapshot;
 		{
@@ -1272,7 +1280,7 @@ private:
 		PeerTeardownWork work;
 		work.dataChannels.reserve(channelSnapshot.size());
 		for (auto &channel : channelSnapshot) {
-			channel->Destroy();
+			channel->DeactivateCallbacks();
 			if (channel->dataChannel)
 				work.dataChannels.push_back(channel->dataChannel);
 		}
@@ -1282,12 +1290,13 @@ private:
 		return work;
 	}
 
-	void ScheduleShutdown() {
-		auto work = PrepareShutdown();
+	void ScheduleShutdown(std::chrono::steady_clock::duration grace) {
+		auto work = PrepareShutdown(grace);
 		if (!work)
 			return;
 
-		teardownTasks->Start([work = std::move(*work)]() mutable {
+		teardownTasks->Start([work = std::move(*work), handoff = handoff]() mutable {
+			handoff->WaitForHandoff();
 			RunPeerTeardown(std::move(work));
 		});
 	}
@@ -1375,6 +1384,7 @@ private:
 
 	std::atomic<bool> shutdown{false};
 	std::shared_ptr<SendQueue> sendQueue;
+	std::shared_ptr<PeerSendHandoff> handoff = std::make_shared<PeerSendHandoff>();
 	std::shared_ptr<TeardownTasks> teardownTasks;
 	bool callbacksActive = true;
 	std::mutex callbacksMutex;

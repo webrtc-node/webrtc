@@ -31,5 +31,5 @@ test("native send queue enforces admission, preserves close order, and joins dur
   const run = spawnSync(executable, [], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(run.error, undefined);
   assert.equal(run.status, 0, run.stdout + run.stderr);
-  assert.match(run.stdout, /4 cases passed/);
+  assert.match(run.stdout, /6 cases passed/);
 });

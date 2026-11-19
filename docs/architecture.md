@@ -35,8 +35,13 @@ libdatachannel environment.
 A lazy native send worker belongs to each environment. It processes string and
 binary payloads in FIFO order and never calls JavaScript directly. Environment
 cleanup cancels unstarted work and joins the worker before closing the remaining
-native peers. Peer shutdown cancels that peer's queued sends; individual channel
-close is queued behind previously accepted sends, including empty messages.
+native peers. Explicit peer close disables callbacks and new sends immediately.
+The peer's teardown thread gives already admitted sends up to 50 ms from close
+to reach libdatachannel before continuing transport teardown. The shared worker
+keeps FIFO order and skips expired jobs. The peer's wait ends as soon as its
+own jobs finish or are discarded. GC and environment cleanup cancel unstarted
+work without granting a handoff window. Individual channel close is queued
+behind previously accepted sends, including empty messages.
 
 Native peer methods reject calls after shutdown, and failed peer construction
 surfaces a JavaScript error. The facade aborts queued offer/answer creation and
