@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 const test = require("node:test");
 const { RTCPeerConnection, RTCCertificate, RTCIceCandidate } = require("..");
 
@@ -279,6 +281,41 @@ test("closing a peer from a configuration getter prevents the configuration comm
 
 const candidateLine = "candidate:1 1 udp 2113929471 127.0.0.1 12345 typ host";
 
+test("long malformed candidate suffixes do not block the event loop", () => {
+  // A subprocess deadline also catches synchronous parsing that blocks timers.
+  const script = `
+    const assert = require('node:assert/strict');
+    const { RTCPeerConnection } = require(${JSON.stringify(path.resolve(__dirname, ".."))});
+    (async () => {
+      const offerer = new RTCPeerConnection();
+      const receiver = new RTCPeerConnection();
+      try {
+        offerer.createDataChannel('candidate-suffix');
+        await receiver.setRemoteDescription(await offerer.createOffer());
+        const before = receiver.remoteDescription;
+        const candidate = ${JSON.stringify(candidateLine)} + ' '.repeat(1024 * 1024) + String.fromCharCode(0);
+        await assert.rejects(receiver.addIceCandidate({ candidate, sdpMLineIndex: 0 }), {
+          name: 'OperationError'
+        });
+        assert.equal(receiver.remoteDescription, before);
+        assert.equal(receiver.sctp.transport.iceTransport.getRemoteCandidates().length, 0);
+      } finally {
+        receiver.close();
+        offerer.close();
+      }
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `;
+  const child = spawnSync(process.execPath, ["-e", script], {
+    encoding: "utf8",
+    timeout: 10000,
+    windowsHide: true,
+  });
+  assert.equal(child.error, undefined);
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.signal, null);
+  assert.equal(child.stderr, "");
+});
+
 test("candidate control characters cannot inject lines into remote SDP", async (t) => {
   const offerer = peer(t);
   offerer.createDataChannel("candidate-validation");
@@ -289,6 +326,9 @@ test("candidate control characters cannot inject lines into remote SDP", async (
     `${candidateLine}\r\na=ice-pwd:injected`,
     `${candidateLine}\na=x-injected:yes`,
     `${candidateLine}\r\n\r\n`,
+    `${candidateLine}\r\n `,
+    `${candidateLine}\n\n`,
+    `${candidateLine}\r\r`,
     `${candidateLine}\0`,
     `${candidateLine}\t`,
     `${candidateLine}\x1f`,
@@ -315,7 +355,7 @@ test("candidate line terminators are canonicalized without changing the caller's
   offerer.createDataChannel("candidate-terminators");
   const receiver = peer(t);
   await receiver.setRemoteDescription(await offerer.createOffer());
-  for (const suffix of ["\r", "\n", "\r\n", " ", " \r\n"]) {
+  for (const suffix of ["\r", "\n", "\r\n", " ", " \r\n", " ".repeat(1024 * 1024)]) {
     const input = new RTCIceCandidate({ candidate: candidateLine + suffix, sdpMLineIndex: 0 });
     await receiver.addIceCandidate(input);
     assert.equal(input.candidate, candidateLine + suffix);
