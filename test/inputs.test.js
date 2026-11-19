@@ -263,6 +263,30 @@ test("ICE candidate pool size is immutable with an applied local description", a
   pc.setConfiguration({ iceCandidatePoolSize: 1 });
 });
 
+test("late native local descriptions cannot restore a rolled-back offer", async (t) => {
+  const pc = peer(t, { iceCandidatePoolSize: 1 });
+  pc.createDataChannel("rollback-description");
+  await pc.setLocalDescription();
+  const rolledBackOffer = pc.localDescription.toJSON();
+  await pc.setLocalDescription({ type: "rollback" });
+
+  pc._handleNativeEvent({ type: "localdescription", description: rolledBackOffer });
+
+  assert.equal(pc.localDescription, null);
+  assert.equal(pc.pendingLocalDescription, null);
+  assert.equal(pc.currentLocalDescription, null);
+  pc.setConfiguration({ iceCandidatePoolSize: 3 });
+  assert.equal(pc.getConfiguration().iceCandidatePoolSize, 3);
+
+  await pc.setLocalDescription();
+  pc._handleNativeEvent({
+    type: "localdescription",
+    description: { ...rolledBackOffer, sdp: `${rolledBackOffer.sdp}a=x-stale:1\r\n` },
+  });
+  assert.equal(pc.pendingLocalDescription?.type, "offer");
+  assert.equal(pc.localDescription.sdp.includes("a=x-stale:1"), false);
+});
+
 test("closing a peer from a configuration getter prevents the configuration commit", (t) => {
   const pc = peer(t);
   const before = pc.getConfiguration();
