@@ -128,6 +128,27 @@ yield, and end-to-end delivery timings. It measures local loopback behavior;
 use representative peer counts, payload sizes, and network paths for production
 capacity decisions. Timing values are informational rather than CI thresholds.
 
+## CPU and connection lifecycle
+
+Run the CPU benchmark from a source checkout with a built native addon.
+
+```sh
+npm run benchmark:cpu -- --peers=16 --direction=both --rounds=40 --messages=64 --idle-ms=18000
+```
+
+The offerer and answerer run in separate Node processes. The report includes
+CPU time per process during setup, idle, traffic, and close calls. It also
+reports CPU per delivered message and p95 burst delivery time, including
+the IPC acknowledgment. Endpoint exit time captures cleanup after IPC
+disconnect.
+
+Use `--direction=send` or `--direction=receive` to select one-way traffic
+relative to the offerer. Use `--pace-ms=16` with `--messages=1` for paced
+traffic. On builds with [native worker pool limits](nonstandard.md#native-worker-pool-limit),
+pass `--offerer-thread-limit` or `--answerer-thread-limit` to tune one endpoint
+at a time. Pass `--package=<directory>` to compare built checkouts or installed
+packages.
+
 ## Formatting and Linting
 
 Biome is used for JavaScript, TypeScript, and JSON formatting/linting:

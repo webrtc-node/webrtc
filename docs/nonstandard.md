@@ -5,6 +5,18 @@ capabilities for advanced integrations. These APIs are
 implementation-specific, may change between minor releases, and are not part of
 this package's W3C compatibility claims.
 
+## Native worker pool limit
+
+Set `WEBRTC_NODE_LIBDATACHANNEL_THREAD_LIMIT` in the process environment before
+launching Node to cap libdatachannel's shared worker pool. The value must be a
+decimal integer from 2 to 4,294,967,295. The pool uses the smaller of the configured
+limit and libdatachannel's automatic size. An unset variable selects automatic
+sizing. Invalid values cause the addon to fail to load with a `RangeError`.
+
+All peers and Node Workers in the process share the setting. The limit applies to
+libdatachannel workers. ICE polling, SCTP timers, and addon threads have their own
+lifecycles. Use the CPU benchmark to compare settings for a given workload.
+
 ## UDP mux
 
 ```js

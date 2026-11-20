@@ -1,6 +1,6 @@
 {
   "name": "@webrtc-node/webrtc",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Data-channel-first WebRTC for Node.js with W3C-style RTCPeerConnection and RTCDataChannel APIs.",
   "author": "webrtc-node contributors",
   "homepage": "https://github.com/webrtc-node/webrtc#readme",
@@ -52,6 +52,7 @@
   "scripts": {
     "build": "cmake-js compile",
     "benchmark:send": "node scripts/benchmark-send-bursts.js",
+    "benchmark:cpu": "node scripts/benchmark-cpu.js",
     "check": "biome check .",
     "clean": "cmake-js clean",
     "e2e:chrome": "node test/e2e/run-chrome.js",

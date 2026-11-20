@@ -9,6 +9,42 @@ const vm = require("node:vm");
 const { runBurst, MARKER } = require("./fixtures/peer-close-burst");
 const { connectRemotePeer } = require("./fixtures/remote-datachannel");
 
+test("native worker pool limits are validated at process startup", () => {
+  const root = path.resolve(__dirname, "..");
+  const start = `
+    const { RTCPeerConnection } = require(${JSON.stringify(root)});
+    const peer = new RTCPeerConnection();
+    peer.createDataChannel("pool-limit");
+    peer.close();
+  `;
+  const reject = `
+    const assert = require("node:assert/strict");
+    assert.throws(() => require(${JSON.stringify(root)}), {
+      name: "RangeError",
+      message: /WEBRTC_NODE_LIBDATACHANNEL_THREAD_LIMIT/,
+    });
+  `;
+  const env = { ...process.env };
+  for (const [limit, script] of [
+    [undefined, start],
+    ["2", start],
+    ["1", reject],
+    ["2.5", reject],
+    ["4294967296", reject],
+  ]) {
+    if (limit === undefined) delete env.WEBRTC_NODE_LIBDATACHANNEL_THREAD_LIMIT;
+    else env.WEBRTC_NODE_LIBDATACHANNEL_THREAD_LIMIT = limit;
+    const child = spawnSync(process.execPath, ["-e", script], {
+      env,
+      encoding: "utf8",
+      timeout: 10000,
+      windowsHide: true,
+    });
+    assert.equal(child.error, undefined);
+    assert.equal(child.status, 0, child.stderr);
+  }
+});
+
 test("binary sends accept cross-realm buffers and use intrinsic view boundaries", async (t) => {
   const remote = await connectRemotePeer({ record: true });
   t.after(() => remote.close());
