@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -1742,6 +1743,25 @@ void ConfigureLibDataChannelLogging() {
 		rtc::InitLogger(rtc::LogLevel::Error);
 }
 
+bool ConfigureLibDataChannelThreadLimit(Napi::Env env) {
+	const char *value = std::getenv("WEBRTC_NODE_LIBDATACHANNEL_THREAD_LIMIT");
+	if (!value)
+		return true;
+	const char *end = value + std::strlen(value);
+	unsigned int limit = 0;
+	const auto result = std::from_chars(value, end, limit);
+	if (result.ec != std::errc() || result.ptr != end || limit < 2) {
+		Napi::RangeError::New(
+		    env, "WEBRTC_NODE_LIBDATACHANNEL_THREAD_LIMIT must be an integer from 2 to 4294967295")
+		    .ThrowAsJavaScriptException();
+		return false;
+	}
+
+	const auto automatic = std::max(2u, std::thread::hardware_concurrency());
+	rtc::SetThreadPoolSize(std::min(limit, automatic));
+	return true;
+}
+
 void CleanupNative(EnvironmentState *state) {
 	CloseAllPeerBindings(state);
 	CloseAllIceUdpMuxBindings(state);
@@ -1759,10 +1779,15 @@ void CleanupEnvironment(EnvironmentState *state) {
 
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
 	std::lock_guard lock(environmentMutex);
+	static bool configured = false;
+	if (!configured) {
+		if (!ConfigureLibDataChannelThreadLimit(env))
+			return Napi::Object();
+		ConfigureLibDataChannelLogging();
+		configured = true;
+	}
 	auto *state = new EnvironmentState();
 	env.SetInstanceData(state);
-	static std::once_flag logging;
-	std::call_once(logging, ConfigureLibDataChannelLogging);
 	NativeDataChannel::Init(env, exports);
 	NativeIceUdpMuxListener::Init(env, exports);
 	NativePeerConnection::Init(env, exports);
