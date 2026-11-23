@@ -41,11 +41,7 @@
     "lib",
     "scripts/install-native.js",
     "scripts/prebuild-integrity.js",
-    "src/native/addon.cc",
-    "src/native/certificate.cc",
-    "src/native/certificate.hpp",
-    "src/native/send_queue.hpp",
-    "src/native/teardown_tasks.hpp",
+    "src/native",
     "CMakeLists.txt",
     "index.d.ts"
   ],
