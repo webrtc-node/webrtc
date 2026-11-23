@@ -820,6 +820,47 @@ private:
 		}
 	}
 
+	// Hands one drain turn to SCTP. A batch lets SCTP bundle small messages into
+	// shared packets instead of sending one packet per message. A false result
+	// means SCTP buffered the accepted messages; they are never resent.
+	void HandOff(std::vector<PendingSend> &batch) {
+		// sendBatch() rejects the whole batch if one message is too large, for example
+		// after the remote lowered its limit, so such a turn is sent one by one.
+		const size_t maxSize = dataChannel->maxMessageSize();
+		const bool batchable =
+		    batch.size() > 1 && std::all_of(batch.begin(), batch.end(), [&](const auto &pending) {
+			    return pending.size <= maxSize;
+		    });
+		if (batchable) {
+			std::vector<rtc::message_variant> messages;
+			messages.reserve(batch.size());
+			for (auto &pending : batch)
+				messages.push_back(std::move(pending.data));
+			try {
+				dataChannel->sendBatch(std::move(messages));
+			} catch (const std::exception &error) {
+				EmitSendError(error.what());
+			}
+			return;
+		}
+		for (auto &pending : batch) {
+			try {
+				dataChannel->send(std::move(pending.data));
+			} catch (const std::exception &error) {
+				EmitSendError(error.what());
+			}
+		}
+	}
+
+	void EmitSendError(const char *message) {
+		NativeEvent event;
+		event.target = "datachannel";
+		event.type = "error";
+		event.channelId = id;
+		event.error = message;
+		Emit(std::move(event));
+	}
+
 	// Runs on the send worker. One turn sends a bounded batch, then yields the
 	// worker to other channels by re-queueing itself if more work remains.
 	void Drain() {
@@ -842,25 +883,14 @@ private:
 
 		size_t sentBytes = 0;
 		size_t cost = 0;
-		for (auto &pending : batch) {
+		for (const auto &pending : batch) {
 			cost += BacklogCost(pending.size);
-			if (!sendsCancelled.load() && handoff->CanHandoff()) {
-				try {
-					// A false result means SCTP buffered the accepted message; never resend it.
-					dataChannel->send(std::move(pending.data));
-				} catch (const std::exception &error) {
-					NativeEvent event;
-					event.target = "datachannel";
-					event.type = "error";
-					event.channelId = id;
-					event.error = error.what();
-					Emit(std::move(event));
-				}
-			}
-			// Decrease after the SCTP handoff so bufferedAmount never reports a false zero.
-			pendingSendBytes.fetch_sub(pending.size);
 			sentBytes += pending.size;
 		}
+		if (!sendsCancelled.load() && handoff->CanHandoff())
+			HandOff(batch);
+		// Decrease after the SCTP handoff so bufferedAmount never reports a false zero.
+		pendingSendBytes.fetch_sub(sentBytes);
 		batch.clear();
 
 		if (closeNow) {
