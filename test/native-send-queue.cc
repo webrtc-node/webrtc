@@ -6,7 +6,9 @@
 #include <future>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 using webrtc_node::SendQueue;
@@ -185,6 +187,62 @@ void TeardownJoinsThroughThreadExit() {
 	Require(ran.load(), "Explicit cleanup prevented later teardown work");
 }
 
+void SlowTeardownDoesNotDelayOthers() {
+	TeardownTasks tasks;
+	Gate slow;
+	struct OpenOnExit {
+		Gate &gate;
+		~OpenOnExit() { gate.Open(); }
+	} openOnExit{slow};
+	tasks.Start([&]() { slow.Block(); });
+	slow.WaitUntilStarted();
+	std::promise<void> fast;
+	auto done = fast.get_future();
+	tasks.Start([&]() { fast.set_value(); });
+	Require(done.wait_for(5s) == std::future_status::ready,
+	        "A blocked teardown delayed an unrelated teardown");
+	slow.Open();
+	tasks.Join();
+}
+
+void SequentialTeardownsReuseAThread() {
+	TeardownTasks tasks;
+	std::thread::id first;
+	std::thread::id second;
+	std::promise<void> ran;
+	tasks.Start([&]() {
+		first = std::this_thread::get_id();
+		ran.set_value();
+	});
+	ran.get_future().wait();
+	// Let the worker return to its idle wait before the next close.
+	std::this_thread::sleep_for(50ms);
+	tasks.Start([&]() { second = std::this_thread::get_id(); });
+	tasks.Join();
+	Require(first == second, "An idle teardown worker was not reused");
+}
+
+void TeardownBurstRunsEveryTask() {
+	TeardownTasks tasks;
+	std::mutex mutex;
+	std::set<std::thread::id> threads;
+	std::atomic<int> ran{0};
+	for (int i = 0; i < 200; ++i) {
+		tasks.Start([&]() {
+			{
+				std::lock_guard lock(mutex);
+				threads.insert(std::this_thread::get_id());
+			}
+			std::this_thread::sleep_for(1ms);
+			++ran;
+		});
+		std::this_thread::sleep_for(200us);
+	}
+	tasks.Join();
+	Require(ran.load() == 200, "A teardown in a burst did not run");
+	Require(threads.size() < 200, "Each teardown in a burst started its own thread");
+}
+
 void PeerCloseWaitsOnlyForItsOwnSends() {
 	PeerSendHandoff peer;
 	std::atomic<bool> handedOff{false};
@@ -262,9 +320,12 @@ int main() {
 		EmptyMessagesRespectJobLimit();
 		ShutdownDiscardsAndJoins();
 		TeardownJoinsThroughThreadExit();
+		SlowTeardownDoesNotDelayOthers();
+		SequentialTeardownsReuseAThread();
+		TeardownBurstRunsEveryTask();
 		PeerCloseWaitsOnlyForItsOwnSends();
 		PeerCloseExpiresWhileSendIsQueued();
-		std::cout << "Native send queue and teardown: 6 cases passed\n";
+		std::cout << "Native send queue and teardown: 9 cases passed\n";
 		return 0;
 	} catch (const std::exception &error) {
 		std::cerr << error.what() << '\n';
