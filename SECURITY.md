@@ -1,26 +1,40 @@
 # Security Policy
 
-`@webrtc-node/webrtc` is a data-channel-first WebRTC package for Node.js backed
-by a native Node-API addon. It is published, but it should not be treated as a
-security boundary for untrusted traffic without validating the selected WPT
-suite, native lifetime behavior, and cross-platform behavior against your use
-case.
+## Reporting a vulnerability
 
-## Reporting
+Report vulnerabilities privately through
+[GitHub Security Advisories](https://github.com/webrtc-node/webrtc/security/advisories/new).
+Please do not open a public issue or publish details before a fix is available.
 
-For security-sensitive issues, use GitHub Security Advisories. Do not open a
-public issue or publish exploit details before the report is reviewed.
+Include the affected version, your operating system and Node.js version, and
+steps to reproduce. Mention whether the issue involves native memory safety,
+callback threading, certificate handling, SDP or ICE input, or data-channel
+message handling.
 
-Include:
+## Supported versions
 
-- affected commit or version,
-- operating system and Node.js version,
-- reproduction steps,
-- whether the issue involves native memory safety, callback threading,
-  certificate handling, SDP/ICE input, or data-channel message handling.
+| Version | Supported |
+| --- | --- |
+| Latest release on npm (`latest`) | ✅ |
+| Older releases | ❌ |
 
-## Supported Versions
+Fixes ship in a new patch release. Prereleases receive fixes only when
+announced.
 
-The release line published under the npm `latest` distribution tag receives
-security fixes. Prerelease versions published under non-latest distribution
-tags receive security fixes only when explicitly announced.
+## Scope
+
+Remote peers send SDP, ICE candidates, DTLS, and SCTP data that this package
+processes. Transport parsing and cryptography are handled by
+[libdatachannel](https://github.com/paullouisageneau/libdatachannel),
+[usrsctp](https://github.com/sctplab/usrsctp), and OpenSSL, which are pinned in
+`CMakeLists.txt` and statically linked into the prebuilds. Vulnerabilities in
+those projects are in scope when they affect this package; we update the pinned
+versions and publish a release.
+
+## Safeguards
+
+- CodeQL analysis for C++ and JavaScript on every pull request and on `main`.
+- Native lifetime tests for close and teardown races, garbage collection,
+  failed construction, and Worker termination.
+- Releases are published from CI with npm provenance. Prebuilt binaries are
+  verified with SHA-256 checksums and target checks before installation.
