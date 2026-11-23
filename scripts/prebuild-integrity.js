@@ -48,7 +48,7 @@ function expectedBinary(platform, arch, libcTag) {
     return { format: "ELF", machine: 62, libcTag };
   }
   if (platform === "linux" && arch === "arm64") {
-    if (libcTag !== "glibc") {
+    if (libcTag !== "glibc" && libcTag !== "musl") {
       throw new Error(`unsupported Linux libc target ${libcTag || "unknown"} for arm64`);
     }
     return { format: "ELF", machine: 183, libcTag };
@@ -110,7 +110,9 @@ function verifyBinaryTarget(buffer, platform, arch, libcTag = null) {
   if (expected.libcTag === "glibc" && !buffer.includes(Buffer.from("libc.so.6"))) {
     throw new Error("prebuild binary target mismatch: expected glibc linkage");
   }
-  if (expected.libcTag === "musl" && !buffer.includes(Buffer.from("libc.musl-x86_64.so.1"))) {
+  // musl names its dynamic loader after the architecture.
+  const muslLoader = arch === "arm64" ? "libc.musl-aarch64.so.1" : "libc.musl-x86_64.so.1";
+  if (expected.libcTag === "musl" && !buffer.includes(Buffer.from(muslLoader))) {
     throw new Error("prebuild binary target mismatch: expected musl linkage");
   }
 }

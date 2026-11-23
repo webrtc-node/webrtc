@@ -2,20 +2,13 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { PREBUILT_TARGETS } = require("../lib/native-target");
 const { validateArchiveFile } = require("./prebuild-integrity");
 
 const root = path.resolve(__dirname, "..");
 const packageJson = require("../package.json");
 const prebuildsDir = path.join(root, "prebuild-artifacts");
-const requiredTargets = [
-  "linux-x64-glibc",
-  "linux-x64-musl",
-  "linux-arm64-glibc",
-  "darwin-x64",
-  "darwin-arm64",
-  "win32-x64",
-  "win32-arm64",
-];
+const requiredTargets = PREBUILT_TARGETS.map(({ target }) => target);
 
 function fail(message) {
   console.error(`Prebuild check failed: ${message}`);

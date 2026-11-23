@@ -78,6 +78,9 @@ jobs:
           - target: linux-arm64-glibc
             os: ubuntu-24.04-arm
             image: node:24-bookworm
+          - target: linux-arm64-musl
+            os: ubuntu-24.04-arm
+            image: node:24-alpine
 
     steps:
       - uses: actions/checkout@v7
@@ -90,14 +93,14 @@ jobs:
           docker run --rm \
             -v "$PWD/examples/datachannel.js:/smoke-source.js:ro" \
             -e PACKAGE_SPEC \
-            -e WEBRTC_NODE_PREBUILD_ONLY=1 \
             "${{ matrix.image }}" \
             sh -lc 'set -eu
               workdir="$(mktemp -d)"
               cd "$workdir"
               npm init -y >/dev/null
+              # Lifecycle scripts stay disabled, as in package managers that block them.
               for attempt in 1 2 3; do
-                if npm install "$PACKAGE_SPEC"; then
+                if npm install "$PACKAGE_SPEC" --ignore-scripts; then
                   break
                 fi
                 if [ "$attempt" = "3" ]; then
@@ -105,6 +108,7 @@ jobs:
                 fi
                 sleep $((attempt * 10))
               done
+              test ! -e node_modules/@webrtc-node/webrtc/build
               node -e "const { RTCPeerConnection } = require(\"@webrtc-node/webrtc\"); const pc = new RTCPeerConnection(); pc.close(); console.log(\"cjs ok\");"
               node --input-type=module -e "import { RTCPeerConnection } from \"@webrtc-node/webrtc\"; const pc = new RTCPeerConnection(); pc.close(); console.log(\"esm ok\");"
               sed "s|require(\"..\")|require(\"@webrtc-node/webrtc\")|" /smoke-source.js > smoke.cjs
@@ -142,14 +146,14 @@ jobs:
         shell: bash
         env:
           PACKAGE_SPEC: ${{ needs.package.outputs.spec }}
-          WEBRTC_NODE_PREBUILD_ONLY: "1"
         run: |
           set -euo pipefail
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null
+          # Lifecycle scripts stay disabled, as in package managers that block them.
           for attempt in 1 2 3; do
-            if npm install "$PACKAGE_SPEC"; then
+            if npm install "$PACKAGE_SPEC" --ignore-scripts; then
               break
             fi
             if [ "$attempt" = "3" ]; then
@@ -157,6 +161,7 @@ jobs:
             fi
             sleep $((attempt * 10))
           done
+          test ! -e node_modules/@webrtc-node/webrtc/build
           node -e "const { RTCPeerConnection } = require('@webrtc-node/webrtc'); const pc = new RTCPeerConnection(); pc.close(); console.log('cjs ok');"
           node --input-type=module -e "import { RTCPeerConnection } from '@webrtc-node/webrtc'; const pc = new RTCPeerConnection(); pc.close(); console.log('esm ok');"
           sed 's|require("..")|require("@webrtc-node/webrtc")|' "$GITHUB_WORKSPACE/examples/datachannel.js" > smoke.cjs
