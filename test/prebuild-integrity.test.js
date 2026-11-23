@@ -153,7 +153,7 @@ test("prebuild validator distinguishes glibc and musl binaries", async (t) => {
   );
 });
 
-test("prebuild validator accepts Linux arm64 glibc and rejects mismatches", async (t) => {
+test("prebuild validator accepts Linux arm64 glibc and musl and rejects mismatches", async (t) => {
   const arm64 = await archiveFixture(t, elfBinary("libc.so.6", 183));
   const addonPath = await validateArchiveFile({
     ...arm64,
@@ -170,9 +170,23 @@ test("prebuild validator accepts Linux arm64 glibc and rejects mismatches", asyn
   );
 
   const musl = await archiveFixture(t, elfBinary("libc.musl-aarch64.so.1", 183));
+  const muslAddon = await validateArchiveFile({
+    ...musl,
+    platform: "linux",
+    arch: "arm64",
+    libcTag: "musl",
+  });
+  fs.rmSync(path.dirname(muslAddon), { recursive: true, force: true });
   await assert.rejects(
-    validateArchiveFile({ ...musl, platform: "linux", arch: "arm64", libcTag: "musl" }),
-    /unsupported Linux libc target musl for arm64/,
+    validateArchiveFile({ ...musl, platform: "linux", arch: "arm64", libcTag: "glibc" }),
+    /expected glibc linkage/,
+  );
+
+  // An x64 musl loader name must not pass as arm64 musl linkage.
+  const x64Musl = await archiveFixture(t, elfBinary("libc.musl-x86_64.so.1", 183));
+  await assert.rejects(
+    validateArchiveFile({ ...x64Musl, platform: "linux", arch: "arm64", libcTag: "musl" }),
+    /expected musl linkage/,
   );
 });
 

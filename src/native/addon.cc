@@ -2,6 +2,7 @@
 #include <rtc/rtc.hpp>
 
 #include "certificate.hpp"
+#include "certificate_pool.hpp"
 #include "send_queue.hpp"
 #include "teardown_tasks.hpp"
 
@@ -42,12 +43,18 @@ using webrtc_node::PeerSendHandoff;
 using webrtc_node::SendQueue;
 using webrtc_node::TeardownTasks;
 
+// The default certificate lifetime when RTCPeerConnection generates one itself.
+constexpr double DEFAULT_CERTIFICATE_EXPIRES_MS = 30.0 * 24.0 * 60.0 * 60.0 * 1000.0;
+
 struct EnvironmentState {
 	Napi::FunctionReference dataChannelConstructor;
 	std::vector<std::weak_ptr<PeerBinding>> peers;
 	std::vector<std::weak_ptr<IceUdpMuxBinding>> listeners;
 	std::shared_ptr<SendQueue> sendQueue = std::make_shared<SendQueue>();
 	std::shared_ptr<TeardownTasks> teardownTasks = std::make_shared<TeardownTasks>();
+	webrtc_node::CertificatePool certificatePool{[]() {
+		return webrtc_node::GenerateCertificateMaterial("ECDSA", 0, DEFAULT_CERTIFICATE_EXPIRES_MS);
+	}};
 	Napi::Env::CleanupHook<decltype(&CleanupEnvironment), EnvironmentState> cleanupHook;
 };
 
@@ -1820,6 +1827,21 @@ private:
 	}
 };
 
+Napi::Object CertificateMaterialToObject(Napi::Env env,
+                                         const webrtc_node::CertificateMaterial &material) {
+	Napi::Object result = Napi::Object::New(env);
+	result.Set("certificatePem", material.certificatePem);
+	result.Set("keyPem", material.keyPem);
+	result.Set("expires", material.expires);
+	Napi::Array fingerprints = Napi::Array::New(env, 1);
+	Napi::Object fingerprint = Napi::Object::New(env);
+	fingerprint.Set("algorithm", "sha-256");
+	fingerprint.Set("value", material.fingerprint);
+	fingerprints.Set(uint32_t{0}, fingerprint);
+	result.Set("fingerprints", fingerprints);
+	return result;
+}
+
 Napi::Value GenerateCertificate(const Napi::CallbackInfo &info) {
 	Napi::Env env = info.Env();
 	try {
@@ -1834,18 +1856,20 @@ Napi::Value GenerateCertificate(const Napi::CallbackInfo &info) {
 		    options.Has("expiresMs") ? options.Get("expiresMs").ToNumber().DoubleValue()
 		                             : 30.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 
-		auto material =
-		    webrtc_node::GenerateCertificateMaterial(algorithm, modulusLength, expiresMs);
-		Napi::Object result = Napi::Object::New(env);
-		result.Set("certificatePem", material.certificatePem);
-		result.Set("keyPem", material.keyPem);
-		Napi::Array fingerprints = Napi::Array::New(env, 1);
-		Napi::Object fingerprint = Napi::Object::New(env);
-		fingerprint.Set("algorithm", "sha-256");
-		fingerprint.Set("value", material.fingerprint);
-		fingerprints.Set(uint32_t{0}, fingerprint);
-		result.Set("fingerprints", fingerprints);
-		return result;
+		return CertificateMaterialToObject(
+		    env, webrtc_node::GenerateCertificateMaterial(algorithm, modulusLength, expiresMs));
+	} catch (const std::exception &e) {
+		Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+}
+
+// A peer connection without configured certificates takes a pre-generated one.
+Napi::Value TakeDefaultCertificate(const Napi::CallbackInfo &info) {
+	Napi::Env env = info.Env();
+	try {
+		return CertificateMaterialToObject(
+		    env, env.GetInstanceData<EnvironmentState>()->certificatePool.Take());
 	} catch (const std::exception &e) {
 		Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
 		return env.Undefined();
@@ -1927,6 +1951,7 @@ void CleanupNative(EnvironmentState *state) {
 }
 
 void CleanupEnvironment(EnvironmentState *state) {
+	state->certificatePool.Stop();
 	state->sendQueue->Stop();
 	CleanupNative(state);
 	state->dataChannelConstructor.Reset();
@@ -1950,6 +1975,7 @@ Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
 	NativeIceUdpMuxListener::Init(env, exports);
 	NativePeerConnection::Init(env, exports);
 	exports.Set("generateCertificate", Napi::Function::New(env, GenerateCertificate));
+	exports.Set("takeDefaultCertificate", Napi::Function::New(env, TakeDefaultCertificate));
 	exports.Set("importCertificate", Napi::Function::New(env, ImportCertificate));
 	++environmentCount;
 	state->cleanupHook = env.AddCleanupHook(CleanupEnvironment, state);

@@ -73,7 +73,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-prebuilds.js|scripts/install-native.js|scripts/package-prebuild.js|scripts/prebuild-integrity.js)
+              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-prebuilds.js|scripts/platform-packages.js|scripts/package-prebuild.js|scripts/validate-prebuild-install.js|scripts/prebuild-integrity.js)
                 package_changed="true"
                 ;;
             esac

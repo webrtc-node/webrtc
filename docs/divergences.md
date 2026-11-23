@@ -91,7 +91,10 @@ as native-backed WebRTC objects with generated PEM/key material, expiration,
 and fingerprint accessors. `RTCPeerConnection` validates expired certificates,
 rejects `setConfiguration()` calls that change the certificate set, and passes
 the first configured certificate into libdatachannel's `rtc::Configuration` so
-the generated DTLS fingerprint appears in local SDP.
+the generated DTLS fingerprint appears in local SDP. A peer connection created
+without certificates takes an ECDSA certificate that native code pre-generates
+on a background thread, so key generation does not run on the JavaScript thread;
+each connection still gets its own certificate.
 
 Certificate generation supports object-form ECDSA P-256 and RSA SHA-256
 algorithms. String-form WebCrypto `AlgorithmIdentifier` values are rejected.

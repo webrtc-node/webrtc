@@ -184,13 +184,35 @@ also runs `npm run types:check`. WPT selection checks run after the native addon
 is built because the WPT harness loads the public WebRTC facade. Use
 `npm run format` before sending a pull request.
 
+## Native Binaries
+
+The package has no install script. Each prebuilt target is published as its
+own package, such as `@webrtc-node/webrtc-linux-x64-glibc`, whose `os`, `cpu`,
+and `libc` fields let the package manager install only the matching binary.
+The release workflow adds these packages to the main package as exact-version
+optional dependencies when it publishes, so a checkout's `package.json` does
+not list them. The targets are defined in `lib/native-target.js`.
+
+The loader uses the first binary it finds:
+
+1. `WEBRTC_NODE_NATIVE_PATH`, an absolute path to a `webrtc_node.node` file.
+2. A local build in `build/Release` or `build/Debug`.
+3. The platform package for the current target. Its version must match the
+   main package.
+
+For a platform without a prebuilt binary, build from a source checkout with
+`npm ci` and `npm run build`, then point `WEBRTC_NODE_NATIVE_PATH` at
+`build/Release/webrtc_node.node`.
+
+To check a release locally, package a built addon with
+`npm run prebuild:package`, then run
+`npm exec -c "node scripts/validate-prebuild-install.js"`. It builds the
+platform package, installs it with the main package from local tarballs with
+lifecycle scripts disabled, and loads the addon through CommonJS and ESM.
+
 ## Package Artifact
 
 CI has a Linux `Package artifact` job that packs the npm source package,
 extracts it in a clean directory, installs dependencies, builds the native
 addon, and requires the package. This guards against missing files in
 `package.json#files`.
-
-Use `WEBRTC_NODE_NATIVE_PATH=/absolute/path/to/webrtc_node.node` to test a
-specific local native binary. Use `npm install --build-from-source` to force the
-install script to compile with `cmake-js`.

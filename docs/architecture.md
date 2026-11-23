@@ -28,9 +28,12 @@ Worker termination.
 
 Environment cleanup runs before Node's thread-safe function cleanup hooks, so
 native producers stop while their dispatcher handles are still valid. Peer close
-retains each teardown thread until it has been joined, including thread-local
-destruction. Environment cleanup joins that work before releasing the final
-libdatachannel environment.
+runs its blocking teardown on a worker thread: an idle worker takes it, and
+otherwise a new thread starts, so a slow teardown never delays another one.
+Workers wait briefly for further closes before exiting, so a burst of closes
+reuses a few threads instead of starting one per peer. Environment cleanup
+joins every worker, including thread-local destruction, before releasing the
+final libdatachannel environment.
 
 A lazy native send worker belongs to each environment. It processes each
 channel's string and binary payloads in FIFO order, serves busy channels in

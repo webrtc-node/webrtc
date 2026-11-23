@@ -38,6 +38,13 @@ jobs:
             image: webrtc-node-prebuild-debian-arm64
             build_args: --build-arg NODE_VERSION=20 --build-arg DEBIAN_VERSION=bullseye
             libc: glibc
+          - target: linux-arm64-musl
+            os: ubuntu-24.04-arm
+            arch: arm64
+            dockerfile: build-containers/Dockerfile.alpine
+            image: webrtc-node-prebuild-alpine-arm64
+            build_args: --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20
+            libc: musl
 
     steps:
       - uses: actions/checkout@v7
@@ -204,19 +211,6 @@ jobs:
           name: prebuild-${{ matrix.target }}
           path: prebuild-artifacts/*
 
-  source-fallback:
-    name: Linux ARM64 musl source fallback
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-      - name: Verify unsupported prebuild falls back to source
-        run: |
-          docker build --no-cache --pull -f build-containers/Dockerfile.alpine --build-arg NODE_VERSION=20 --build-arg ALPINE_VERSION=3.20 -t webrtc-node-fallback .
-          docker run --rm -v "$PWD:/usr/app" -w /usr/app webrtc-node-fallback sh -lc 'npm ci --ignore-scripts && npm exec -c "node scripts/validate-prebuild-install.js --source-fallback"'
-
   validate:
     name: Validate prebuild assets
     runs-on: ubuntu-latest
@@ -224,7 +218,6 @@ jobs:
       - prebuild-linux
       - prebuild-macos
       - prebuild-windows
-      - source-fallback
     timeout-minutes: 20
 
     steps:
@@ -247,6 +240,14 @@ jobs:
       - run: npm ci --ignore-scripts
 
       - run: npm run prebuild:check
+
+      - name: Build platform packages
+        run: |
+          set -euo pipefail
+          node scripts/platform-packages.js pack
+          for directory in npm-packages/*/; do
+            npm pack --dry-run "$directory"
+          done
 
       - run: npm run native:check
 
@@ -298,9 +299,15 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
+          import { createRequire } from 'node:module';
+          const require = createRequire(import.meta.url);
+          const { PREBUILT_TARGETS, platformPackageName } = require('./lib/native-target.js');
           const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
-          const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${version}`);
-          if (response.status !== 404) throw new Error(`Publication requires an unused npm version; registry returned ${response.status}`);
+          const names = [name, ...PREBUILT_TARGETS.map(({ target }) => platformPackageName(target))];
+          for (const packageName of names) {
+            const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/${version}`);
+            if (response.status !== 404) throw new Error(`${packageName}@${version} must be unpublished; registry returned ${response.status}`);
+          }
           NODE
           if [ "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" != "0" ]; then
             echo "Release already has assets; inspect publication state before retrying."
@@ -322,4 +329,10 @@ jobs:
           if [ "$RELEASE_PRERELEASE" = "true" ]; then
             npm_tag="next"
           fi
+          # Platform packages first, so the main package never points at a missing binary.
+          node scripts/platform-packages.js pack
+          for directory in npm-packages/*/; do
+            npm publish "$directory" --access public --tag "$npm_tag" --provenance
+          done
+          node scripts/platform-packages.js link
           npm publish --access public --tag "$npm_tag" --provenance
