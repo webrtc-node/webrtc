@@ -467,6 +467,13 @@ async function createChromeE2EContext() {
   };
 }
 
+// Adds diagnostic context without assigning to message, which DOMException
+// exposes as a getter only, so the original error stays visible as the cause.
+function withContext(error, context) {
+  const name = error?.name || "Error";
+  return new Error(`${name}: ${error?.message ?? String(error)}; ${context}`, { cause: error });
+}
+
 async function connectNodeOfferer(page, label = "node-channel", options = {}) {
   await page.evaluate(() => window.chromeE2E.reset());
   const peerConnection = new RTCPeerConnection();
@@ -485,9 +492,9 @@ async function connectNodeOfferer(page, label = "node-channel", options = {}) {
     return { channel, peerConnection };
   } catch (error) {
     const browserState = await page.evaluate(() => window.chromeE2E.snapshot());
-    error.message = `${error.message}; Node=${peerConnection.connectionState}/${peerConnection.iceConnectionState}/${peerConnection.sctp?.transport.state ?? null}/${peerConnection.sctp?.state ?? null}, channel=${channel.readyState}; Chrome=${browserState.connectionState}/${browserState.iceConnectionState}/${browserState.sctpState}, channel=${browserState.primaryState}`;
+    const context = `Node=${peerConnection.connectionState}/${peerConnection.iceConnectionState}/${peerConnection.sctp?.transport.state ?? null}/${peerConnection.sctp?.state ?? null}, channel=${channel.readyState}; Chrome=${browserState.connectionState}/${browserState.iceConnectionState}/${browserState.sctpState}, channel=${browserState.primaryState}`;
     await closePair(page, peerConnection);
-    throw error;
+    throw withContext(error, context);
   }
 }
 
@@ -515,9 +522,9 @@ async function connectChromeOfferer(page, label = "chrome-channel", options = {}
     return { channel, peerConnection };
   } catch (error) {
     const browserState = await page.evaluate(() => window.chromeE2E.snapshot());
-    error.message = `${error.message}; Node=${peerConnection.connectionState}/${peerConnection.iceConnectionState}/${peerConnection.sctp?.transport.state ?? null}/${peerConnection.sctp?.state ?? null}; Chrome=${browserState.connectionState}/${browserState.iceConnectionState}/${browserState.sctpState}, channel=${browserState.primaryState}`;
+    const context = `Node=${peerConnection.connectionState}/${peerConnection.iceConnectionState}/${peerConnection.sctp?.transport.state ?? null}/${peerConnection.sctp?.state ?? null}; Chrome=${browserState.connectionState}/${browserState.iceConnectionState}/${browserState.sctpState}, channel=${browserState.primaryState}`;
     await closePair(page, peerConnection);
-    throw error;
+    throw withContext(error, context);
   }
 }
 
@@ -682,6 +689,7 @@ module.exports = {
   connectChromeOfferer,
   connectChromeOffererTrickle,
   connectNodeOfferer,
+  withContext,
   connectNodeOffererTrickle,
   createChromeE2EContext,
   gatherLocalDescription,

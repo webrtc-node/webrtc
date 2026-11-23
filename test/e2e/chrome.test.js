@@ -13,6 +13,7 @@ const {
   connectChromeOfferer,
   connectChromeOffererTrickle,
   connectNodeOfferer,
+  withContext,
   connectNodeOffererTrickle,
   createChromeE2EContext,
   gatherLocalDescription,
@@ -840,8 +841,7 @@ test("20 alternating offerer negotiations remain stable", async () => {
         await page.evaluate((value) => window.chromeE2E.sendString(value), expected);
         await messagePromise;
       } catch (error) {
-        error.message = `Cycle ${index + 1}/20 (${offerer} offerer): ${error.message}`;
-        throw error;
+        throw withContext(error, `cycle ${index + 1}/20 (${offerer} offerer)`);
       } finally {
         if (pair) {
           await closeChannelGracefully(page, pair.channel);
