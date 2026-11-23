@@ -128,6 +128,25 @@ yield, and end-to-end delivery timings. It measures local loopback behavior;
 use representative peer counts, payload sizes, and network paths for production
 capacity decisions. Timing values are informational rather than CI thresholds.
 
+## Comparison with node-datachannel
+
+`npm run benchmark:compare` drives one data channel through the W3C API, so the
+same code runs against this package or node-datachannel's polyfill. The sender
+and receiver run in separate Node processes.
+
+```sh
+npm run benchmark:compare -- --library=webrtc-node --scenario=rate
+npm install --no-save node-datachannel
+npm run benchmark:compare -- --library=node-datachannel --scenario=rate
+```
+
+Scenarios are `rate` (64-byte binary messages), `text` (64-character strings),
+`bulk` (64 KiB messages), and `pingpong` (one message in flight). Pass
+`--messages` and `--size` to change the defaults. Each run prints one JSON line
+with throughput, CPU per message, event-loop utilization, and receiver peak RSS,
+or round-trip percentiles for `pingpong`. Alternate the libraries across several
+runs on a quiet machine before comparing.
+
 ## CPU and connection lifecycle
 
 Run the CPU benchmark from a source checkout with a built native addon.
