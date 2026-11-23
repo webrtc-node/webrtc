@@ -145,6 +145,23 @@ gathering-state typo; the runtime keeps the WebRTC enum value `"complete"`.
 Disconnected timing and media transport graph cases remain outside the current
 expected-pass set.
 
+## Remote peer closure
+
+W3C reserves the `"closed"` connection and ICE connection states for
+`close()` on the local object. libdatachannel instead reports `Closed` when the
+remote peer ends DTLS/SCTP. The facade maps that report to the states Chrome
+reaches after its peer closes: `connectionState` becomes `"failed"`,
+`iceConnectionState` becomes `"disconnected"`, and `sctp.transport.state`
+becomes `"closed"`. The local `signalingState` is unchanged and the object
+remains usable until `close()` is called.
+
+Impact: Chrome stays `"connected"` and moves to `"disconnected"` after about 5
+seconds and to `"failed"` after about 15 seconds, once ICE consent checks fail.
+libdatachannel stops its transport at remote closure, so the facade reports
+the terminal states immediately instead of reproducing those timers. State
+change events fire only when the reported value changes, and `close()` fires no
+state change events.
+
 ## Data channel closing
 
 libdatachannel does not expose a native `closing` ready state. The JS facade
@@ -164,7 +181,9 @@ are late or uneven under stress. During ICE restart, it also permits one
 healthy-state native close callback to be ignored within a bounded window,
 avoiding the known restart race without suppressing later closes indefinitely.
 Send-drain closes still wait for native delivery so queued messages are not
-truncated.
+truncated. Same-process close, `bufferedAmount`, and state timing therefore do
+not fully exercise the network path; place peers in separate Node environments,
+such as `worker_threads`, to observe remote-peer behavior.
 
 Explicit `RTCPeerConnection.close()` closes the peer and its channels
 synchronously in JavaScript. The native teardown thread can defer transport
@@ -222,13 +241,17 @@ libdatachannel reports bytes buffered in its SCTP transport queue. W3C
 `bufferedAmount` increases synchronously for every `send()` call and decreases
 later. The JS facade maintains its own W3C-style counter and does not surface
 native buffered-amount-low callbacks directly because they are based on
-libdatachannel's transport queue and can race the JS-visible counter. When
-libdatachannel has queued bytes, the facade uses native `bufferedAmount` as a
-drain guard before reducing the JS counter, so high-throughput send loops see
-backpressure while preserving synchronous W3C increases.
+libdatachannel's transport queue and can race the JS-visible counter. Bytes
+handed to native stay counted while native `bufferedAmount` still reports them,
+so high-throughput send loops see backpressure while preserving synchronous W3C
+increases.
 
 The native drain guard also includes payloads queued for the environment's send
-worker until their handoff to SCTP finishes. For paired same-process channels,
+worker until their handoff to SCTP finishes. Native low-water callbacks and a
+native event for an emptied send-worker backlog prompt the facade to reduce the
+counter, so `bufferedamountlow` follows the transport without waiting for a
+timer; a 10 ms poll remains only for partial progress between those events.
+For paired same-process channels,
 message delivery that fires `bufferedamountlow` yields before dispatching the
 message, allowing promise continuations waiting on the low-water event to run.
 

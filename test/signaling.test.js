@@ -316,3 +316,40 @@ test("queued and buffered ICE candidates snapshot mutable candidate objects", as
   local.send("buffered candidate reached native transport");
   assert.equal((await message).data, "buffered candidate reached native transport");
 });
+
+test("repeated renegotiation keeps the same-process pairing registry bounded", async (t) => {
+  const [offerer, answerer] = peers(t);
+  offerer.onicecandidate = ({ candidate }) => {
+    if (candidate) answerer.addIceCandidate(candidate).catch(() => {});
+  };
+  answerer.onicecandidate = ({ candidate }) => {
+    if (candidate) offerer.addIceCandidate(candidate).catch(() => {});
+  };
+  const channel = offerer.createDataChannel("renegotiated");
+  const remoteChannel = new Promise((resolve) => {
+    answerer.ondatachannel = ({ channel: incoming }) => resolve(incoming);
+  });
+  async function negotiate() {
+    await offerer.setLocalDescription(await offerer.createOffer());
+    await answerer.setRemoteDescription(offerer.localDescription);
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    await offerer.setRemoteDescription(answerer.localDescription);
+  }
+  await negotiate();
+  const incoming = await remoteChannel;
+  for (let round = 0; round < 12; round++) {
+    offerer.restartIce();
+    await negotiate();
+  }
+  assert.ok(offerer._localDescriptionPairingKeys.size <= 4);
+  assert.ok(answerer._localDescriptionPairingKeys.size <= 4);
+  assert.equal(offerer._pairedPeer, answerer);
+  if (channel.readyState !== "open") {
+    await new Promise((resolve) => channel.addEventListener("open", resolve, { once: true }));
+  }
+  const received = new Promise((resolve) => {
+    incoming.onmessage = ({ data }) => resolve(data);
+  });
+  channel.send("after renegotiation");
+  assert.equal(await received, "after renegotiation");
+});

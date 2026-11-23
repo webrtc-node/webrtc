@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -358,14 +359,17 @@ private:
 			events.swap(pendingEvents);
 		}
 
-		if (events.size() == 1) {
-			callback.Call({EventToObject(env, events.front())});
-		} else {
-			Napi::Array batch = Napi::Array::New(env, events.size());
-			for (uint32_t i = 0; i < events.size(); ++i)
-				batch.Set(i, EventToObject(env, events[i]));
-			callback.Call({batch});
+		// Message batches cross as (channel ids, payloads) so each message costs one
+		// element store rather than a five-property object built through Node-API.
+		const size_t count = events.size();
+		Napi::ArrayBuffer idsBuffer = Napi::ArrayBuffer::New(env, count * sizeof(uint32_t));
+		auto *ids = static_cast<uint32_t *>(idsBuffer.Data());
+		Napi::Array payloads = Napi::Array::New(env, count);
+		for (uint32_t i = 0; i < count; ++i) {
+			ids[i] = events[i].channelId;
+			payloads.Set(i, MessagePayloadToValue(env, events[i]));
 		}
+		callback.Call({Napi::Uint32Array::New(env, count, idsBuffer, 0), payloads});
 
 		std::lock_guard<std::mutex> lock(lifecycleMutex);
 		if (!active || pendingEvents.empty()) {
@@ -413,6 +417,13 @@ private:
 		if (event.bytes.empty())
 			return Napi::ArrayBuffer::New(env, 0);
 
+		// Copying small payloads is cheaper than a finalizer-tracked external buffer.
+		if (event.bytes.size() <= SMALL_PAYLOAD_COPY_BYTES) {
+			Napi::ArrayBuffer copy = Napi::ArrayBuffer::New(env, event.bytes.size());
+			std::memcpy(copy.Data(), event.bytes.data(), event.bytes.size());
+			return copy;
+		}
+
 		auto *bytes = new rtc::binary(std::move(event.bytes));
 		return Napi::ArrayBuffer::New(
 		    env, bytes->data(), bytes->size(),
@@ -421,6 +432,8 @@ private:
 	}
 
 	static Napi::Object EventToObject(Napi::Env env, NativeEvent &event);
+
+	static constexpr size_t SMALL_PAYLOAD_COPY_BYTES = 16 * 1024;
 
 	bool active = true;
 	std::mutex lifecycleMutex;
@@ -671,16 +684,32 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 		return options;
 	}
 
+	// Payloads wait in a per-channel backlog; the shared send worker drains busy
+	// channels in bounded turns instead of running one queued job per message.
 	template <typename Producer> bool Send(size_t size, Producer produce) {
 		if (closeRequested.load() || sendsCancelled.load() || !handoff->Accepting() ||
 		    !dataChannel->isOpen())
 			throw std::runtime_error("DataChannel is not open");
 		if (size > dataChannel->maxMessageSize())
 			throw std::invalid_argument("Message size exceeds limit");
-		sendQueue->EnqueueProduced(size, [&]() {
-			auto send = std::make_shared<QueuedSend>(shared_from_this(), produce(), size);
-			return [send]() { send->Run(); };
-		});
+		const size_t cost = BacklogCost(size);
+		{
+			std::lock_guard lock(sendMutex);
+			if (cost > MAX_CHANNEL_BACKLOG_BYTES - backlogBytes)
+				throw std::runtime_error("Native send queue is full");
+		}
+		// Only this channel's JavaScript thread admits payloads, so capacity cannot shrink here.
+		auto data = produce();
+		bool schedule = false;
+		{
+			std::lock_guard lock(sendMutex);
+			backlog.push_back({std::move(data), size});
+			backlogBytes += cost;
+			pendingSendBytes.fetch_add(size);
+			schedule = BeginDrainLocked();
+		}
+		if (schedule)
+			ScheduleDrain();
 		return true;
 	}
 
@@ -693,12 +722,15 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	void Close() {
 		if (closeRequested.exchange(true) || !handoff->Accepting())
 			return;
-		sendQueue->Enqueue([dc = dataChannel]() {
-			try {
-				dc->close();
-			} catch (...) {
-			}
-		}, 0, true);
+		bool schedule = false;
+		{
+			// The drain closes the channel after every previously accepted send.
+			std::lock_guard lock(sendMutex);
+			closeQueued = true;
+			schedule = BeginDrainLocked();
+		}
+		if (schedule)
+			ScheduleDrain();
 	}
 
 	void DeactivateCallbacks() {
@@ -719,35 +751,146 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 	ChannelOptions options;
 
 private:
-	struct QueuedSend {
-		std::shared_ptr<ChannelBinding> binding;
-		PeerSendHandoff::Pending pending;
+	struct PendingSend {
 		rtc::message_variant data;
 		size_t size;
+	};
 
-		QueuedSend(std::shared_ptr<ChannelBinding> binding_, rtc::message_variant data_, size_t size_)
-		    : binding(std::move(binding_)), pending(*binding->handoff), data(std::move(data_)),
-		      size(size_) {
-			binding->pendingSendBytes.fetch_add(size);
+	// Per-channel backlog bound, matching browser-style per-channel buffering.
+	// Each message is charged a fixed overhead so empty messages stay bounded.
+	static constexpr size_t MAX_CHANNEL_BACKLOG_BYTES = 64 * 1024 * 1024;
+	static constexpr size_t BACKLOG_MESSAGE_OVERHEAD = 64;
+	static constexpr size_t DRAIN_TURN_MESSAGES = 256;
+	static constexpr size_t DRAIN_TURN_BYTES = 1024 * 1024;
+
+	static size_t BacklogCost(size_t size) {
+		return size > MAX_CHANNEL_BACKLOG_BYTES ? MAX_CHANNEL_BACKLOG_BYTES + 1
+		                                        : size + BACKLOG_MESSAGE_OVERHEAD;
+	}
+
+	// A busy channel holds one peer handoff token until its backlog is handed
+	// to SCTP, so peer teardown still waits for every accepted send.
+	bool BeginDrainLocked() {
+		if (drainQueued)
+			return false;
+		drainQueued = true;
+		handoffPending.emplace(*handoff);
+		return true;
+	}
+
+	// Releases queued work that can no longer run; the caller must not hold sendMutex.
+	void AbandonDrain() {
+		std::deque<PendingSend> discarded;
+		{
+			std::lock_guard lock(sendMutex);
+			discarded.swap(backlog);
+			backlogBytes = 0;
+			closeQueued = false;
+			drainQueued = false;
+			handoffPending.reset();
 		}
-		~QueuedSend() { binding->pendingSendBytes.fetch_sub(size); }
+		size_t bytes = 0;
+		for (const auto &pending : discarded)
+			bytes += pending.size;
+		pendingSendBytes.fetch_sub(bytes);
+	}
 
-		void Run() {
-			if (binding->sendsCancelled.load() || !binding->handoff->CanHandoff())
-				return;
-			try {
-				// A false result means SCTP buffered the accepted message; never resend it.
-				binding->dataChannel->send(std::move(data));
-			} catch (const std::exception &error) {
-				NativeEvent event;
-				event.target = "datachannel";
-				event.type = "error";
-				event.channelId = binding->id;
-				event.error = error.what();
-				binding->Emit(std::move(event));
-			}
+	// Abandons the drain if the worker discards the job without running it.
+	struct DrainTicket {
+		std::shared_ptr<ChannelBinding> binding;
+		bool ran = false;
+		~DrainTicket() {
+			if (!ran && binding)
+				binding->AbandonDrain();
 		}
 	};
+
+	void ScheduleDrain() {
+		auto ticket = std::make_shared<DrainTicket>();
+		ticket->binding = shared_from_this();
+		try {
+			sendQueue->Enqueue([ticket]() {
+				ticket->ran = true;
+				ticket->binding->Drain();
+			}, 0, true);
+		} catch (...) {
+			ticket->ran = true;
+			AbandonDrain();
+			throw;
+		}
+	}
+
+	// Runs on the send worker. One turn sends a bounded batch, then yields the
+	// worker to other channels by re-queueing itself if more work remains.
+	void Drain() {
+		std::vector<PendingSend> batch;
+		bool closeNow = false;
+		{
+			std::lock_guard lock(sendMutex);
+			size_t batchBytes = 0;
+			while (!backlog.empty() && batch.size() < DRAIN_TURN_MESSAGES &&
+			       (batch.empty() || batchBytes < DRAIN_TURN_BYTES)) {
+				batchBytes += backlog.front().size;
+				batch.push_back(std::move(backlog.front()));
+				backlog.pop_front();
+			}
+			if (backlog.empty() && closeQueued) {
+				closeQueued = false;
+				closeNow = true;
+			}
+		}
+
+		size_t sentBytes = 0;
+		size_t cost = 0;
+		for (auto &pending : batch) {
+			cost += BacklogCost(pending.size);
+			if (!sendsCancelled.load() && handoff->CanHandoff()) {
+				try {
+					// A false result means SCTP buffered the accepted message; never resend it.
+					dataChannel->send(std::move(pending.data));
+				} catch (const std::exception &error) {
+					NativeEvent event;
+					event.target = "datachannel";
+					event.type = "error";
+					event.channelId = id;
+					event.error = error.what();
+					Emit(std::move(event));
+				}
+			}
+			// Decrease after the SCTP handoff so bufferedAmount never reports a false zero.
+			pendingSendBytes.fetch_sub(pending.size);
+			sentBytes += pending.size;
+		}
+		batch.clear();
+
+		if (closeNow) {
+			try {
+				dataChannel->close();
+			} catch (...) {
+			}
+		}
+
+		bool more = false;
+		{
+			std::lock_guard lock(sendMutex);
+			backlogBytes -= std::min(backlogBytes, cost);
+			more = !backlog.empty() || closeQueued;
+			if (!more) {
+				drainQueued = false;
+				handoffPending.reset();
+			}
+		}
+
+		// Announce an empty backlog so JS can settle bufferedAmount without timer polling.
+		if (sentBytes > 0 && pendingSendBytes.load() == 0 && !sendsCancelled.load())
+			EmitSendDrain();
+		if (more) {
+			try {
+				ScheduleDrain();
+			} catch (...) {
+			}
+		}
+	}
 
 	ChannelBinding(std::shared_ptr<rtc::DataChannel> dataChannel_,
 	               std::shared_ptr<EventDispatcher> dispatcher_, std::shared_ptr<SendQueue> sendQueue_,
@@ -764,6 +907,14 @@ private:
 		if (!callbacksActive)
 			return;
 		dispatcher->Emit(std::move(event));
+	}
+
+	void EmitSendDrain() {
+		NativeEvent event;
+		event.target = "datachannel";
+		event.type = "senddrain";
+		event.channelId = id;
+		Emit(std::move(event));
 	}
 
 	void AttachCallbacks() {
@@ -833,7 +984,14 @@ private:
 
 	bool callbacksActive = true;
 	std::shared_ptr<SendQueue> sendQueue;
+	std::mutex sendMutex;
+	std::deque<PendingSend> backlog;  // guarded by sendMutex
+	size_t backlogBytes = 0;          // guarded by sendMutex; payload plus overhead
+	bool drainQueued = false;         // guarded by sendMutex
+	bool closeQueued = false;         // guarded by sendMutex
 	std::shared_ptr<PeerSendHandoff> handoff;
+	// Declared after handoff so the token is destroyed while its tracker is alive.
+	std::optional<PeerSendHandoff::Pending> handoffPending; // guarded by sendMutex
 	std::atomic<size_t> pendingSendBytes{0};
 	std::atomic<bool> closeRequested{false};
 	std::atomic<bool> sendsCancelled{false};
