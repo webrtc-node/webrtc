@@ -57,8 +57,10 @@ backpressure.
   DOMException errors. Interoperability with Chrome is tested in CI.
 - **Event loop stays free.** SCTP, DTLS, and socket work runs on native threads,
   so heavy sending does not block your application.
-- **Prebuilt binaries** for seven targets, verified by SHA-256 checksum before
-  installation. ESM, CommonJS, and TypeScript declarations are included.
+- **Installs without scripts.** Prebuilt binaries for eight targets ship as
+  per-platform npm packages, so installation works where package managers
+  block install scripts. ESM, CommonJS, and TypeScript declarations are
+  included.
 - **Focused extensions** for servers, such as ICE UDP multiplexing on one port
   and PEM certificate import, in a separate
   [`nonstandard`](docs/nonstandard.md) namespace.
@@ -72,13 +74,14 @@ Node.js 20 or newer.
 
 | OS | Prebuilt targets | Node.js |
 | --- | --- | --- |
-| Linux | x64 glibc, x64 musl, arm64 glibc | 20, 22, 24, 26 |
+| Linux | x64 glibc, x64 musl, arm64 glibc, arm64 musl | 20, 22, 24, 26 |
 | macOS | x64, arm64 | 20, 22, 24, 26 |
 | Windows | x64, arm64 | 20, 22, 24, 26 |
 
-Other targets, including Linux arm64 musl, build from source during
-installation, which requires CMake, a C++17 compiler, and OpenSSL development
-headers.
+The package manager installs the matching binary as an optional dependency,
+such as `@webrtc-node/webrtc-linux-x64-glibc`, and no install script runs.
+For other platforms, build from source as described in
+[docs/development.md](docs/development.md#native-binaries).
 
 ## Performance
 

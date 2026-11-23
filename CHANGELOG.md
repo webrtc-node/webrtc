@@ -6,6 +6,22 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Changed
+
+- Prebuilt binaries ship as per-platform npm packages, such as
+  `@webrtc-node/webrtc-linux-x64-glibc`, installed as optional dependencies.
+  The package no longer has an install script or downloads from GitHub, so it
+  installs where package managers block install scripts or GitHub is
+  unreachable.
+- `detect-libc` is the only runtime dependency; an install pulls 3 packages
+  instead of 41.
+- To use a binary you built yourself, set `WEBRTC_NODE_NATIVE_PATH`;
+  `npm install --build-from-source` no longer applies.
+
+### Added
+
+- A Linux arm64 musl prebuild, so every supported target has a binary.
+
 ### Fixed
 
 - `RTCPeerConnection.close()` no longer fires `connectionstatechange` or
@@ -25,6 +41,11 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   one queued job per message, and received messages cross into JavaScript as
   compact batches. Small-message throughput rises about 10% with about 12% less
   CPU per message and a third less receiver event-loop time.
+- Peer connections created without certificates take one pre-generated on a
+  background thread, halving the JavaScript-thread cost of creating a
+  connection.
+- Peer teardown reuses worker threads instead of starting one per closed
+  connection, halving the JavaScript time to close many connections.
 
 ## [0.2.6] - 2026-11-20
 
