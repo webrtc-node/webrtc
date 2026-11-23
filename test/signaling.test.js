@@ -353,3 +353,19 @@ test("repeated renegotiation keeps the same-process pairing registry bounded", a
   channel.send("after renegotiation");
   assert.equal(await received, "after renegotiation");
 });
+
+test("peer connections without configured certificates each use their own certificate", async (t) => {
+  const connections = Array.from({ length: 12 }, () => new RTCPeerConnection());
+  t.after(() => {
+    for (const pc of connections) pc.close();
+  });
+  const fingerprints = [];
+  for (const pc of connections) {
+    pc.createDataChannel("certificate");
+    const offer = await pc.createOffer();
+    const fingerprint = /^a=fingerprint:sha-256 ([^\r\n]+)$/im.exec(offer.sdp);
+    assert.ok(fingerprint, "offer carries a SHA-256 fingerprint");
+    fingerprints.push(fingerprint[1]);
+  }
+  assert.equal(new Set(fingerprints).size, connections.length);
+});
