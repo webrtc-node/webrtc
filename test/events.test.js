@@ -115,21 +115,26 @@ test("listener errors are reported asynchronously after peer close finishes all 
     const pc = new RTCPeerConnection();
     const first = pc.createDataChannel('first');
     const second = pc.createDataChannel('second');
-    const errors = [new Error('state'), new Error('listener'), new Error('handler')];
+    const errors = [new Error('listener'), new Error('handler')];
     const closed = [];
-    pc.onsignalingstatechange = () => { throw errors[0]; };
-    first.addEventListener('close', () => { throw errors[1]; });
+    // W3C close() changes signaling, ICE, and connection states without events.
+    const stateEvent = new Error('close() fired a state-change event');
+    pc.onsignalingstatechange = () => { throw stateEvent; };
+    pc.oniceconnectionstatechange = () => { throw stateEvent; };
+    pc.onconnectionstatechange = () => { throw stateEvent; };
+    first.addEventListener('close', () => { throw errors[0]; });
     first.addEventListener('close', () => closed.push('first'));
-    first.onclose = () => { throw errors[2]; };
+    first.onclose = () => { throw errors[1]; };
     second.onclose = () => closed.push('second');
     assert.doesNotThrow(() => pc.close());
     assert.equal(first.readyState, 'closed');
     assert.equal(second.readyState, 'closed');
+    assert.equal(pc.signalingState, 'closed');
     assert.deepEqual(closed, ['first', 'second']);
     assert.deepEqual(reported, []);
     pc.close();
     await delay(30);
-    assert.deepEqual(reported, [errors[1], errors[2], errors[0]]);
+    assert.deepEqual(reported, [errors[0], errors[1]]);
   `);
 });
 

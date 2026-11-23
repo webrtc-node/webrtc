@@ -354,3 +354,81 @@ test("terminating the last addon environment permits a fresh environment to init
   assert.equal(child.signal, null);
   assert.equal(child.stderr, "");
 });
+
+function nextEvent(target, type) {
+  return new Promise((resolve) => target.addEventListener(type, resolve, { once: true }));
+}
+
+test("bufferedamountlow follows native drain instead of the fallback polling interval", async (t) => {
+  const remote = await connectRemotePeer();
+  t.after(() => remote.close());
+  const { channel } = remote;
+  const payload = new Uint8Array(16384);
+  const waits = [];
+  for (let index = 0; index < 25; index++) {
+    const start = performance.now();
+    const low = nextEvent(channel, "bufferedamountlow");
+    channel.send(payload);
+    assert.equal(channel.bufferedAmount, payload.byteLength);
+    await low;
+    waits.push(performance.now() - start);
+  }
+  await remote.request("received", { count: waits.length });
+  waits.sort((left, right) => left - right);
+  const median = waits[Math.floor(waits.length / 2)];
+  // The fallback poll is 10 ms (about 15.6 ms with Windows timers).
+  assert.ok(median < 8, `median stop-and-wait drain took ${median.toFixed(2)} ms`);
+});
+
+test("remote peer closure reports failed instead of the local-only closed state", async (t) => {
+  const remote = await connectRemotePeer();
+  t.after(() => remote.close());
+  const { peerConnection, channel } = remote;
+  const states = [];
+  peerConnection.addEventListener("connectionstatechange", () => {
+    states.push(peerConnection.connectionState);
+  });
+  const closed = nextEvent(channel, "close");
+  await remote.request("close");
+  await closed;
+  for (let attempt = 0; attempt < 500 && peerConnection.connectionState !== "failed"; attempt++) {
+    await delay(10);
+  }
+  assert.equal(peerConnection.connectionState, "failed");
+  assert.equal(peerConnection.iceConnectionState, "disconnected");
+  assert.equal(peerConnection.signalingState, "stable");
+  assert.equal(peerConnection.sctp.transport.state, "closed");
+  assert.ok(!states.includes("closed"), `states: ${states.join(", ")}`);
+  assert.equal(new Set(states).size, states.length, `states: ${states.join(", ")}`);
+  assert.doesNotThrow(() => peerConnection.createDataChannel("after-remote-close"));
+});
+
+test("bursts of small sends are bounded by bytes, not by a per-message job limit", async (t) => {
+  const remote = await connectRemotePeer();
+  t.after(() => remote.close());
+  const { channel } = remote;
+  const payload = new Uint8Array(1);
+  const messages = 70000;
+  for (let index = 0; index < messages; index++) channel.send(payload);
+  assert.equal(channel.bufferedAmount, messages);
+  const received = await remote.request("received", { count: messages });
+  assert.equal(received.count, messages);
+  assert.equal(received.bytes, messages);
+});
+
+test("received binary payloads stay intact on both sides of the copy threshold", async (t) => {
+  const remote = await connectRemotePeer({ record: true });
+  t.after(() => remote.close());
+  const { channel } = remote;
+  const sizes = [16 * 1024 - 1, 16 * 1024, 16 * 1024 + 1, 1];
+  const expected = [];
+  for (const size of sizes) {
+    const bytes = new Uint8Array(size);
+    for (let index = 0; index < size; index++) bytes[index] = (index * 31 + size) & 0xff;
+    channel.send(bytes);
+    channel.send(`after ${size}`);
+    expected.push(Array.from(bytes), `after ${size}`);
+  }
+  const received = await remote.request("received", { count: expected.length });
+  assert.deepEqual(received.messages, expected);
+});

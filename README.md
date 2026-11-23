@@ -73,7 +73,6 @@ testing your workload.
 | Metric | `@webrtc-node/webrtc` | `node-datachannel` | `@roamhq/wrtc` |
 | --- | ---: | ---: | ---: |
 | Linux binary 8 KiB x1000 | 39.9 MB/s | 30.4 MB/s | 27.4 MB/s |
-| Linux construct+close PC | 53k ops/s | 3.2k ops/s | 200 ops/s |
 | Linux negotiated DC create+close | 2.2k ops/s | 974 ops/s | 173 ops/s |
 
 ## Contributing

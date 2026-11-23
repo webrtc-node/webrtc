@@ -32,8 +32,9 @@ retains each teardown thread until it has been joined, including thread-local
 destruction. Environment cleanup joins that work before releasing the final
 libdatachannel environment.
 
-A lazy native send worker belongs to each environment. It processes string and
-binary payloads in FIFO order and never calls JavaScript directly. Environment
+A lazy native send worker belongs to each environment. It processes each
+channel's string and binary payloads in FIFO order, serves busy channels in
+turn, and never calls JavaScript directly. Environment
 cleanup cancels unstarted work and joins the worker before closing the remaining
 native peers. Explicit peer close disables callbacks and new sends immediately.
 The peer's teardown thread gives already admitted sends up to 50 ms from close
@@ -87,18 +88,31 @@ run on the native send worker. Payload conversion and copying still consume
 JavaScript-thread time. This addresses the synchronous transport work described
 in [the send-burst latency report](https://github.com/webrtc-node/webrtc/issues/46).
 
-The native backlog is limited to 64 MiB and 65,536 jobs per environment,
-including in-flight work. State, size, and queue capacity are checked before
-allocating the native payload copy. An immediate send that exceeds either limit
-throws `OperationError` without increasing the public `bufferedAmount`. Close jobs can
-still enter a full queue. Native `bufferedAmount` includes pending send payloads
-until their handoff to SCTP completes, so the facade's drain polling cannot
-mistake an unprocessed send for an empty transport. Later transport failures
+Each data channel keeps its accepted payloads in its own backlog, limited to
+64 MiB with a fixed 64-byte charge per message so empty messages stay bounded.
+The send worker runs at most one drain job per busy channel; each turn hands up
+to 256 messages or 1 MiB to SCTP, then re-queues the channel behind other
+channels' work. The job count therefore scales with busy channels rather than
+messages, and one channel's backlog cannot make another channel's `send()`
+fail. State, size, and backlog capacity are checked before allocating the native
+payload copy. A send that exceeds the limit throws `OperationError` without
+increasing the public `bufferedAmount`. Close is recorded in the backlog and runs
+after every previously accepted send. Native `bufferedAmount` includes pending send payloads
+until their handoff to SCTP completes, so the facade cannot mistake an
+unprocessed send for an empty transport. When a channel's backlog empties, the
+worker emits a drain event that lets the facade update `bufferedAmount` without
+waiting for its fallback poll. Later transport failures
 are dispatched through the existing data-channel error event path.
 
-The queue implementation lives in `src/native/send_queue.hpp`. Its native
-regression tests hold the worker behind a gate to verify capacity limits,
-payload admission, close ordering, and shutdown without timing-dependent load.
+The worker queue lives in `src/native/send_queue.hpp`. Its native regression
+tests hold the worker behind a gate to verify capacity limits, payload
+admission, close ordering, and shutdown without timing-dependent load.
+
+Incoming messages are batched per peer. A batch crosses into JavaScript as a
+`Uint32Array` of channel ids plus an array of payloads, so each message costs a
+single element store. Binary payloads up to 16 KiB are copied into ordinary
+`ArrayBuffer`s; larger payloads are handed over as external buffers without a
+copy.
 
 The typed `nonstandard` namespace is the boundary for the small set of
 libdatachannel-specific operations exposed for advanced integrations. It does

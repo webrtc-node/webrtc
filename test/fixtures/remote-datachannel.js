@@ -133,6 +133,9 @@ if (!isMainThread && workerData?.remoteDataChannel) {
       } else if (command === "received") {
         if (count >= targetCount) parentPort.postMessage({ id, value: snapshot() });
         else waiters.push({ id, count: targetCount });
+      } else if (command === "close") {
+        peer.close();
+        parentPort.postMessage({ id, value: true });
       } else {
         throw new Error(`Unknown remote peer command: ${command}`);
       }
