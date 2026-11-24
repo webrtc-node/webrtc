@@ -20,6 +20,7 @@ import {
   SimpleEventTarget,
 } from "./events";
 import type { NativeDataChannel, NativeDataChannelEvent } from "./native/binding";
+import { native } from "./native/binding";
 import type { RTCPeerConnection } from "./peer-connection";
 import { delay } from "./timing";
 import {
@@ -30,6 +31,21 @@ import {
   toUnsignedLong,
   toUSVString,
 } from "./webidl";
+
+// Native sends park their drain until this flush, so every message one
+// JavaScript turn sends to a channel reaches SCTP as a single batch.
+let nativeSendFlushScheduled = false;
+
+function flushNativeSends(): void {
+  nativeSendFlushScheduled = false;
+  native.flushSends?.();
+}
+
+function scheduleNativeSendFlush(): void {
+  if (nativeSendFlushScheduled) return;
+  nativeSendFlushScheduled = true;
+  queueMicrotask(flushNativeSends);
+}
 
 export type RTCDataChannelState = "connecting" | "open" | "closing" | "closed";
 export type BinaryType = "arraybuffer" | "blob";
@@ -590,6 +606,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     }
     try {
       let sent = this._native.sendString(data);
+      scheduleNativeSendFlush();
       if (sent !== false) {
         sent = true;
       } else {
@@ -613,6 +630,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     try {
       const view = data instanceof Uint8Array ? data : toUint8Array(data);
       let sent = this._native.sendBinary(view);
+      scheduleNativeSendFlush();
       if (sent !== false) {
         sent = true;
       } else {

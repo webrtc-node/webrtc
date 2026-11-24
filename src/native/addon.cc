@@ -715,8 +715,10 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 			pendingSendBytes.fetch_add(size);
 			schedule = BeginDrainLocked();
 		}
+		// JavaScript flushes parked drains once per turn, so every message this
+		// turn sends to the channel reaches SCTP as one batch.
 		if (schedule)
-			ScheduleDrain();
+			ScheduleDrain(true);
 		return true;
 	}
 
@@ -738,6 +740,9 @@ struct ChannelBinding : public std::enable_shared_from_this<ChannelBinding> {
 		}
 		if (schedule)
 			ScheduleDrain();
+		else
+			// A parked drain from this turn will run the close; queue it now.
+			sendQueue->FlushDeferred();
 	}
 
 	void DeactivateCallbacks() {
@@ -812,19 +817,64 @@ private:
 		}
 	};
 
-	void ScheduleDrain() {
+	void ScheduleDrain(bool deferred = false) {
 		auto ticket = std::make_shared<DrainTicket>();
 		ticket->binding = shared_from_this();
+		auto run = [ticket]() {
+			ticket->ran = true;
+			ticket->binding->Drain();
+		};
 		try {
-			sendQueue->Enqueue([ticket]() {
-				ticket->ran = true;
-				ticket->binding->Drain();
-			}, 0, true);
+			if (deferred)
+				sendQueue->Defer(std::move(run));
+			else
+				sendQueue->Enqueue(std::move(run), 0, true);
 		} catch (...) {
 			ticket->ran = true;
 			AbandonDrain();
 			throw;
 		}
+	}
+
+	// Hands one drain turn to SCTP. A batch lets SCTP bundle small messages into
+	// shared packets instead of sending one packet per message. A false result
+	// means SCTP buffered the accepted messages; they are never resent.
+	void HandOff(std::vector<PendingSend> &batch) {
+		// sendBatch() rejects the whole batch if one message is too large, for example
+		// after the remote lowered its limit, so such a turn is sent one by one.
+		const size_t maxSize = dataChannel->maxMessageSize();
+		const bool batchable =
+		    batch.size() > 1 && std::all_of(batch.begin(), batch.end(), [&](const auto &pending) {
+			    return pending.size <= maxSize;
+		    });
+		if (batchable) {
+			std::vector<rtc::message_variant> messages;
+			messages.reserve(batch.size());
+			for (auto &pending : batch)
+				messages.push_back(std::move(pending.data));
+			try {
+				dataChannel->sendBatch(std::move(messages));
+			} catch (const std::exception &error) {
+				EmitSendError(error.what());
+			}
+			return;
+		}
+		for (auto &pending : batch) {
+			try {
+				dataChannel->send(std::move(pending.data));
+			} catch (const std::exception &error) {
+				EmitSendError(error.what());
+			}
+		}
+	}
+
+	void EmitSendError(const char *message) {
+		NativeEvent event;
+		event.target = "datachannel";
+		event.type = "error";
+		event.channelId = id;
+		event.error = message;
+		Emit(std::move(event));
 	}
 
 	// Runs on the send worker. One turn sends a bounded batch, then yields the
@@ -849,25 +899,14 @@ private:
 
 		size_t sentBytes = 0;
 		size_t cost = 0;
-		for (auto &pending : batch) {
+		for (const auto &pending : batch) {
 			cost += BacklogCost(pending.size);
-			if (!sendsCancelled.load() && handoff->CanHandoff()) {
-				try {
-					// A false result means SCTP buffered the accepted message; never resend it.
-					dataChannel->send(std::move(pending.data));
-				} catch (const std::exception &error) {
-					NativeEvent event;
-					event.target = "datachannel";
-					event.type = "error";
-					event.channelId = id;
-					event.error = error.what();
-					Emit(std::move(event));
-				}
-			}
-			// Decrease after the SCTP handoff so bufferedAmount never reports a false zero.
-			pendingSendBytes.fetch_sub(pending.size);
 			sentBytes += pending.size;
 		}
+		if (!sendsCancelled.load() && handoff->CanHandoff())
+			HandOff(batch);
+		// Decrease after the SCTP handoff so bufferedAmount never reports a false zero.
+		pendingSendBytes.fetch_sub(sentBytes);
 		batch.clear();
 
 		if (closeNow) {
@@ -1794,6 +1833,8 @@ private:
 	}
 
 	Napi::Value Close(const Napi::CallbackInfo &info) {
+		// Queue this turn's parked drains first, so teardown sees every accepted send.
+		info.Env().GetInstanceData<EnvironmentState>()->sendQueue->FlushDeferred();
 		try {
 			binding_->ClosePeer();
 		} catch (const std::exception &e) {
@@ -1977,6 +2018,10 @@ Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
 	exports.Set("generateCertificate", Napi::Function::New(env, GenerateCertificate));
 	exports.Set("takeDefaultCertificate", Napi::Function::New(env, TakeDefaultCertificate));
 	exports.Set("importCertificate", Napi::Function::New(env, ImportCertificate));
+	exports.Set("flushSends", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
+		            info.Env().GetInstanceData<EnvironmentState>()->sendQueue->FlushDeferred();
+		            return info.Env().Undefined();
+	            }));
 	++environmentCount;
 	state->cleanupHook = env.AddCleanupHook(CleanupEnvironment, state);
 	exports.Set("cleanup", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {

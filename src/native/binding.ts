@@ -193,6 +193,8 @@ export interface NativeModule {
   }): NativeCertificateMaterial;
   takeDefaultCertificate(): NativeCertificateMaterial;
   importCertificate(options: { certificatePem: string; keyPem: string }): NativeCertificateMaterial;
+  // Queues the send drains parked during this JavaScript turn.
+  flushSends?(): void;
   cleanup(): void;
 }
 

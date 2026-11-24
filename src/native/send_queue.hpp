@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace webrtc_node {
 
@@ -76,6 +77,7 @@ class SendQueue {
 	size_t bufferedBytes = 0;
 	size_t bufferedJobs = 0;
 	bool stopped = false;
+	std::vector<std::function<void()>> deferred; // owning JavaScript thread only
 
 	void CheckCapacityLocked(size_t bytes, bool control) const {
 		if (stopped)
@@ -130,7 +132,32 @@ public:
 		Enqueue(factory(), bytes);
 	}
 
+	// Parks a control job until FlushDeferred(), so the jobs of one JavaScript
+	// turn are queued together. Only the owning JavaScript thread calls these.
+	void Defer(std::function<void()> run) { deferred.push_back(std::move(run)); }
+
+	void FlushDeferred() {
+		if (deferred.empty())
+			return;
+		std::vector<std::function<void()>> runs;
+		runs.swap(deferred);
+		{
+			std::lock_guard lock(mutex);
+			if (!stopped) {
+				if (!worker.joinable())
+					worker = std::thread([this]() { Run(); });
+				for (auto &run : runs)
+					jobs.push_back({std::move(run), 0});
+				bufferedJobs += runs.size();
+			}
+		}
+		// Jobs a stopped queue refused are destroyed here, outside the lock.
+		runs.clear();
+		ready.notify_one();
+	}
+
 	void Stop() {
+		deferred.clear();
 		std::deque<Job> discarded;
 		{
 			std::lock_guard lock(mutex);

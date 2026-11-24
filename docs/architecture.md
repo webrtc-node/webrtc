@@ -96,7 +96,10 @@ Each data channel keeps its accepted payloads in its own backlog, limited to
 64 MiB with a fixed 64-byte charge per message so empty messages stay bounded.
 The send worker runs at most one drain job per busy channel; each turn hands up
 to 256 messages or 1 MiB to SCTP, then re-queues the channel behind other
-channels' work. The job count therefore scales with busy channels rather than
+channels' work. A turn of several messages is handed over with libdatachannel's
+`sendBatch()`, which lets SCTP bundle small messages into shared packets instead
+of sending one packet per message; single messages keep the per-message path.
+The job count therefore scales with busy channels rather than
 messages, and one channel's backlog cannot make another channel's `send()`
 fail. State, size, and backlog capacity are checked before allocating the native
 payload copy. A send that exceeds the limit throws `OperationError` without
