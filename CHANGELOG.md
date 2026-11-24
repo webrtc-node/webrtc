@@ -4,12 +4,14 @@ Notable changes to `@webrtc-node/webrtc`. Each release links to its GitHub
 release notes, which include the validation evidence for that version. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.3.2] - 2026-11-24
 
 ### Fixed
 
 - Closing many peer connections in quick succession no longer piles up
   background threads; closes reuse idle threads again, as intended in 0.3.0.
+- A Node.js process exits right after its last peer connection closes instead
+  of about a second later.
 
 ## [0.3.1] - 2026-11-24
 
@@ -36,6 +38,10 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   compiled JavaScript under `dist/` instead of `lib/`. The package entry points
   are unchanged; `index.d.ts` is checked against the implementation at build
   time.
+- `maxRetransmits: null` and `maxPacketLifeTime: null` mean `0`, as in
+  browsers, instead of "not set". A channel created with
+  `maxRetransmits: null` now gets no retransmissions; omit the option or pass
+  `undefined` to leave it unset.
 
 ### Added
 
@@ -52,13 +58,12 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `bufferedamountlow` fires as soon as the native send backlog drains instead
   of up to a polling interval later.
 - Several peer connections flooding sends at once no longer fail with
-  `Native send queue is full`; each data channel has its own bounded backlog.
+  `Native send queue is full`; each data channel has its own send backlog.
 - The same-process pairing registry stays bounded for peers that renegotiate
   repeatedly.
 - `createDataChannel()` and `setLocalDescription()` convert their arguments as
-  WebIDL requires: dictionary members are read once in order, `null` numeric
-  members such as `maxRetransmits: null` mean `0` rather than unset, and labels
-  and protocols become well-formed strings.
+  WebIDL requires: dictionary members are read once in order, and labels and
+  protocols become well-formed strings.
 - `setLocalDescription({})` and `{ type: "pranswer" }` without SDP use the
   current last-created offer or answer, and a cached offer created before the
   first data channel is replaced by one with a data section.
@@ -180,6 +185,7 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 First stable release, with native message batching, reduced copies on the
 binary path, and the selected WPT profile as the conformance target.
 
+[0.3.2]: https://github.com/webrtc-node/webrtc/releases/tag/v0.3.2
 [0.3.1]: https://github.com/webrtc-node/webrtc/releases/tag/v0.3.1
 [0.3.0]: https://github.com/webrtc-node/webrtc/releases/tag/v0.3.0
 [0.2.6]: https://github.com/webrtc-node/webrtc/releases/tag/v0.2.6
