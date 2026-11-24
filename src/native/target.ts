@@ -1,4 +1,4 @@
-import * as libc from "detect-libc";
+import libc = require("detect-libc");
 
 export type LinuxLibc = "glibc" | "musl";
 

@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import fs = require("node:fs");
+import path = require("node:path");
 import { currentTarget, platformPackageName } from "./target";
 
 // Compiled to dist/native, two levels below the package root.
