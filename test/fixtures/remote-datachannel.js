@@ -51,14 +51,14 @@ async function connectRemotePeer(options = {}) {
     if (error) request.reject(new Error(error));
     else request.resolve(value);
   });
-  function request(command, parameters = {}) {
+  function request(command, parameters = {}, timeoutMs = 15000) {
     if (failure) return Promise.reject(failure);
     const id = nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`Remote peer timed out during ${command}`));
-      }, 15000);
+      }, timeoutMs);
       pending.set(id, {
         resolve(value) {
           clearTimeout(timer);
@@ -78,15 +78,24 @@ async function connectRemotePeer(options = {}) {
     fail(new Error("Remote peer was closed"));
     await worker.terminate();
   }
+  let description;
+  let answer;
   try {
-    const description = await gatherDescription(peerConnection);
-    const answer = await request("answer", { description });
+    description = await gatherDescription(peerConnection);
+    answer = await request("answer", { description });
     await peerConnection.setRemoteDescription(answer);
     if (channel.readyState !== "open") await waitFor(channel, "open");
     return { peerConnection, channel, request, close };
   } catch (error) {
+    // Record how far setup got, so an intermittent failure can be diagnosed.
+    const candidates = (sdp) => (sdp?.match(/^a=candidate:/gm) || []).length;
+    const context =
+      `connection=${peerConnection.connectionState}, ice=${peerConnection.iceConnectionState}, ` +
+      `gathering=${peerConnection.iceGatheringState}, sctp=${peerConnection.sctp?.state ?? null}, ` +
+      `channel=${channel.readyState}, local candidates=${candidates(description?.sdp)}, ` +
+      `remote candidates=${candidates(answer?.sdp)}`;
     await close();
-    throw error;
+    throw new Error(`${error.message} (${context})`, { cause: error });
   }
 }
 
