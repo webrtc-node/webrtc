@@ -72,11 +72,11 @@ and statistics are not supported.
 
 Node.js 20 or newer.
 
-| OS | Prebuilt targets | Node.js |
-| --- | --- | --- |
-| Linux | x64 glibc, x64 musl, arm64 glibc, arm64 musl | 20, 22, 24, 26 |
-| macOS | x64, arm64 | 20, 22, 24, 26 |
-| Windows | x64, arm64 | 20, 22, 24, 26 |
+| OS      | Prebuilt targets                             | Node.js        |
+| ------- | -------------------------------------------- | -------------- |
+| Linux   | x64 glibc, x64 musl, arm64 glibc, arm64 musl | 20, 22, 24, 26 |
+| macOS   | x64, arm64                                   | 20, 22, 24, 26 |
+| Windows | x64, arm64                                   | 20, 22, 24, 26 |
 
 The package manager installs the matching binary as an optional dependency,
 such as `@webrtc-node/webrtc-linux-x64-glibc`, and no install script runs.
@@ -89,14 +89,14 @@ Compared with [node-datachannel](https://github.com/murat-dogan/node-datachannel
 0.33.6 through its W3C polyfill, sender and receiver in separate processes over
 loopback. Medians of five runs on Windows 11, Node.js 24, AMD Ryzen 5 5600.
 
-| Workload | `@webrtc-node/webrtc` | `node-datachannel` |
-| --- | ---: | ---: |
-| 64 B messages, throughput | 44.2k msg/s | 40.5k msg/s |
-| 64 B messages, sender CPU per message | 44.9 µs | 50.9 µs |
-| 64 B messages, sender event-loop utilization | 4% | 100% |
-| 64 KiB messages, throughput | 65.0 MiB/s | 65.0 MiB/s |
-| Round trip, p50 / p99 | 0.125 / 0.231 ms | 0.123 / 0.225 ms |
-| Round trip, CPU | 128 µs | 100 µs |
+| Workload                                     | `@webrtc-node/webrtc` | `node-datachannel` |
+| -------------------------------------------- | --------------------: | -----------------: |
+| 64 B messages, throughput                    |           44.2k msg/s |        40.5k msg/s |
+| 64 B messages, sender CPU per message        |               44.9 µs |            50.9 µs |
+| 64 B messages, sender event-loop utilization |                    4% |               100% |
+| 64 KiB messages, throughput                  |            65.0 MiB/s |         65.0 MiB/s |
+| Round trip, p50 / p99                        |      0.125 / 0.231 ms |   0.123 / 0.225 ms |
+| Round trip, CPU                              |                128 µs |             100 µs |
 
 Reproduce from a source checkout:
 

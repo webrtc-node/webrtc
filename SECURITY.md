@@ -13,10 +13,10 @@ message handling.
 
 ## Supported versions
 
-| Version | Supported |
-| --- | --- |
-| Latest release on npm (`latest`) | ✅ |
-| Older releases | ❌ |
+| Version                          | Supported |
+| -------------------------------- | --------- |
+| Latest release on npm (`latest`) | ✅        |
+| Older releases                   | ❌        |
 
 Fixes ship in a new patch release. Prereleases receive fixes only when
 announced.
