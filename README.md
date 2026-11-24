@@ -85,20 +85,19 @@ For other platforms, build from source as described in
 
 ## Performance
 
-Compared with [node-datachannel](https://github.com/murat-dogan/node-datachannel)
-0.33.6 through its W3C polyfill, sender and receiver in separate processes over
-loopback. Medians of five runs on Windows 11, Node.js 24, AMD Ryzen 5 5600.
+Compared with [node-datachannel](https://github.com/murat-dogan/node-datachannel),
+sending between two Node.js processes on one Windows desktop:
 
-| Workload                                     | `@webrtc-node/webrtc` | `node-datachannel` |
-| -------------------------------------------- | --------------------: | -----------------: |
-| 64 B messages, throughput                    |           44.2k msg/s |        40.5k msg/s |
-| 64 B messages, sender CPU per message        |               44.9 µs |            50.9 µs |
-| 64 B messages, sender event-loop utilization |                    4% |               100% |
-| 64 KiB messages, throughput                  |            65.0 MiB/s |         65.0 MiB/s |
-| Round trip, p50 / p99                        |      0.125 / 0.231 ms |   0.123 / 0.225 ms |
-| Round trip, CPU                              |                128 µs |             100 µs |
+|                            | `@webrtc-node/webrtc` | `node-datachannel` |
+| -------------------------- | --------------------: | -----------------: |
+| Small messages per second  |                44,200 |             40,500 |
+| CPU per small message sent |                 45 µs |              51 µs |
+| Sender's main thread busy  |                    4% |               100% |
+| Large transfers            |              65 MiB/s |           65 MiB/s |
+| Round-trip time            |               0.13 ms |            0.12 ms |
+| CPU per round trip         |                128 µs |             100 µs |
 
-Reproduce from a source checkout:
+To run the comparison yourself:
 
 ```sh
 npm run benchmark:compare -- --library=webrtc-node --scenario=rate
