@@ -1,5 +1,3 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
 import {
   BUFFERED_AMOUNT_NATIVE_DRAIN_POLL_INTERVAL_MS,
   CLOSE_FLUSH_DELAY_MS,
@@ -13,6 +11,7 @@ import {
   REMOTE_CLOSE_MESSAGE_GRACE_MS,
 } from "./constants";
 import { makeDOMException, mapNativeError, RTCError } from "./errors";
+import type { EventListenerValue, SimpleEvent } from "./events";
 import {
   dispatchDirectEvent,
   makeDataMessageEvent,
@@ -20,13 +19,63 @@ import {
   RTCErrorEvent,
   SimpleEventTarget,
 } from "./events";
+import type { NativeDataChannel, NativeDataChannelEvent } from "./native/binding";
+import type { RTCPeerConnection } from "./peer-connection";
 import { delay } from "./timing";
 import { byteLength, enforceRange, toUint8Array, toUnsignedLong } from "./webidl";
 
+export type RTCDataChannelState = "connecting" | "open" | "closing" | "closed";
+export type BinaryType = "arraybuffer" | "blob";
+export type EventHandler = ((event: SimpleEvent) => unknown) | null;
+// The fields every queued message carries, native or same-process synthetic.
+export interface MessagePayload {
+  binary: boolean;
+  data: string | ArrayBuffer;
+  // Set once a same-process delivery has been counted against the sender.
+  _pairedDeliveryReceived?: boolean;
+}
+
+// Events a channel handles: native ones, and same-process synthetic messages.
+export type ChannelEvent = NativeDataChannelEvent | (MessagePayload & { type: "message" });
+
+export interface NormalizedDataChannelInit {
+  ordered: boolean;
+  maxPacketLifeTime: number | null | undefined;
+  maxRetransmits: number | null | undefined;
+  protocol: string;
+  negotiated: boolean;
+  id: number | null | undefined;
+}
+
+type SendOperation = () => unknown;
+
+// The channel options a backend reports back to RTCDataChannel.
+export interface DataChannelBackendOptions {
+  ordered: boolean;
+  protocol: string;
+  negotiated: boolean;
+  maxPacketLifeTime?: number | null;
+  maxRetransmits?: number | null;
+  id: number | null;
+}
+
 export let nextUnsupportedDataChannelBindingId = -1;
 
-export class UnsupportedNativeDataChannel {
-  constructor(label, options) {
+export class UnsupportedNativeDataChannel implements NativeDataChannel {
+  bindingId: number;
+  label: string;
+  ordered: boolean;
+  protocol: string;
+  negotiated: boolean;
+  maxPacketLifeTime: number | null;
+  maxRetransmits: number | null;
+  id: number | null;
+  bufferedAmount: number;
+  maxMessageSize: number;
+  isOpen: boolean;
+  isClosed: boolean;
+
+  constructor(label: string, options: DataChannelBackendOptions) {
     this.bindingId = nextUnsupportedDataChannelBindingId--;
     this.label = label;
     this.ordered = options.ordered;
@@ -41,23 +90,36 @@ export class UnsupportedNativeDataChannel {
     this.isClosed = false;
   }
 
-  close() {
+  close(): void {
     this.isClosed = true;
   }
 
-  setBufferedAmountLowThreshold() {}
+  setBufferedAmountLowThreshold(): void {}
 
-  sendString() {
+  sendString(): boolean {
     throw new Error("RTCDataChannel stream id exceeds libdatachannel's native stream limit");
   }
 
-  sendBinary() {
+  sendBinary(): boolean {
     throw new Error("RTCDataChannel stream id exceeds libdatachannel's native stream limit");
   }
 }
 
-export class SyntheticNativeDataChannel {
-  constructor(label, options) {
+export class SyntheticNativeDataChannel implements NativeDataChannel {
+  bindingId: number;
+  label: string;
+  ordered: boolean;
+  protocol: string;
+  negotiated: boolean;
+  maxPacketLifeTime: number | null;
+  maxRetransmits: number | null;
+  id: number | null;
+  bufferedAmount: number;
+  maxMessageSize: number;
+  isOpen: boolean;
+  isClosed: boolean;
+
+  constructor(label: string, options: DataChannelBackendOptions) {
     this.bindingId = nextUnsupportedDataChannelBindingId--;
     this.label = label;
     this.ordered = options.ordered;
@@ -72,29 +134,74 @@ export class SyntheticNativeDataChannel {
     this.isClosed = false;
   }
 
-  close() {
+  close(): void {
     this.isOpen = false;
     this.isClosed = true;
   }
 
-  setBufferedAmountLowThreshold() {}
+  setBufferedAmountLowThreshold(): void {}
 
-  sendString() {
+  sendString(): boolean {
     return true;
   }
 
-  sendBinary() {
+  sendBinary(): boolean {
     return true;
   }
 }
 
 export class RTCDataChannel extends SimpleEventTarget {
+  _pc: RTCPeerConnection;
+  _native: NativeDataChannel;
+  _readyState: RTCDataChannelState;
+  _binaryType: BinaryType;
+  _bufferedAmount: number;
+  _bufferedAmountLowThreshold: number;
+  _pendingBufferedAmountDecrease: number;
+  _bufferedAmountDecreaseScheduled: boolean;
+  _sendTail: Promise<unknown>;
+  _pendingSendCount: number;
+  _nativeCloseScheduled: boolean;
+  _openEventPending: boolean;
+  _openEventDispatched: boolean;
+  _announcementPending: boolean;
+  _nativeEventDrainActive: boolean;
+  _queuedNativeEvents: ChannelEvent[];
+  _queuedMessageEvents: MessagePayload[];
+  _queuedMessageEventIndex: number;
+  _messageEventFlushScheduled: boolean;
+  _messageEventGateActive: boolean;
+  _messageConsumerGateActive: boolean;
+  _messageEventListenerCount: number;
+  _messageHandlerNeedsTaskYield: boolean;
+  _pendingPairedDeliveryBytes: number;
+  _nativeCloseEventQueued: boolean;
+  _peerFailureClosePending: boolean;
+  _nativeCloseSuppressionDeadline: number;
+  _nativeCloseSuppressionsRemaining: number;
+  _openEventDeferredForIce: boolean;
+  _openEventDeferredForDataChannel: boolean;
+  _openEventDataChannelDeferralExpired: boolean;
+  _registeredDataChannelId: number | null;
+  _assignedId: number | null;
+  _pairedChannel: RTCDataChannel | null;
+  _createdLocally: boolean;
+  _negotiatedOverride: boolean | null;
+  _syntheticIncoming: boolean;
+  // Backing field for the onmessage accessor, which must stay an accessor.
+  _onmessage: EventListenerValue | null;
+  onopen: EventHandler;
+  onclose: EventHandler;
+  onerror: EventHandler;
+  onclosing: EventHandler;
+  onbufferedamountlow: EventHandler;
+
   static _fromNative(
-    peerConnection,
-    nativeChannel,
-    initialReadyState = undefined,
-    assignedId = null,
-  ) {
+    peerConnection: RTCPeerConnection,
+    nativeChannel: NativeDataChannel,
+    initialReadyState: RTCDataChannelState | undefined = undefined,
+    assignedId: number | null = null,
+  ): RTCDataChannel {
     const channel = new RTCDataChannel(
       peerConnection,
       nativeChannel,
@@ -109,7 +216,12 @@ export class RTCDataChannel extends SimpleEventTarget {
     return channel;
   }
 
-  constructor(peerConnection, nativeChannel, initialReadyState = undefined, assignedId = null) {
+  constructor(
+    peerConnection: RTCPeerConnection,
+    nativeChannel: NativeDataChannel,
+    initialReadyState: RTCDataChannelState | undefined = undefined,
+    assignedId: number | null = null,
+  ) {
     super();
     this._pc = peerConnection;
     this._native = nativeChannel;
@@ -226,7 +338,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     if (this._onmessage) this._releaseMessageConsumerGate();
   }
 
-  send(data) {
+  send(data: unknown): void {
     if (this._readyState === "connecting") {
       throw makeDOMException("RTCDataChannel is not open", "InvalidStateError");
     }
@@ -312,13 +424,13 @@ export class RTCDataChannel extends SimpleEventTarget {
     }
   }
 
-  _increaseBufferedAmount(size) {
+  _increaseBufferedAmount(size: number): void {
     if (!size) return;
     this._bufferedAmount += size;
     this._queueBufferedAmountDecrease(size);
   }
 
-  _queueBufferedAmountDecrease(size) {
+  _queueBufferedAmountDecrease(size: number): void {
     if (!size) return;
     if (this._usesSyntheticPairDelivery()) {
       setImmediate(() => this._decreaseBufferedAmount(size));
@@ -365,7 +477,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     return this._native.id ?? this._assignedId;
   }
 
-  _assignId(id) {
+  _assignId(id: number | null): void {
     if (this._native.id != null || this._assignedId != null) return;
     this._assignedId = id;
     this._pc._registerDataChannelId(this, id);
@@ -375,7 +487,10 @@ export class RTCDataChannel extends SimpleEventTarget {
     this._pc._pairedPeer?._scheduleDataChannelAnnouncementRepair();
   }
 
-  _adoptNativeChannel(nativeChannel, initialReadyState = undefined) {
+  _adoptNativeChannel(
+    nativeChannel: NativeDataChannel,
+    initialReadyState: RTCDataChannelState | undefined = undefined,
+  ): void {
     const previousBindingId = this._native.bindingId;
     if (this._pc._channels.get(previousBindingId) === this) {
       this._pc._channels.delete(previousBindingId);
@@ -394,10 +509,10 @@ export class RTCDataChannel extends SimpleEventTarget {
     this._pc._registerDataChannelId(this);
   }
 
-  _assertWithinMaxMessageSize(size) {
+  _assertWithinMaxMessageSize(size: number): void {
     const maxMessageSize = this._pc._sctpTransport?._maxMessageSize;
     if (
-      maxMessageSize !== null &&
+      maxMessageSize != null &&
       maxMessageSize !== Number.POSITIVE_INFINITY &&
       size > maxMessageSize
     ) {
@@ -405,7 +520,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     }
   }
 
-  _enqueueSend(operation, size) {
+  _enqueueSend(operation: SendOperation, size: number): void {
     this._pendingSendCount += 1;
     this._bufferedAmount += size;
     const run = async () => {
@@ -417,7 +532,7 @@ export class RTCDataChannel extends SimpleEventTarget {
           new RTCErrorEvent("error", {
             error: new RTCError(
               { errorDetail: "data-channel-failure" },
-              error?.message || String(error),
+              (error as Error | undefined)?.message || String(error),
             ),
           }),
         );
@@ -444,7 +559,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     }
   }
 
-  async _waitForNativeSendAccepted(operation) {
+  async _waitForNativeSendAccepted(operation: SendOperation): Promise<void> {
     const deadline = Date.now() + DATA_CHANNEL_OPEN_REPAIR_TIMEOUT_MS;
     while (this._readyState !== "closed" && Date.now() < deadline) {
       if (await operation()) return;
@@ -454,7 +569,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     throw makeDOMException("RTCDataChannel send was not accepted", "OperationError");
   }
 
-  _sendNativeString(data) {
+  _sendNativeString(data: string): boolean {
     if (this._usesSyntheticPairDelivery()) {
       this._trackPendingPairedDelivery(byteLength(data));
       this._deliverSyntheticMessage({ binary: false, data });
@@ -474,7 +589,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     }
   }
 
-  _sendNativeBinary(data) {
+  _sendNativeBinary(data: unknown): boolean {
     if (this._usesSyntheticPairDelivery()) {
       const view = toUint8Array(data);
       const copy = new Uint8Array(view).buffer;
@@ -503,7 +618,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     return this._syntheticIncoming || this._pairedChannel?._syntheticIncoming;
   }
 
-  _deliverSyntheticMessage(event) {
+  _deliverSyntheticMessage(event: MessagePayload): void {
     const target = this._pairedChannel;
     if (!target || target.readyState === "closed") return;
     setImmediate(() => {
@@ -512,23 +627,25 @@ export class RTCDataChannel extends SimpleEventTarget {
     });
   }
 
-  _trackPendingPairedDelivery(size) {
+  _trackPendingPairedDelivery(size: number): void {
     if (!this._pairedChannel || size <= 0) return;
     this._pendingPairedDeliveryBytes += size;
   }
 
-  _markPairedDeliveryReceived(event) {
+  _markPairedDeliveryReceived(event: MessagePayload): boolean {
     if (event._pairedDeliveryReceived) return false;
     const sender = this._pairedChannel;
     if (!sender || sender.readyState === "closed") return false;
-    const size = event.binary ? event.data?.byteLength || 0 : byteLength(event.data || "");
+    const size = event.binary
+      ? (event.data as ArrayBuffer | undefined)?.byteLength || 0
+      : byteLength(event.data || "");
     if (size <= 0) return false;
     event._pairedDeliveryReceived = true;
     sender._pendingPairedDeliveryBytes = Math.max(0, sender._pendingPairedDeliveryBytes - size);
     return sender._decreaseBufferedAmountForPairedDelivery(size);
   }
 
-  _decreaseBufferedAmountForPairedDelivery(size) {
+  _decreaseBufferedAmountForPairedDelivery(size: number): boolean {
     const pending = Math.min(size, this._pendingBufferedAmountDecrease);
     if (pending > 0) {
       this._pendingBufferedAmountDecrease -= pending;
@@ -536,7 +653,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     return this._decreaseBufferedAmount(size);
   }
 
-  _decreaseBufferedAmount(size) {
+  _decreaseBufferedAmount(size: number): boolean {
     const previous = this._bufferedAmount;
     this._bufferedAmount = Math.max(0, this._bufferedAmount - size);
     if (
@@ -550,7 +667,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     return false;
   }
 
-  _closeNativeAfterBufferedSends(close) {
+  _closeNativeAfterBufferedSends(close: () => void): void {
     const deadline = Date.now() + CLOSE_FLUSH_TIMEOUT_MS;
     const poll = () => {
       const nativeBufferedAmount = Number(this._native?.bufferedAmount || 0);
@@ -566,7 +683,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     poll();
   }
 
-  _handleNativeEvent(event, fromQueue = false) {
+  _handleNativeEvent(event: ChannelEvent, fromQueue = false): void {
     if (!fromQueue && (this._announcementPending || this._nativeEventDrainActive)) {
       if (event.type === "open") {
         this._readyState = "open";
@@ -631,7 +748,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     });
   }
 
-  _deferRemoteCloseUntilMessagesFlushed(callback) {
+  _deferRemoteCloseUntilMessagesFlushed(callback: () => void): void {
     const notBefore = Date.now() + REMOTE_CLOSE_MESSAGE_GRACE_MS;
     const closeAfterMessages = () => {
       if (this._readyState === "closed") return;
@@ -700,7 +817,6 @@ export class RTCDataChannel extends SimpleEventTarget {
         new RTCErrorEvent("error", {
           error: new RTCError(
             {
-              name: "OperationError",
               errorDetail: "sctp-failure",
               sctpCauseCode: null,
             },
@@ -738,7 +854,6 @@ export class RTCDataChannel extends SimpleEventTarget {
         new RTCErrorEvent("error", {
           error: new RTCError(
             {
-              name: "OperationError",
               errorDetail: "sctp-failure",
               sctpCauseCode: null,
             },
@@ -793,7 +908,7 @@ export class RTCDataChannel extends SimpleEventTarget {
       this._openEventDeferredForDataChannel = true;
       pendingDataChannelPeer._afterDataChannelAnnouncementSettled(
         this._effectiveId(),
-        (settled) => {
+        (settled: boolean) => {
           this._openEventDeferredForDataChannel = false;
           if (!settled) this._openEventDataChannelDeferralExpired = true;
           this._dispatchOpenEvent();
@@ -806,7 +921,9 @@ export class RTCDataChannel extends SimpleEventTarget {
   }
 
   _pendingIceEventPeer() {
-    const peers = [this._pc, this._pc._pairedPeer].filter(Boolean);
+    const peers = [this._pc, this._pc._pairedPeer].filter((peer): peer is RTCPeerConnection =>
+      Boolean(peer),
+    );
     return peers.find((peer) => peer._hasPendingDeferredIceEvents());
   }
 
@@ -848,12 +965,12 @@ export class RTCDataChannel extends SimpleEventTarget {
     setImmediate(dispatchNext);
   }
 
-  _queueMessageEvent(event) {
+  _queueMessageEvent(event: MessagePayload): void {
     this._queuedMessageEvents.push(event);
     this._scheduleMessageEventFlush();
   }
 
-  _queueMessageEvents(events) {
+  _queueMessageEvents(events: MessagePayload[]): void {
     for (const event of events) this._queuedMessageEvents.push(event);
     this._scheduleMessageEventFlush();
   }
@@ -893,7 +1010,10 @@ export class RTCDataChannel extends SimpleEventTarget {
     return this._messageEventListenerCount > 0;
   }
 
-  _canContinueMessageBatchInCurrentTask(handler, yieldToTask) {
+  _canContinueMessageBatchInCurrentTask(
+    handler: EventListenerValue | null,
+    yieldToTask: boolean,
+  ): boolean {
     return (
       typeof handler === "function" &&
       handler instanceof Function &&
@@ -903,11 +1023,15 @@ export class RTCDataChannel extends SimpleEventTarget {
     );
   }
 
-  _canUseDirectMessageHandler(handler, yieldToTask, hasMessageListeners) {
+  _canUseDirectMessageHandler(
+    handler: EventListenerValue | null,
+    yieldToTask: boolean,
+    hasMessageListeners: boolean,
+  ): boolean {
     return !hasMessageListeners && this._canContinueMessageBatchInCurrentTask(handler, yieldToTask);
   }
 
-  _dispatchMessageEvent(event, directHandler) {
+  _dispatchMessageEvent(event: MessagePayload, directHandler: EventListenerValue | null): void {
     const messageEvent = makeDataMessageEvent(this._convertMessage(event));
     if (directHandler) {
       dispatchDirectEvent(this, messageEvent, directHandler);
@@ -927,7 +1051,7 @@ export class RTCDataChannel extends SimpleEventTarget {
       const pendingPeer =
         this._pc._operationsPending > 0
           ? this._pc
-          : this._pc._pairedPeer?._operationsPending > 0
+          : (this._pc._pairedPeer?._operationsPending ?? 0) > 0
             ? this._pc._pairedPeer
             : null;
       if (pendingPeer) {
@@ -978,13 +1102,13 @@ export class RTCDataChannel extends SimpleEventTarget {
     }
   }
 
-  _dispatchNativeMessageBatch(events) {
+  _dispatchNativeMessageBatch(events: MessagePayload[]): boolean {
     if (this._readyState === "closed") return true;
     if (this._queuedMessageEvents.length > 0) return false;
     const pendingPeer =
       this._pc._operationsPending > 0
         ? this._pc
-        : this._pc._pairedPeer?._operationsPending > 0
+        : (this._pc._pairedPeer?._operationsPending ?? 0) > 0
           ? this._pc._pairedPeer
           : null;
     if (pendingPeer || this._messageEventGateActive) return false;
@@ -1014,7 +1138,7 @@ export class RTCDataChannel extends SimpleEventTarget {
         event.binary && shouldCreateBlob ? new Blob([event.data]) : event.data,
       );
       dispatchDirectEvent(this, messageEvent, directHandler);
-      if (this._readyState === "closed") return true;
+      if ((this._readyState as RTCDataChannelState) === "closed") return true;
       if (
         index + 1 < events.length &&
         !this._canContinueMessageBatchInCurrentTask(handler, yieldToTask)
@@ -1052,19 +1176,19 @@ export class RTCDataChannel extends SimpleEventTarget {
     this._scheduleMessageEventFlush();
   }
 
-  _eventListenerAdded(type) {
+  _eventListenerAdded(type: string): void {
     if (type !== "message") return;
     this._messageEventListenerCount += 1;
     this._releaseMessageConsumerGate();
   }
 
-  _eventListenerRemoved(type) {
+  _eventListenerRemoved(type: string): void {
     if (type === "message" && this._messageEventListenerCount > 0) {
       this._messageEventListenerCount -= 1;
     }
   }
 
-  _convertMessage(event) {
+  _convertMessage(event: MessagePayload): unknown {
     if (!event.binary) return event.data;
     if (this._binaryType === "blob" && typeof Blob !== "undefined") {
       return new Blob([event.data]);
@@ -1073,14 +1197,23 @@ export class RTCDataChannel extends SimpleEventTarget {
   }
 }
 
-export function normalizeDataChannelInit(init) {
-  const options = {
-    ordered: init.ordered !== undefined ? Boolean(init.ordered) : true,
-    maxPacketLifeTime: init.maxPacketLifeTime,
-    maxRetransmits: init.maxRetransmits,
-    protocol: init.protocol === undefined ? "" : String(init.protocol),
-    negotiated: init.negotiated !== undefined ? Boolean(init.negotiated) : false,
-    id: init.id,
+export function normalizeDataChannelInit(init: unknown): NormalizedDataChannelInit {
+  const input = init as Record<string, unknown>;
+  // Raw values until each one is range-checked below.
+  const options: {
+    ordered: boolean;
+    maxPacketLifeTime: unknown;
+    maxRetransmits: unknown;
+    protocol: string;
+    negotiated: boolean;
+    id: unknown;
+  } = {
+    ordered: input.ordered !== undefined ? Boolean(input.ordered) : true,
+    maxPacketLifeTime: input.maxPacketLifeTime,
+    maxRetransmits: input.maxRetransmits,
+    protocol: input.protocol === undefined ? "" : String(input.protocol),
+    negotiated: input.negotiated !== undefined ? Boolean(input.negotiated) : false,
+    id: input.id,
   };
 
   if (options.maxPacketLifeTime != null) {
@@ -1098,11 +1231,11 @@ export function normalizeDataChannelInit(init) {
   if (options.negotiated && options.id == null) {
     throw new TypeError("negotiated RTCDataChannel requires an id");
   }
-  if (options.negotiated && options.id > 65534) {
+  if (options.negotiated && (options.id as number) > 65534) {
     throw new TypeError("id must be an integer between 0 and 65534");
   }
   if (!options.negotiated) {
     options.id = undefined;
   }
-  return options;
+  return options as NormalizedDataChannelInit;
 }

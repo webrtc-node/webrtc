@@ -80,6 +80,11 @@ export class RTCPeerConnection extends SimpleEventTarget {
   _remoteTransportClosed: boolean;
   _sctpTransport: RTCSctpTransport | null;
   _nativeCertificates: RTCCertificate[] | null;
+  _channels: Map<number, RTCDataChannel>;
+  _remoteAnnouncedDataChannelIds: Set<number>;
+  _pendingSyntheticDataChannelAnnouncements: Map<number, RTCDataChannel>;
+  _operationsPending: number;
+  _dataChannelIdRefreshNeeded: boolean;
 
   static generateCertificate(algorithm) {
     return generateCertificate(algorithm);
