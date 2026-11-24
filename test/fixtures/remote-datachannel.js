@@ -51,14 +51,14 @@ async function connectRemotePeer(options = {}) {
     if (error) request.reject(new Error(error));
     else request.resolve(value);
   });
-  function request(command, parameters = {}) {
+  function request(command, parameters = {}, timeoutMs = 15000) {
     if (failure) return Promise.reject(failure);
     const id = nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`Remote peer timed out during ${command}`));
-      }, 15000);
+      }, timeoutMs);
       pending.set(id, {
         resolve(value) {
           clearTimeout(timer);
