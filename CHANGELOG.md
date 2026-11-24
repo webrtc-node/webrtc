@@ -4,6 +4,13 @@ Notable changes to `@webrtc-node/webrtc`. Each release links to its GitHub
 release notes, which include the validation evidence for that version. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- Closing many peer connections in quick succession no longer piles up
+  background threads; closes reuse idle threads again, as intended in 0.3.0.
+
 ## [0.3.1] - 2026-11-24
 
 ### Fixed
