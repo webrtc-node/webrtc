@@ -11,7 +11,7 @@ import {
   REMOTE_CLOSE_MESSAGE_GRACE_MS,
 } from "./constants";
 import { makeDOMException, mapNativeError, RTCError } from "./errors";
-import type { EventListenerValue, SimpleEvent } from "./events";
+import type { EventListenerValue } from "./events";
 import {
   dispatchDirectEvent,
   makeDataMessageEvent,
@@ -26,7 +26,7 @@ import { byteLength, enforceRange, toUint8Array, toUnsignedLong } from "./webidl
 
 export type RTCDataChannelState = "connecting" | "open" | "closing" | "closed";
 export type BinaryType = "arraybuffer" | "blob";
-export type EventHandler = ((event: SimpleEvent) => unknown) | null;
+export type EventHandler = ((event: unknown) => unknown) | null;
 // The fields every queued message carries, native or same-process synthetic.
 export interface MessagePayload {
   binary: boolean;
@@ -189,7 +189,7 @@ export class RTCDataChannel extends SimpleEventTarget {
   _negotiatedOverride: boolean | null;
   _syntheticIncoming: boolean;
   // Backing field for the onmessage accessor, which must stay an accessor.
-  _onmessage: EventListenerValue | null;
+  _onmessage: EventHandler;
   onopen: EventHandler;
   onclose: EventHandler;
   onerror: EventHandler;
@@ -328,12 +328,13 @@ export class RTCDataChannel extends SimpleEventTarget {
     if (value === "arraybuffer" || value === "blob") this._binaryType = value;
   }
 
-  get onmessage() {
+  get onmessage(): EventHandler {
     return this._onmessage;
   }
 
-  set onmessage(callback) {
-    this._onmessage = typeof callback === "function" ? callback : null;
+  set onmessage(callback: unknown) {
+    this._onmessage =
+      typeof callback === "function" ? (callback as (event: unknown) => unknown) : null;
     this._messageHandlerNeedsTaskYield = this._messageContinuationNeedsTaskYield(this._onmessage);
     if (this._onmessage) this._releaseMessageConsumerGate();
   }

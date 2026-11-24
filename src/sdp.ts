@@ -1,6 +1,7 @@
 import crypto = require("node:crypto");
 
 import { defineReadonly, kInternalConstruct, makeDOMException, RTCError } from "./errors";
+import type { RTCSdpType } from "./types";
 
 // Any object with SDP, such as RTCSessionDescription or a plain description.
 export interface SdpDescriptionLike {
@@ -58,7 +59,7 @@ export function normalizeDescription(init: unknown): RTCSessionDescription {
   return new RTCSessionDescription(init);
 }
 
-export function validateSdpType(type: string): void {
+export function validateSdpType(type: string): asserts type is RTCSdpType {
   if (!["offer", "answer", "pranswer", "rollback"].includes(type)) {
     throw new TypeError(`Invalid RTCSdpType: ${type}`);
   }
@@ -157,19 +158,20 @@ export function hasDifferentIceCredentials(
 }
 
 export class RTCSessionDescription {
-  type: string;
+  type: RTCSdpType;
   sdp: string;
 
   constructor(init: unknown) {
     if (!init || typeof init !== "object")
       throw new TypeError("RTCSessionDescriptionInit required");
     const input = init as Dictionary;
-    this.type = String(input.type || "");
-    validateSdpType(this.type);
+    const type = String(input.type || "");
+    validateSdpType(type);
+    this.type = type;
     this.sdp = String(input.sdp || "");
   }
 
-  toJSON(): { type: string; sdp: string } {
+  toJSON(): { type: RTCSdpType; sdp: string } {
     return { type: this.type, sdp: this.sdp };
   }
 }
@@ -520,14 +522,15 @@ export function resolveCandidateMid(
 
 export function firstIceParameters(
   description: MaybeDescription,
-): { usernameFragment: string | null; password: string | null } | null {
+): { usernameFragment: string; password: string } | null {
   const section = parseSdpMediaSections(description?.sdp || "").mediaSections.find(
     (entry) => entry.iceUfrag && entry.icePwd,
   );
   if (!section) return null;
   return {
-    usernameFragment: section.iceUfrag,
-    password: section.icePwd,
+    // find() above only matches sections with both values.
+    usernameFragment: section.iceUfrag as string,
+    password: section.icePwd as string,
   };
 }
 

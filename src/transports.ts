@@ -1,7 +1,6 @@
 import { certificatePemToArrayBuffer, getCertificateMaterial } from "./certificate";
 import { LIBDATACHANNEL_SCTP_MAX_CHANNELS } from "./constants";
 import { kInternalConstruct } from "./errors";
-import type { SimpleEvent } from "./events";
 import { makeEvent, SimpleEventTarget } from "./events";
 import type { RTCPeerConnection } from "./peer-connection";
 import {
@@ -10,12 +9,20 @@ import {
   RTCIceCandidatePair,
   selectKnownCandidateByEndpoint,
 } from "./sdp";
+import type {
+  RTCDtlsTransportState,
+  RTCIceComponent,
+  RTCIceGatheringState,
+  RTCIceRole,
+  RTCIceTransportState,
+  RTCSctpTransportState,
+} from "./types";
 
-export type EventHandler = ((event: SimpleEvent) => unknown) | null;
+export type EventHandler = ((event: unknown) => unknown) | null;
 
 export class RTCIceTransport extends SimpleEventTarget {
   _pc: RTCPeerConnection;
-  _stateOverride: string | null;
+  _stateOverride: RTCIceTransportState | null;
   _connectionSequenceRequested: boolean;
   _connectionSequenceStarted: boolean;
   _connectionSequenceReplaying: boolean;
@@ -36,20 +43,20 @@ export class RTCIceTransport extends SimpleEventTarget {
     this.onselectedcandidatepairchange = null;
   }
 
-  get role(): string {
+  get role(): RTCIceRole {
     return this._pc._iceRole;
   }
 
-  get component(): string {
+  get component(): RTCIceComponent {
     return "rtp";
   }
 
-  get state(): string {
+  get state(): RTCIceTransportState {
     if (this._pc._closed) return "closed";
     return this._stateOverride || this._pc.iceConnectionState;
   }
 
-  get gatheringState(): string {
+  get gatheringState(): RTCIceGatheringState {
     const state = this._pc.iceGatheringState;
     if (
       state === "new" &&
@@ -161,7 +168,7 @@ export class RTCIceTransport extends SimpleEventTarget {
     return true;
   }
 
-  _forceState(state: string, { dispatch = true }: { dispatch?: boolean } = {}): void {
+  _forceState(state: RTCIceTransportState, { dispatch = true }: { dispatch?: boolean } = {}): void {
     this._connectionSequenceStarted = true;
     this._stateOverride = state;
     if (dispatch) this.dispatchEvent(makeEvent("statechange"));
@@ -183,7 +190,7 @@ export class RTCDtlsTransport extends SimpleEventTarget {
     this.onerror = null;
   }
 
-  get state(): string {
+  get state(): RTCDtlsTransportState {
     if (this._pc._closed || this._pc._remoteTransportClosed) return "closed";
     if (this._pc.connectionState === "connected" || this._pc._sctpTransport?._state === "connected")
       return "connected";
@@ -208,7 +215,7 @@ export class RTCDtlsTransport extends SimpleEventTarget {
 export class RTCSctpTransport extends SimpleEventTarget {
   _pc: RTCPeerConnection;
   _transport: RTCDtlsTransport;
-  _state: string;
+  _state: RTCSctpTransportState;
   _maxMessageSize: number | null;
   _maxChannels: number | null;
   onstatechange: EventHandler;
@@ -228,7 +235,7 @@ export class RTCSctpTransport extends SimpleEventTarget {
     return this._transport;
   }
 
-  get state(): string {
+  get state(): RTCSctpTransportState {
     return this._state;
   }
 
@@ -243,7 +250,7 @@ export class RTCSctpTransport extends SimpleEventTarget {
     return this._maxChannels;
   }
 
-  _setState(state: string): void {
+  _setState(state: RTCSctpTransportState): void {
     if (this._state === state) return;
     this._state = state;
     this.dispatchEvent(makeEvent("statechange"));

@@ -1,6 +1,7 @@
 import crypto = require("node:crypto");
 
 import { makeDOMException } from "./errors";
+import type { NativeCertificateMaterial } from "./native/binding";
 import { native } from "./native/binding";
 
 export interface CertificateFingerprint {
@@ -167,7 +168,7 @@ export function importCertificate({
     throw new TypeError("expires must be a non-negative integer timestamp");
   }
 
-  let material;
+  let material: NativeCertificateMaterial;
   try {
     material = native.importCertificate({ certificatePem, keyPem: privateKeyPem });
   } catch (error) {

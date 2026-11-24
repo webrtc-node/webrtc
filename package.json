@@ -63,7 +63,7 @@
     "prebuild:check": "node scripts/check-prebuilds.js",
     "api:check": "node scripts/check-api-surface.js",
     "test": "node --test --test-force-exit --test-timeout=60000 test/basic.test.js test/events.test.js test/signaling.test.js test/inputs.test.js test/native-send.test.js test/native-send-queue.test.js test/nonstandard.test.js test/native-loader.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
-    "types:check": "tsc -p tsconfig.types.json",
+    "types:check": "tsc -p tsconfig.types.json && tsc -p tsconfig.declarations.json",
     "wpt:ensure": "node scripts/ensure-wpt.js",
     "wpt:smoke": "node scripts/run-wpt-smoke.js",
     "wpt:smoke:check": "node scripts/check-wpt-results.js --fail-on-retries --expected-total 4",
