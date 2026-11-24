@@ -215,6 +215,13 @@ To check a release locally, package a built addon with
 platform package, installs it with the main package from local tarballs with
 lifecycle scripts disabled, and loads the addon through CommonJS and ESM.
 
+Publishing a GitHub release runs the Release workflow, which publishes every
+platform package and then the main package with `scripts/publish-npm.js`.
+The script compares each package with the registry first: a version already
+published with identical contents is skipped and a different one stops the
+run, so a partly failed publish can be rerun. The `Validate prebuild assets`
+job dry-runs the same script on every run, including manual ones.
+
 ## Package Artifact
 
 CI has a Linux `Package artifact` job that packs the npm source package,

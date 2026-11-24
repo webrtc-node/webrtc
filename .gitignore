@@ -4,6 +4,7 @@ bench/
 docs/throughput-baseline.md
 libdatachannel/
 prebuild-artifacts/
+npm-packages/
 vcpkg_installed/
 wpt/
 *.log
