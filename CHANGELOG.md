@@ -4,7 +4,7 @@ Notable changes to `@webrtc-node/webrtc`. Each release links to its GitHub
 release notes, which include the validation evidence for that version. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.3.1] - 2026-11-24
 
 ### Fixed
 
@@ -173,6 +173,7 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 First stable release, with native message batching, reduced copies on the
 binary path, and the selected WPT profile as the conformance target.
 
+[0.3.1]: https://github.com/webrtc-node/webrtc/releases/tag/v0.3.1
 [0.3.0]: https://github.com/webrtc-node/webrtc/releases/tag/v0.3.0
 [0.2.6]: https://github.com/webrtc-node/webrtc/releases/tag/v0.2.6
 [0.2.5]: https://github.com/webrtc-node/webrtc/releases/tag/v0.2.5
