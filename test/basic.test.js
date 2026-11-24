@@ -8,6 +8,7 @@ const {
   RTCIceTransport,
   RTCSctpTransport,
   RTCCertificate,
+  RTCDataChannel,
   RTCDataChannelEvent,
   Event,
   EventTarget,
@@ -339,6 +340,8 @@ test("createDataChannel exposes core W3C attributes before negotiation", () => {
     maxRetransmits: 3,
     protocol: "test-protocol",
   });
+  assert.equal(RTCDataChannel.length, 0);
+  assert.throws(() => new RTCDataChannel(pc, dc._native), TypeError);
 
   assert.equal(dc.label, "chat");
   assert.equal(dc.ordered, false);
@@ -551,6 +554,17 @@ test("RTCDataChannel bufferedAmountLowThreshold uses unsigned long conversion", 
   assert.equal(dc.bufferedAmountLowThreshold, 1);
   dc.bufferedAmountLowThreshold = Number.NaN;
   assert.equal(dc.bufferedAmountLowThreshold, 0);
+  dc.bufferedAmountLowThreshold = {
+    valueOf: () => 5,
+    get [Symbol.toStringTag]() {
+      throw new Error("unexpected toStringTag lookup");
+    },
+  };
+  assert.equal(dc.bufferedAmountLowThreshold, 5);
+  assert.throws(() => {
+    dc.bufferedAmountLowThreshold = { valueOf: () => 1n };
+  }, TypeError);
+  assert.equal(dc.bufferedAmountLowThreshold, 5);
 
   assert.throws(() => {
     dc.bufferedAmountLowThreshold = 1n;
@@ -790,6 +804,8 @@ test("createDataChannel rejects duplicate negotiated ids until the channel close
   first.close();
   await closed;
 
+  assert.equal(first.id, 7);
+  assert.equal(pc._usedDataChannelIds.has(7), false);
   const reused = pc.createDataChannel("reused", { negotiated: true, id: 7 });
   assert.equal(reused.id, 7);
   pc.close();
@@ -1133,6 +1149,42 @@ test("remote peer failure does not discard messages already received", async (t)
     await closed;
     assert.deepEqual(events, ["last message", "sctp-failure", "close"]);
   }
+});
+
+test("each binary message in a native batch uses the receiver's current binaryType", (t) => {
+  const pc = new RTCPeerConnection();
+  t.after(() => pc.close());
+  const channel = pc.createDataChannel("binary-type");
+  const received = [];
+  channel.onmessage = ({ data }) => {
+    received.push(data);
+    channel.binaryType = received.length === 1 ? "blob" : "arraybuffer";
+  };
+  const id = channel._native.bindingId;
+  const bytes = Uint8Array.of(7).buffer;
+  pc._handleNativeMessages(Uint32Array.of(id, id, id), [bytes, bytes, bytes]);
+  assert.deepEqual(
+    received.map((value) => value.constructor),
+    [ArrayBuffer, Blob, ArrayBuffer],
+  );
+});
+
+test("peer close discards pending and late native message batches", (t) => {
+  const pc = new RTCPeerConnection();
+  t.after(() => pc.close());
+  const channel = pc.createDataChannel("close-during-batch");
+  const id = channel._native.bindingId;
+  const unknownId = id + 1;
+  pc._handleNativeMessages(Uint32Array.of(unknownId), ["before announcement"]);
+  assert.equal(pc._pendingNativeDataChannelEvents.size, 1);
+  channel.onmessage = () => pc.close();
+  pc._handleNativeMessages(Uint32Array.of(id, id, unknownId, unknownId), [
+    "close",
+    "late",
+    "late",
+    "late",
+  ]);
+  assert.equal(pc._pendingNativeDataChannelEvents.size, 0);
 });
 
 test("native message batches do not overtake queued messages", async (t) => {

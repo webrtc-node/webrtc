@@ -2,6 +2,7 @@ import crypto = require("node:crypto");
 
 import { defineReadonly, kInternalConstruct, makeDOMException, RTCError } from "./errors";
 import type { RTCSdpType } from "./types";
+import { normalizeEnum, toDictionary, toDOMString } from "./webidl";
 
 // Any object with SDP, such as RTCSessionDescription or a plain description.
 export interface SdpDescriptionLike {
@@ -59,10 +60,17 @@ export function normalizeDescription(init: unknown): RTCSessionDescription {
   return new RTCSessionDescription(init);
 }
 
-export function validateSdpType(type: string): asserts type is RTCSdpType {
-  if (!["offer", "answer", "pranswer", "rollback"].includes(type)) {
-    throw new TypeError(`Invalid RTCSdpType: ${type}`);
-  }
+export function normalizeLocalDescriptionInit(init: unknown): { type?: RTCSdpType; sdp: string } {
+  const input = toDictionary(init, "Session description");
+  const sdpValue = input.sdp;
+  const sdp = sdpValue === undefined ? "" : toDOMString(sdpValue);
+  const type = normalizeEnum(
+    input.type,
+    "RTCSdpType",
+    ["offer", "answer", "pranswer", "rollback"],
+    undefined,
+  );
+  return { type, sdp };
 }
 
 export function isNoMediaSdp(description: MaybeDescription): boolean {
@@ -162,13 +170,10 @@ export class RTCSessionDescription {
   sdp: string;
 
   constructor(init: unknown) {
-    if (!init || typeof init !== "object")
-      throw new TypeError("RTCSessionDescriptionInit required");
-    const input = init as Dictionary;
-    const type = String(input.type || "");
-    validateSdpType(type);
+    const { type, sdp } = normalizeLocalDescriptionInit(init);
+    if (type === undefined) throw new TypeError("RTCSessionDescriptionInit.type is required");
     this.type = type;
-    this.sdp = String(input.sdp || "");
+    this.sdp = sdp;
   }
 
   toJSON(): { type: RTCSdpType; sdp: string } {

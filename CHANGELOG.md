@@ -34,6 +34,19 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `Native send queue is full`; each data channel has its own bounded backlog.
 - The same-process pairing registry stays bounded for peers that renegotiate
   repeatedly.
+- `createDataChannel()` and `setLocalDescription()` convert their arguments as
+  WebIDL requires: dictionary members are read once in order, `null` numeric
+  members such as `maxRetransmits: null` mean `0` rather than unset, and labels
+  and protocols become well-formed strings.
+- `setLocalDescription({})` and `{ type: "pranswer" }` without SDP use the
+  current last-created offer or answer, and a cached offer created before the
+  first data channel is replaced by one with a data section.
+- `new RTCDataChannel()` throws `TypeError`, since only peer connections create
+  data channels.
+- Closing a peer connection or data channel discards messages and native
+  events still queued for it.
+- TypeScript: `addEventListener()` on peer connections and data channels types
+  the event for each known event name.
 
 ### Performance
 

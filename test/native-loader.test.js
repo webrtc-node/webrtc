@@ -36,17 +36,21 @@ function installedLayout(t, platformVersion) {
       JSON.stringify({ name, version: platformVersion }),
     );
   }
-  return { loader: path.join(main, "dist", "native", "load.js"), name };
+  return { main, loader: path.join(main, "dist", "native", "load.js"), name };
 }
 
-function load(loader) {
+function load(loader, override = "") {
   return spawnSync(
     process.execPath,
     [
       "-e",
       `const native = require(${JSON.stringify(loader)}).loadNative(); console.log(typeof native.generateCertificate);`,
     ],
-    { encoding: "utf8", env: { ...process.env, WEBRTC_NODE_NATIVE_PATH: "" }, windowsHide: true },
+    {
+      encoding: "utf8",
+      env: { ...process.env, WEBRTC_NODE_NATIVE_PATH: override },
+      windowsHide: true,
+    },
   );
 }
 
@@ -62,6 +66,17 @@ test("the loader rejects a platform package with a different version", (t) => {
   const result = load(loader);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, new RegExp(`${name}@0\\.0\\.0-mismatch does not match`));
+});
+
+test("an override or local build takes precedence over a stale platform package", (t) => {
+  const { main, loader } = installedLayout(t, "0.0.0-mismatch");
+  const overridden = load(loader, builtAddon);
+  assert.equal(overridden.status, 0, overridden.stderr);
+  const release = path.join(main, "build", "Release");
+  fs.mkdirSync(release, { recursive: true });
+  fs.copyFileSync(builtAddon, path.join(release, "webrtc_node.node"));
+  const local = load(loader);
+  assert.equal(local.status, 0, local.stderr);
 });
 
 test("a missing platform package names the optional dependency to install", (t) => {

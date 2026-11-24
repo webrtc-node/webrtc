@@ -4,6 +4,7 @@ import {
   MessageEvent,
   nonstandard,
   type RTCCertificate,
+  RTCDataChannel,
   type RTCDataChannelEvent,
   type RTCDtlsTransport,
   RTCError,
@@ -62,6 +63,13 @@ const certificatePromise: Promise<RTCCertificate> = RTCPeerConnection.generateCe
 // @ts-expect-error string-form certificate algorithms are not supported.
 RTCPeerConnection.generateCertificate("ECDSA");
 const pc = new RTCPeerConnection();
+pc.setLocalDescription({});
+pc.setLocalDescription({ sdp: description.sdp });
+pc.setLocalDescription(null);
+// @ts-expect-error A remote description requires a type.
+pc.setRemoteDescription({ sdp: description.sdp });
+// @ts-expect-error Data channels are created by peer connections.
+new RTCDataChannel();
 const iterableConfiguration = {
   iceServers: new Set([{ urls: new Set(["stun:example.org"]) }]),
   certificates: new Set<RTCCertificate>(),
@@ -83,6 +91,32 @@ const iceError = new RTCPeerConnectionIceErrorEvent("icecandidateerror", {
 });
 const iceErrorCode: number = iceError.errorCode;
 const channel = pc.createDataChannel("typed");
+const peerTarget: EventTarget = pc;
+const channelTarget: EventTarget = channel;
+void peerTarget;
+void channelTarget;
+pc.createDataChannel("defaults", null);
+pc.addEventListener("icecandidate", (received) => {
+  received.candidate?.toJSON();
+});
+pc.addEventListener("datachannel", {
+  handleEvent(received) {
+    received.channel.close();
+  },
+});
+const receiveMessage = (received: MessageEvent) => {
+  void received.data;
+};
+channel.addEventListener("message", receiveMessage, { once: true });
+channel.removeEventListener("message", receiveMessage);
+channel.addEventListener("error", (received) => {
+  void received.error?.errorDetail;
+});
+channel.addEventListener("custom", (received) => {
+  received.preventDefault();
+  // @ts-expect-error A custom event has no declared message payload.
+  void received.data;
+});
 const maybeSctp: RTCSctpTransport | null = pc.sctp;
 const maybeDtls: RTCDtlsTransport | undefined = maybeSctp?.transport;
 const maybeIce: RTCIceTransport | undefined = maybeDtls?.iceTransport;

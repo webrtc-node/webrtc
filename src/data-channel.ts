@@ -10,7 +10,7 @@ import {
   NATIVE_CLOSE_SUPPRESSION_WINDOW_MS,
   REMOTE_CLOSE_MESSAGE_GRACE_MS,
 } from "./constants";
-import { makeDOMException, mapNativeError, RTCError } from "./errors";
+import { kInternalConstruct, makeDOMException, mapNativeError, RTCError } from "./errors";
 import type { EventListenerValue } from "./events";
 import {
   dispatchDirectEvent,
@@ -22,7 +22,14 @@ import {
 import type { NativeDataChannel, NativeDataChannelEvent } from "./native/binding";
 import type { RTCPeerConnection } from "./peer-connection";
 import { delay } from "./timing";
-import { byteLength, enforceRange, toUint8Array, toUnsignedLong } from "./webidl";
+import {
+  byteLength,
+  enforceRange,
+  toDictionary,
+  toUint8Array,
+  toUnsignedLong,
+  toUSVString,
+} from "./webidl";
 
 export type RTCDataChannelState = "connecting" | "open" | "closing" | "closed";
 export type BinaryType = "arraybuffer" | "blob";
@@ -40,11 +47,11 @@ export type ChannelEvent = NativeDataChannelEvent | (MessagePayload & { type: "m
 
 export interface NormalizedDataChannelInit {
   ordered: boolean;
-  maxPacketLifeTime: number | null | undefined;
-  maxRetransmits: number | null | undefined;
+  maxPacketLifeTime?: number;
+  maxRetransmits?: number;
   protocol: string;
   negotiated: boolean;
-  id: number | null | undefined;
+  id?: number;
 }
 
 type SendOperation = () => unknown;
@@ -203,6 +210,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     assignedId: number | null = null,
   ): RTCDataChannel {
     const channel = new RTCDataChannel(
+      kInternalConstruct,
       peerConnection,
       nativeChannel,
       initialReadyState,
@@ -216,12 +224,14 @@ export class RTCDataChannel extends SimpleEventTarget {
     return channel;
   }
 
-  constructor(
+  private constructor(
+    token: typeof kInternalConstruct | undefined = undefined,
     peerConnection: RTCPeerConnection,
     nativeChannel: NativeDataChannel,
     initialReadyState: RTCDataChannelState | undefined = undefined,
     assignedId: number | null = null,
   ) {
+    if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     super();
     this._pc = peerConnection;
     this._native = nativeChannel;
@@ -870,6 +880,9 @@ export class RTCDataChannel extends SimpleEventTarget {
     if (this._readyState === "closed") return;
     const id = this._effectiveId();
     this._readyState = "closed";
+    this._queuedNativeEvents.length = 0;
+    this._queuedMessageEvents.length = 0;
+    this._queuedMessageEventIndex = 0;
     if (this._pairedChannel?._pairedChannel === this) this._pairedChannel._pairedChannel = null;
     this._pairedChannel = null;
     this._pc._unregisterDataChannelId(this);
@@ -1128,17 +1141,13 @@ export class RTCDataChannel extends SimpleEventTarget {
       : null;
     if (!directHandler) return false;
 
-    const shouldCreateBlob = this._binaryType === "blob" && typeof Blob !== "undefined";
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
       if (this._markPairedDeliveryReceived(event)) {
         this._queueMessageEvents(events.slice(index));
         return true;
       }
-      const messageEvent = makeDataMessageEvent(
-        event.binary && shouldCreateBlob ? new Blob([event.data]) : event.data,
-      );
-      dispatchDirectEvent(this, messageEvent, directHandler);
+      this._dispatchMessageEvent(event, directHandler);
       if ((this._readyState as RTCDataChannelState) === "closed") return true;
       if (
         index + 1 < events.length &&
@@ -1198,45 +1207,25 @@ export class RTCDataChannel extends SimpleEventTarget {
   }
 }
 
-export function normalizeDataChannelInit(init: unknown): NormalizedDataChannelInit {
-  const input = init as Record<string, unknown>;
-  // Raw values until each one is range-checked below.
-  const options: {
-    ordered: boolean;
-    maxPacketLifeTime: unknown;
-    maxRetransmits: unknown;
-    protocol: string;
-    negotiated: boolean;
-    id: unknown;
-  } = {
-    ordered: input.ordered !== undefined ? Boolean(input.ordered) : true,
-    maxPacketLifeTime: input.maxPacketLifeTime,
-    maxRetransmits: input.maxRetransmits,
-    protocol: input.protocol === undefined ? "" : String(input.protocol),
-    negotiated: input.negotiated !== undefined ? Boolean(input.negotiated) : false,
-    id: input.id,
-  };
+function optionalUnsignedShort(value: unknown, name: string): number | undefined {
+  return value === undefined ? undefined : enforceRange(value, name);
+}
 
-  if (options.maxPacketLifeTime != null) {
-    options.maxPacketLifeTime = enforceRange(options.maxPacketLifeTime, "maxPacketLifeTime");
-  }
-  if (options.maxRetransmits != null) {
-    options.maxRetransmits = enforceRange(options.maxRetransmits, "maxRetransmits");
-  }
-  if (options.maxPacketLifeTime != null && options.maxRetransmits != null) {
-    throw new TypeError("maxPacketLifeTime and maxRetransmits are mutually exclusive");
-  }
-  if (options.id != null) {
-    options.id = enforceRange(options.id, "id", 65535);
-  }
-  if (options.negotiated && options.id == null) {
-    throw new TypeError("negotiated RTCDataChannel requires an id");
-  }
-  if (options.negotiated && (options.id as number) > 65534) {
-    throw new TypeError("id must be an integer between 0 and 65534");
-  }
-  if (!options.negotiated) {
-    options.id = undefined;
-  }
-  return options as NormalizedDataChannelInit;
+export function normalizeDataChannelInit(init: unknown): NormalizedDataChannelInit {
+  const input = toDictionary(init, "RTCDataChannelInit");
+  // WebIDL gets and converts each member before looking up the next one.
+  const id = optionalUnsignedShort(input.id, "id");
+  const maxPacketLifeTime = optionalUnsignedShort(input.maxPacketLifeTime, "maxPacketLifeTime");
+  const maxRetransmits = optionalUnsignedShort(input.maxRetransmits, "maxRetransmits");
+  const negotiated = Boolean(input.negotiated);
+  const ordered = input.ordered;
+  const protocol = input.protocol;
+  return {
+    id: negotiated ? id : undefined,
+    maxPacketLifeTime,
+    maxRetransmits,
+    negotiated,
+    ordered: ordered === undefined || Boolean(ordered),
+    protocol: protocol === undefined ? "" : toUSVString(protocol),
+  };
 }

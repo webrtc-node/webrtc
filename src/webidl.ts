@@ -1,4 +1,4 @@
-import { types } from "node:util";
+import { types, toUSVString as wellFormedString } from "node:util";
 
 type Getter<This, Value> = (this: This) => Value;
 
@@ -68,14 +68,7 @@ export function enforceRange(value: unknown, name: string, max = 65535): number 
 }
 
 export function toUnsignedLong(value: unknown): number {
-  if (typeof value === "bigint" || Object.prototype.toString.call(value) === "[object BigInt]") {
-    throw new TypeError("Cannot convert BigInt to unsigned long");
-  }
-  const number = Number(value);
-  if (!Number.isFinite(number) || number === 0) return 0;
-  const integer = Math.trunc(number);
-  const modulo = 2 ** 32;
-  return ((integer % modulo) + modulo) % modulo;
+  return (value as number) >>> 0;
 }
 
 export function validateByteLength(value: unknown, name: string): void {
@@ -102,9 +95,19 @@ export function isObject(value: unknown): value is object {
   return value !== null && (typeof value === "object" || typeof value === "function");
 }
 
+export function toDictionary(value: unknown, name: string): Record<string, unknown> {
+  if (value == null) return {};
+  if (!isObject(value)) throw new TypeError(`${name} must be an object`);
+  return value as Record<string, unknown>;
+}
+
 export function toDOMString(value: unknown): string {
   if (typeof value === "symbol") throw new TypeError("Cannot convert a Symbol to a string");
   return String(value);
+}
+
+export function toUSVString(value: unknown): string {
+  return wellFormedString(toDOMString(value));
 }
 
 export function sequenceFromIterator<T>(
