@@ -1,5 +1,3 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
 export const CLOSE_FLUSH_DELAY_MS = 50;
 export const CLOSE_FLUSH_POLL_INTERVAL_MS = 25;
 export const CLOSE_FLUSH_TIMEOUT_MS = 60000;

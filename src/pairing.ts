@@ -1,11 +1,13 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
+import type { RTCPeerConnection } from "./peer-connection";
 
-export const localDescriptionOwners = new Map();
-export const localDescriptionOwnerFinalizer = new FinalizationRegistry((key) => {
+export const localDescriptionOwners = new Map<string, WeakRef<RTCPeerConnection>>();
+export const localDescriptionOwnerFinalizer = new FinalizationRegistry<string>((key) => {
   if (!localDescriptionOwners.get(key)?.deref()) localDescriptionOwners.delete(key);
 });
 
-export function descriptionPairingKey(description) {
+export function descriptionPairingKey(
+  description: { type?: unknown; sdp?: unknown } | null | undefined,
+): string | null {
   if (!description || typeof description.sdp !== "string" || !description.sdp) return null;
   return `${description.type}\n${description.sdp}`;
 }

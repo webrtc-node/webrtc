@@ -1,5 +1,4 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
+import type { RTCCertificate } from "./certificate";
 import { certificateMaterial } from "./certificate";
 import { makeDOMException } from "./errors";
 import {
@@ -12,7 +11,24 @@ import {
   toDOMString,
 } from "./webidl";
 
-export function validateIceServerUrl(url) {
+export interface NormalizedIceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+export interface NormalizedConfiguration {
+  iceServers: NormalizedIceServer[];
+  iceTransportPolicy: "all" | "relay";
+  bundlePolicy: "balanced" | "max-compat" | "max-bundle";
+  rtcpMuxPolicy: "require";
+  iceCandidatePoolSize: number;
+  certificates: RTCCertificate[];
+}
+
+type Dictionary = Record<string | symbol, unknown>;
+
+export function validateIceServerUrl(url: unknown): void {
   if (typeof url !== "string") throw new TypeError("RTCIceServer.urls must contain strings");
   const match = /^([a-z][a-z0-9+.-]*):(.*)$/i.exec(url);
   if (!match) throw makeDOMException("Invalid ICE server URL", "SyntaxError");
@@ -73,28 +89,33 @@ export function validateIceServerUrl(url) {
   }
 }
 
-export function normalizeIceServers(iceServers) {
+export function normalizeIceServers(iceServers: unknown): NormalizedIceServer[] {
   if (iceServers === undefined) return [];
   return normalizeSequence(
     iceServers,
     (server) => {
       if (!isObject(server)) throw new TypeError("RTCIceServer must be an object");
-      const credentialValue = server.credential;
+      const entry = server as Dictionary;
+      const credentialValue = entry.credential;
       const credential = credentialValue === undefined ? undefined : toDOMString(credentialValue);
-      const urlsValue = server.urls;
+      const urlsValue = entry.urls;
       if (urlsValue === undefined) {
         throw new TypeError("RTCIceServer.urls is required");
       }
-      let urls;
-      const iterator = isObject(urlsValue) ? urlsValue[Symbol.iterator] : undefined;
+      let urls: string[];
+      const iterator = isObject(urlsValue) ? (urlsValue as Dictionary)[Symbol.iterator] : undefined;
       if (iterator != null) {
         if (typeof iterator !== "function")
           throw new TypeError("RTCIceServer.urls iterator must be callable");
-        urls = sequenceFromIterator(urlsValue, iterator, toDOMString);
+        urls = sequenceFromIterator(
+          urlsValue,
+          iterator as (...args: unknown[]) => Iterator<unknown>,
+          toDOMString,
+        );
       } else {
         urls = [toDOMString(urlsValue)];
       }
-      const usernameValue = server.username;
+      const usernameValue = entry.username;
       const username = usernameValue === undefined ? undefined : toDOMString(usernameValue);
       if (urls.length === 0)
         throw makeDOMException("RTCIceServer.urls must not be empty", "SyntaxError");
@@ -113,7 +134,7 @@ export function normalizeIceServers(iceServers) {
         }
       }
 
-      const normalized = { urls };
+      const normalized: NormalizedIceServer = { urls };
       if (username !== undefined) normalized.username = username;
       if (credential !== undefined) normalized.credential = credential;
       return normalized;
@@ -122,47 +143,46 @@ export function normalizeIceServers(iceServers) {
   );
 }
 
-export function normalizePeerConnectionConfiguration(configuration, previous = null) {
+export function normalizePeerConnectionConfiguration(
+  configuration: unknown,
+  previous: NormalizedConfiguration | null = null,
+): NormalizedConfiguration {
   if (configuration == null) configuration = {};
   if (!isObject(configuration)) throw new TypeError("RTCConfiguration must be an object");
+  const input = configuration as Dictionary;
   const bundlePolicy = normalizeEnum(
-    configuration.bundlePolicy,
+    input.bundlePolicy,
     "bundlePolicy",
     ["balanced", "max-compat", "max-bundle"],
     "balanced",
   );
-  const certificatesValue = configuration.certificates;
+  const certificatesValue = input.certificates;
   const certificates =
     certificatesValue === undefined
       ? previous?.certificates || []
       : normalizeSequence(
           certificatesValue,
           (certificate) => {
-            if (!certificateMaterial.has(certificate)) {
+            if (!certificateMaterial.has(certificate as RTCCertificate)) {
               throw new TypeError(
                 "certificates must contain generated or imported RTCCertificate objects",
               );
             }
-            return certificate;
+            return certificate as RTCCertificate;
           },
           "certificates",
         );
-  const poolSizeValue = configuration.iceCandidatePoolSize;
+  const poolSizeValue = input.iceCandidatePoolSize;
   const iceCandidatePoolSize =
     poolSizeValue === undefined ? 0 : enforceRange(poolSizeValue, "iceCandidatePoolSize", 255);
-  const iceServers = normalizeIceServers(configuration.iceServers);
+  const iceServers = normalizeIceServers(input.iceServers);
   const iceTransportPolicy = normalizeEnum(
-    configuration.iceTransportPolicy,
+    input.iceTransportPolicy,
     "iceTransportPolicy",
     ["all", "relay"],
     "all",
   );
-  const rtcpMuxPolicy = normalizeEnum(
-    configuration.rtcpMuxPolicy,
-    "rtcpMuxPolicy",
-    ["require"],
-    "require",
-  );
+  const rtcpMuxPolicy = normalizeEnum(input.rtcpMuxPolicy, "rtcpMuxPolicy", ["require"], "require");
   for (const certificate of certificates) {
     if (
       (certificatesValue !== undefined || previous === null) &&
@@ -181,7 +201,9 @@ export function normalizePeerConnectionConfiguration(configuration, previous = n
   };
 }
 
-export function cloneConfiguration(configuration) {
+export function cloneConfiguration(
+  configuration: NormalizedConfiguration,
+): NormalizedConfiguration {
   return {
     iceServers: configuration.iceServers.map((server) => ({ ...server, urls: [...server.urls] })),
     iceTransportPolicy: configuration.iceTransportPolicy,

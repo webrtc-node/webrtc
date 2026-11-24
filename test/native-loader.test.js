@@ -44,7 +44,7 @@ function load(loader) {
     process.execPath,
     [
       "-e",
-      `const native = require(${JSON.stringify(loader)}); console.log(typeof native.generateCertificate);`,
+      `const native = require(${JSON.stringify(loader)}).loadNative(); console.log(typeof native.generateCertificate);`,
     ],
     { encoding: "utf8", env: { ...process.env, WEBRTC_NODE_NATIVE_PATH: "" }, windowsHide: true },
   );

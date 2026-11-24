@@ -1,8 +1,6 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
+export const kInternalConstruct: unique symbol = Symbol("internalConstruct");
 
-export const kInternalConstruct = Symbol("internalConstruct");
-
-export function makeDOMException(message, name) {
+export function makeDOMException(message: string, name: string): Error {
   if (typeof globalThis.DOMException === "function") {
     return new globalThis.DOMException(message, name);
   }
@@ -11,13 +9,30 @@ export function makeDOMException(message, name) {
   return error;
 }
 
-export function mapNativeError(error, fallbackName = "OperationError") {
-  if (error?.name && error.name !== "Error") return error;
-  return makeDOMException(error?.message || String(error), fallbackName);
+export function mapNativeError(error: unknown, fallbackName = "OperationError"): Error {
+  const value = error as { name?: string; message?: string } | null | undefined;
+  if (value?.name && value.name !== "Error") return error as Error;
+  return makeDOMException(value?.message || String(error), fallbackName);
+}
+
+export interface RTCErrorInit {
+  errorDetail: string;
+  sdpLineNumber?: number | null;
+  sctpCauseCode?: number | null;
+  receivedAlert?: number | null;
+  sentAlert?: number | null;
 }
 
 export class RTCError extends Error {
-  constructor(init, message = "") {
+  // Set as read-only own properties in the constructor.
+  declare readonly code: number;
+  declare readonly errorDetail: string;
+  declare readonly sdpLineNumber: number | null;
+  declare readonly sctpCauseCode: number | null;
+  declare readonly receivedAlert: number | null;
+  declare readonly sentAlert: number | null;
+
+  constructor(init: RTCErrorInit, message = "") {
     if (!init || typeof init !== "object" || init.errorDetail === undefined) {
       throw new TypeError("RTCErrorInit.errorDetail is required");
     }
@@ -46,7 +61,7 @@ export class RTCError extends Error {
   }
 }
 
-export function defineReadonly(target, name, value) {
+export function defineReadonly(target: object, name: PropertyKey, value: unknown): void {
   Object.defineProperty(target, name, {
     value,
     enumerable: true,

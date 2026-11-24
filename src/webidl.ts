@@ -1,52 +1,73 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
+import { types } from "node:util";
 
-const { types } = require("node:util");
+type Getter<This, Value> = (this: This) => Value;
 
-export const arrayBufferByteLength = Object.getOwnPropertyDescriptor(
+function intrinsicGetter<This, Value>(target: object, name: string): Getter<This, Value> {
+  const getter = Object.getOwnPropertyDescriptor(target, name)?.get;
+  if (!getter) throw new TypeError(`Missing intrinsic accessor ${name}`);
+  return getter as Getter<This, Value>;
+}
+
+function optionalGetter<This, Value>(
+  target: object,
+  name: string,
+): Getter<This, Value> | undefined {
+  return Object.getOwnPropertyDescriptor(target, name)?.get as Getter<This, Value> | undefined;
+}
+
+// Intrinsic accessors, captured once so user code cannot shadow them.
+export const arrayBufferByteLength = intrinsicGetter<ArrayBufferLike, number>(
   ArrayBuffer.prototype,
   "byteLength",
-).get;
-export const arrayBufferResizable = Object.getOwnPropertyDescriptor(
+);
+export const arrayBufferResizable = optionalGetter<ArrayBufferLike, boolean>(
   ArrayBuffer.prototype,
   "resizable",
-)?.get;
-export const arrayBufferDetached = Object.getOwnPropertyDescriptor(
+);
+export const arrayBufferDetached = optionalGetter<ArrayBufferLike, boolean>(
   ArrayBuffer.prototype,
   "detached",
-)?.get;
-export const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
-export const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
-export const typedArrayByteOffset = Object.getOwnPropertyDescriptor(
+);
+export const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
+export const typedArrayBuffer = intrinsicGetter<ArrayBufferView, ArrayBufferLike>(
+  typedArrayPrototype,
+  "buffer",
+);
+export const typedArrayByteOffset = intrinsicGetter<ArrayBufferView, number>(
   typedArrayPrototype,
   "byteOffset",
-).get;
-export const typedArrayByteLength = Object.getOwnPropertyDescriptor(
+);
+export const typedArrayByteLength = intrinsicGetter<ArrayBufferView, number>(
   typedArrayPrototype,
   "byteLength",
-).get;
-export const dataViewBuffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer").get;
-export const dataViewByteOffset = Object.getOwnPropertyDescriptor(
+);
+export const dataViewBuffer = intrinsicGetter<ArrayBufferView, ArrayBufferLike>(
+  DataView.prototype,
+  "buffer",
+);
+export const dataViewByteOffset = intrinsicGetter<ArrayBufferView, number>(
   DataView.prototype,
   "byteOffset",
-).get;
-export const dataViewByteLength = Object.getOwnPropertyDescriptor(
+);
+export const dataViewByteLength = intrinsicGetter<ArrayBufferView, number>(
   DataView.prototype,
   "byteLength",
-).get;
+);
 
-export function byteLength(value) {
+export function byteLength(value: unknown): number {
   return Buffer.byteLength(String(value), "utf8");
 }
 
-export function enforceRange(value, name, max = 65535) {
-  const number = Math.trunc(+value);
+export function enforceRange(value: unknown, name: string, max = 65535): number {
+  // Unary plus, unlike Number(), throws for a BigInt as WebIDL requires.
+  const number = Math.trunc(+(value as number));
   if (!Number.isFinite(number) || number < 0 || number > max) {
     throw new TypeError(`${name} must be an integer between 0 and ${max}`);
   }
   return number === 0 ? 0 : number;
 }
 
-export function toUnsignedLong(value) {
+export function toUnsignedLong(value: unknown): number {
   if (typeof value === "bigint" || Object.prototype.toString.call(value) === "[object BigInt]") {
     throw new TypeError("Cannot convert BigInt to unsigned long");
   }
@@ -57,45 +78,62 @@ export function toUnsignedLong(value) {
   return ((integer % modulo) + modulo) % modulo;
 }
 
-export function validateByteLength(value, name) {
+export function validateByteLength(value: unknown, name: string): void {
   if (byteLength(value) > 65535) {
     throw new TypeError(`${name} exceeds 65535 bytes`);
   }
 }
 
-export function normalizeEnum(value, name, allowed, defaultValue) {
+export function normalizeEnum<T extends string, D>(
+  value: unknown,
+  name: string,
+  allowed: readonly T[],
+  defaultValue: D,
+): T | D {
   if (value === undefined) return defaultValue;
   const string = toDOMString(value);
-  if (!allowed.includes(string)) {
+  if (!(allowed as readonly string[]).includes(string)) {
     throw new TypeError(`${name} must be one of: ${allowed.join(", ")}`);
   }
-  return string;
+  return string as T;
 }
 
-export function isObject(value) {
+export function isObject(value: unknown): value is object {
   return value !== null && (typeof value === "object" || typeof value === "function");
 }
 
-export function toDOMString(value) {
+export function toDOMString(value: unknown): string {
   if (typeof value === "symbol") throw new TypeError("Cannot convert a Symbol to a string");
   return String(value);
 }
 
-export function sequenceFromIterator(value, iterator, convert) {
+export function sequenceFromIterator<T>(
+  value: unknown,
+  iterator: (...args: unknown[]) => Iterator<unknown>,
+  convert: (item: unknown, index: number) => T,
+): T[] {
   return Array.from({ [Symbol.iterator]: () => Reflect.apply(iterator, value, []) }, convert);
 }
 
-export function normalizeSequence(value, convert, name) {
+export function normalizeSequence<T>(
+  value: unknown,
+  convert: (item: unknown, index: number) => T,
+  name: string,
+): T[] {
   if (!isObject(value)) throw new TypeError(`${name} must be iterable`);
-  const iterator = value[Symbol.iterator];
+  const iterator = (value as { [Symbol.iterator]?: unknown })[Symbol.iterator];
   if (typeof iterator !== "function") throw new TypeError(`${name} must be iterable`);
-  return sequenceFromIterator(value, iterator, convert);
+  return sequenceFromIterator(
+    value,
+    iterator as (...args: unknown[]) => Iterator<unknown>,
+    convert,
+  );
 }
 
-export function toUint8Array(data) {
+export function toUint8Array(data: unknown): Uint8Array {
   const isBuffer = types.isArrayBuffer(data);
   const isDataView = types.isDataView(data);
-  let buffer;
+  let buffer: ArrayBufferLike;
   if (isBuffer) {
     buffer = data;
   } else if (ArrayBuffer.isView(data)) {
@@ -123,9 +161,10 @@ export function toUint8Array(data) {
     }
   }
   if (isBuffer) return new Uint8Array(buffer);
+  const view = data as ArrayBufferView;
   return new Uint8Array(
     buffer,
-    (isDataView ? dataViewByteOffset : typedArrayByteOffset).call(data),
-    (isDataView ? dataViewByteLength : typedArrayByteLength).call(data),
+    (isDataView ? dataViewByteOffset : typedArrayByteOffset).call(view),
+    (isDataView ? dataViewByteLength : typedArrayByteLength).call(view),
   );
 }

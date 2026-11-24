@@ -1,16 +1,14 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-"use strict";
+import fs = require("node:fs");
+import path = require("node:path");
 
-const fs = require("node:fs");
-const path = require("node:path");
-const { currentTarget, platformPackageName } = require("./target");
+import { currentTarget, platformPackageName } from "./target";
 
 // Compiled to dist/native, two levels below the package root.
 const root = path.resolve(__dirname, "..", "..");
 const moduleName = "webrtc_node.node";
-const { version } = require("../../package.json");
+const { version } = require("../../package.json") as { version: string };
 
-function localBuildCandidates() {
+function localBuildCandidates(): string[] {
   return [
     path.join(root, "build", "Release", moduleName),
     path.join(root, "build", "Debug", moduleName),
@@ -18,14 +16,14 @@ function localBuildCandidates() {
 }
 
 // The prebuilt binary comes from the optional dependency matching this platform.
-function platformPackageCandidate(name) {
-  let manifest;
+function platformPackageCandidate(name: string): string | null {
+  let manifest: string;
   try {
     manifest = require.resolve(`${name}/package.json`, { paths: [root] });
   } catch {
     return null;
   }
-  const installed = require(manifest).version;
+  const installed = (require(manifest) as { version: string }).version;
   if (installed !== version) {
     throw new Error(
       `${name}@${installed} does not match @webrtc-node/webrtc@${version}. ` +
@@ -35,7 +33,8 @@ function platformPackageCandidate(name) {
   return path.join(path.dirname(manifest), moduleName);
 }
 
-function loadNative() {
+// Loads the first native addon found; see docs/development.md for the order.
+export function loadNative(): unknown {
   const target = currentTarget();
   const packageName = platformPackageName(target);
   const override = process.env.WEBRTC_NODE_NATIVE_PATH;
@@ -43,14 +42,15 @@ function loadNative() {
     ...(override ? [path.resolve(override)] : []),
     ...localBuildCandidates(),
     platformPackageCandidate(packageName),
-  ].filter(Boolean);
+  ].filter((candidate): candidate is string => Boolean(candidate));
 
   for (const candidate of candidates) {
     if (!fs.existsSync(candidate)) continue;
     try {
       return require(candidate);
     } catch (error) {
-      error.message = `Failed to load native addon at ${candidate}: ${error.message}`;
+      (error as Error).message =
+        `Failed to load native addon at ${candidate}: ${(error as Error).message}`;
       throw error;
     }
   }
@@ -65,5 +65,3 @@ function loadNative() {
       "WEBRTC_NODE_NATIVE_PATH; see docs/development.md.",
   );
 }
-
-module.exports = loadNative();

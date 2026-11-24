@@ -1,12 +1,18 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-"use strict";
+import libc = require("detect-libc");
 
-const libc = require("detect-libc");
+export type LinuxLibc = "glibc" | "musl";
+
+export interface PrebuiltTarget {
+  target: string;
+  os: NodeJS.Platform;
+  cpu: NodeJS.Architecture;
+  libc?: LinuxLibc;
+}
 
 // Every target with a prebuilt binary. Each one is published as its own npm
 // package that declares os, cpu, and libc, so package managers install only
 // the matching binary and no install script is needed.
-const PREBUILT_TARGETS = [
+export const PREBUILT_TARGETS: readonly PrebuiltTarget[] = [
   { target: "linux-x64-glibc", os: "linux", cpu: "x64", libc: "glibc" },
   { target: "linux-x64-musl", os: "linux", cpu: "x64", libc: "musl" },
   { target: "linux-arm64-glibc", os: "linux", cpu: "arm64", libc: "glibc" },
@@ -17,7 +23,7 @@ const PREBUILT_TARGETS = [
   { target: "win32-arm64", os: "win32", cpu: "arm64" },
 ];
 
-function linuxLibc() {
+export function linuxLibc(): LinuxLibc | null {
   if (process.platform !== "linux") return null;
   const family = libc.familySync();
   if (family === libc.MUSL) return "musl";
@@ -25,12 +31,10 @@ function linuxLibc() {
   return null;
 }
 
-function currentTarget() {
+export function currentTarget(): string {
   return [process.platform, process.arch, linuxLibc()].filter(Boolean).join("-");
 }
 
-function platformPackageName(target) {
+export function platformPackageName(target: string): string {
   return `@webrtc-node/webrtc-${target}`;
 }
-
-module.exports = { PREBUILT_TARGETS, currentTarget, linuxLibc, platformPackageName };
