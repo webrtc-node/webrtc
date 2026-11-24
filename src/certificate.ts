@@ -1,20 +1,42 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
-const crypto = require("node:crypto");
+import crypto = require("node:crypto");
 
 import { makeDOMException } from "./errors";
 import { native } from "./native/binding";
 
-export const certificateMaterial = new WeakMap();
+export interface CertificateFingerprint {
+  algorithm: string;
+  value: string;
+}
 
-export function fingerprintFromBytes(bytes) {
+export interface CertificatePemMaterial {
+  certificatePem: string;
+  keyPem: string;
+}
+
+export interface NormalizedCertificateAlgorithm {
+  name: string;
+  modulusLength?: number;
+}
+
+export const certificateMaterial = new WeakMap<RTCCertificate, CertificatePemMaterial>();
+
+export function fingerprintFromBytes(bytes: Iterable<number>): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(":");
 }
 
+export interface RTCCertificateInit {
+  expires?: number;
+  algorithm?: string;
+  fingerprints?: ReadonlyArray<{ algorithm: unknown; value: unknown }>;
+  certificatePem?: string | null;
+  keyPem?: string | null;
+}
+
 export class RTCCertificate {
+  // Internal callers always pass expires; it is a timestamp in milliseconds.
   expires: number;
   _algorithm: string;
-  _fingerprints: Array<{ algorithm: string; value: string }>;
+  _fingerprints: CertificateFingerprint[];
 
   constructor({
     expires,
@@ -22,8 +44,8 @@ export class RTCCertificate {
     fingerprints,
     certificatePem = null,
     keyPem = null,
-  } = {}) {
-    this.expires = expires;
+  }: RTCCertificateInit = {}) {
+    this.expires = expires as number;
     this._algorithm = algorithm;
     this._fingerprints =
       Array.isArray(fingerprints) && fingerprints.length
@@ -42,21 +64,24 @@ export class RTCCertificate {
     }
   }
 
-  getFingerprints() {
+  getFingerprints(): CertificateFingerprint[] {
     return this._fingerprints.map((fingerprint) => ({ ...fingerprint }));
   }
 }
 
-export function getCertificateMaterial(certificate) {
+export function getCertificateMaterial(certificate: unknown): CertificatePemMaterial | undefined {
   return certificate instanceof RTCCertificate ? certificateMaterial.get(certificate) : undefined;
 }
 
-export function sameCertificateSet(left, right) {
+export function sameCertificateSet(
+  left: readonly RTCCertificate[],
+  right: readonly RTCCertificate[],
+): boolean {
   if (left.length !== right.length) return false;
   return left.every((certificate, index) => certificate === right[index]);
 }
 
-export function normalizeCertificateExpiration(value) {
+export function normalizeCertificateExpiration(value: unknown): number {
   if (value === undefined) return Date.now() + 30 * 24 * 60 * 60 * 1000;
   const number = Number(value);
   if (!Number.isFinite(number) || !Number.isInteger(number) || number < 0) {
@@ -65,29 +90,30 @@ export function normalizeCertificateExpiration(value) {
   return Date.now() + number;
 }
 
-export function normalizeCertificateAlgorithm(algorithm) {
+export function normalizeCertificateAlgorithm(algorithm: unknown): NormalizedCertificateAlgorithm {
   if (typeof algorithm === "string") {
     throw makeDOMException("Unsupported certificate algorithm", "NotSupportedError");
   }
   if (algorithm === null || typeof algorithm !== "object") {
     throw makeDOMException("Unsupported certificate algorithm", "NotSupportedError");
   }
-  const name = String(algorithm.name || "").toUpperCase();
+  const input = algorithm as Record<string, unknown>;
+  const name = String(input.name || "").toUpperCase();
   if (name === "ECDSA") {
-    if (String(algorithm.namedCurve || "").toUpperCase() !== "P-256") {
+    if (String(input.namedCurve || "").toUpperCase() !== "P-256") {
       throw makeDOMException("Unsupported ECDSA curve", "NotSupportedError");
     }
     return { name: "ECDSA" };
   }
   if (name === "RSASSA-PKCS1-V1_5") {
     const hash =
-      typeof algorithm.hash === "object" && algorithm.hash !== null
-        ? String(algorithm.hash.name || "")
-        : String(algorithm.hash || "");
+      typeof input.hash === "object" && input.hash !== null
+        ? String((input.hash as { name?: unknown }).name || "")
+        : String(input.hash || "");
     if (hash.toUpperCase() !== "SHA-256") {
       throw makeDOMException("Unsupported RSA hash", "NotSupportedError");
     }
-    const modulusLength = Number(algorithm.modulusLength);
+    const modulusLength = Number(input.modulusLength);
     if (!Number.isInteger(modulusLength) || modulusLength < 1024) {
       throw makeDOMException("Unsupported RSA modulus length", "NotSupportedError");
     }
@@ -96,7 +122,15 @@ export function normalizeCertificateAlgorithm(algorithm) {
   throw makeDOMException("Unsupported certificate algorithm", "NotSupportedError");
 }
 
-export function createNativeBackedCertificate({ normalizedAlgorithm, expires, expiresMs }) {
+export function createNativeBackedCertificate({
+  normalizedAlgorithm,
+  expires,
+  expiresMs,
+}: {
+  normalizedAlgorithm: NormalizedCertificateAlgorithm;
+  expires: number;
+  expiresMs: number;
+}): RTCCertificate {
   const material = native.generateCertificate({
     algorithm: normalizedAlgorithm.name,
     modulusLength: normalizedAlgorithm.modulusLength,
@@ -111,7 +145,15 @@ export function createNativeBackedCertificate({ normalizedAlgorithm, expires, ex
   });
 }
 
-export function importCertificate({ certificatePem, privateKeyPem, expires } = {}) {
+export function importCertificate({
+  certificatePem,
+  privateKeyPem,
+  expires,
+}: {
+  certificatePem?: unknown;
+  privateKeyPem?: unknown;
+  expires?: unknown;
+} = {}): RTCCertificate {
   if (typeof certificatePem !== "string" || certificatePem.length === 0) {
     throw new TypeError("certificatePem must be a non-empty string");
   }
@@ -129,7 +171,9 @@ export function importCertificate({ certificatePem, privateKeyPem, expires } = {
   try {
     material = native.importCertificate({ certificatePem, keyPem: privateKeyPem });
   } catch (error) {
-    throw new TypeError(`Invalid certificate material: ${error?.message || String(error)}`);
+    throw new TypeError(
+      `Invalid certificate material: ${(error as Error | undefined)?.message || String(error)}`,
+    );
   }
   const effectiveExpires =
     expires === undefined ? material.expires : Math.min(Number(expires), material.expires);
@@ -143,7 +187,7 @@ export function importCertificate({ certificatePem, privateKeyPem, expires } = {
 }
 
 // Native code pre-generates these off the JavaScript thread; each is used once.
-export function createDefaultNativeCertificate() {
+export function createDefaultNativeCertificate(): RTCCertificate {
   const material = native.takeDefaultCertificate();
   return new RTCCertificate({
     expires: material.expires,
@@ -154,15 +198,18 @@ export function createDefaultNativeCertificate() {
   });
 }
 
-export function certificatePemToArrayBuffer(pem) {
+export function certificatePemToArrayBuffer(pem: string): ArrayBuffer {
   const raw = new crypto.X509Certificate(pem).raw;
-  return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+  return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
 }
 
-export function generateCertificate(algorithm) {
+export function generateCertificate(algorithm: unknown): Promise<RTCCertificate> {
   try {
     const normalizedAlgorithm = normalizeCertificateAlgorithm(algorithm);
-    const expiresInput = algorithm && typeof algorithm === "object" ? algorithm.expires : undefined;
+    const expiresInput =
+      algorithm && typeof algorithm === "object"
+        ? (algorithm as { expires?: unknown }).expires
+        : undefined;
     const expires = normalizeCertificateExpiration(expiresInput);
     const expiresMs = expiresInput === undefined ? 30 * 24 * 60 * 60 * 1000 : Number(expiresInput);
     return Promise.resolve(

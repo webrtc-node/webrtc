@@ -1,9 +1,9 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
 import { certificatePemToArrayBuffer, getCertificateMaterial } from "./certificate";
 import { LIBDATACHANNEL_SCTP_MAX_CHANNELS } from "./constants";
 import { kInternalConstruct } from "./errors";
+import type { SimpleEvent } from "./events";
 import { makeEvent, SimpleEventTarget } from "./events";
+import type { RTCPeerConnection } from "./peer-connection";
 import {
   firstIceParameters,
   RTCIceCandidate,
@@ -11,8 +11,19 @@ import {
   selectKnownCandidateByEndpoint,
 } from "./sdp";
 
+export type EventHandler = ((event: SimpleEvent) => unknown) | null;
+
 export class RTCIceTransport extends SimpleEventTarget {
-  constructor(token, peerConnection) {
+  _pc: RTCPeerConnection;
+  _stateOverride: string | null;
+  _connectionSequenceRequested: boolean;
+  _connectionSequenceStarted: boolean;
+  _connectionSequenceReplaying: boolean;
+  onstatechange: EventHandler;
+  ongatheringstatechange: EventHandler;
+  onselectedcandidatepairchange: EventHandler;
+
+  constructor(token: unknown, peerConnection: RTCPeerConnection) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     super();
     this._pc = peerConnection;
@@ -25,20 +36,20 @@ export class RTCIceTransport extends SimpleEventTarget {
     this.onselectedcandidatepairchange = null;
   }
 
-  get role() {
+  get role(): string {
     return this._pc._iceRole;
   }
 
-  get component() {
+  get component(): string {
     return "rtp";
   }
 
-  get state() {
+  get state(): string {
     if (this._pc._closed) return "closed";
     return this._stateOverride || this._pc.iceConnectionState;
   }
 
-  get gatheringState() {
+  get gatheringState(): string {
     const state = this._pc.iceGatheringState;
     if (
       state === "new" &&
@@ -51,17 +62,17 @@ export class RTCIceTransport extends SimpleEventTarget {
     return state;
   }
 
-  getLocalCandidates() {
+  getLocalCandidates(): RTCIceCandidate[] {
     return this._pc._localIceCandidates.map((candidate) => new RTCIceCandidate(candidate.toJSON()));
   }
 
-  getRemoteCandidates() {
+  getRemoteCandidates(): RTCIceCandidate[] {
     return this._pc._remoteIceCandidates.map(
       (candidate) => new RTCIceCandidate(candidate.toJSON()),
     );
   }
 
-  getSelectedCandidatePair() {
+  getSelectedCandidatePair(): RTCIceCandidatePair | null {
     if (!["connected", "completed"].includes(this.state)) return null;
     const localCandidates = this.getLocalCandidates();
     const remoteCandidates = this.getRemoteCandidates();
@@ -100,21 +111,21 @@ export class RTCIceTransport extends SimpleEventTarget {
     return new RTCIceCandidatePair(kInternalConstruct, local, remote);
   }
 
-  getLocalParameters() {
+  getLocalParameters(): ReturnType<typeof firstIceParameters> {
     return firstIceParameters(this._pc.localDescription);
   }
 
-  getRemoteParameters() {
+  getRemoteParameters(): ReturnType<typeof firstIceParameters> {
     return firstIceParameters(this._pc.remoteDescription);
   }
 
-  _eventListenerAdded(type) {
+  _eventListenerAdded(type: string): void {
     if (type !== "statechange") return;
     this._connectionSequenceRequested = true;
     this._queueConnectedSequenceIfNeeded();
   }
 
-  _handlePeerIceConnectionState(state) {
+  _handlePeerIceConnectionState(state: string): void {
     if (this._connectionSequenceReplaying && (state === "connected" || state === "completed")) {
       return;
     }
@@ -125,7 +136,7 @@ export class RTCIceTransport extends SimpleEventTarget {
     this.dispatchEvent(makeEvent("statechange"));
   }
 
-  _queueConnectedSequenceIfNeeded() {
+  _queueConnectedSequenceIfNeeded(): boolean {
     if (
       !this._connectionSequenceRequested ||
       this._connectionSequenceStarted ||
@@ -150,7 +161,7 @@ export class RTCIceTransport extends SimpleEventTarget {
     return true;
   }
 
-  _forceState(state, { dispatch = true } = {}) {
+  _forceState(state: string, { dispatch = true }: { dispatch?: boolean } = {}): void {
     this._connectionSequenceStarted = true;
     this._stateOverride = state;
     if (dispatch) this.dispatchEvent(makeEvent("statechange"));
@@ -158,7 +169,12 @@ export class RTCIceTransport extends SimpleEventTarget {
 }
 
 export class RTCDtlsTransport extends SimpleEventTarget {
-  constructor(token, peerConnection) {
+  _pc: RTCPeerConnection;
+  iceTransport: RTCIceTransport;
+  onstatechange: EventHandler;
+  onerror: EventHandler;
+
+  constructor(token: unknown, peerConnection: RTCPeerConnection) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     super();
     this._pc = peerConnection;
@@ -167,7 +183,7 @@ export class RTCDtlsTransport extends SimpleEventTarget {
     this.onerror = null;
   }
 
-  get state() {
+  get state(): string {
     if (this._pc._closed || this._pc._remoteTransportClosed) return "closed";
     if (this._pc.connectionState === "connected" || this._pc._sctpTransport?._state === "connected")
       return "connected";
@@ -176,7 +192,7 @@ export class RTCDtlsTransport extends SimpleEventTarget {
     return "connecting";
   }
 
-  getRemoteCertificates() {
+  getRemoteCertificates(): ArrayBuffer[] {
     if (this.state !== "connected") return [];
     const certificate = this._pc._pairedPeer?._nativeCertificates?.[0];
     const material = getCertificateMaterial(certificate);
@@ -190,7 +206,14 @@ export class RTCDtlsTransport extends SimpleEventTarget {
 }
 
 export class RTCSctpTransport extends SimpleEventTarget {
-  constructor(token, peerConnection) {
+  _pc: RTCPeerConnection;
+  _transport: RTCDtlsTransport;
+  _state: string;
+  _maxMessageSize: number | null;
+  _maxChannels: number | null;
+  onstatechange: EventHandler;
+
+  constructor(token: unknown, peerConnection: RTCPeerConnection) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     super();
     this._pc = peerConnection;
@@ -201,32 +224,38 @@ export class RTCSctpTransport extends SimpleEventTarget {
     this.onstatechange = null;
   }
 
-  get transport() {
+  get transport(): RTCDtlsTransport {
     return this._transport;
   }
 
-  get state() {
+  get state(): string {
     return this._state;
   }
 
-  get maxMessageSize() {
+  get maxMessageSize(): number | null {
     return this._maxMessageSize;
   }
 
-  get maxChannels() {
+  get maxChannels(): number | null {
     if (this._maxChannels === null && this._state === "connected") {
       this._maxChannels = this._pc._currentSctpMaxChannels() || LIBDATACHANNEL_SCTP_MAX_CHANNELS;
     }
     return this._maxChannels;
   }
 
-  _setState(state) {
+  _setState(state: string): void {
     if (this._state === state) return;
     this._state = state;
     this.dispatchEvent(makeEvent("statechange"));
   }
 
-  _setLimits({ maxMessageSize, maxChannels }) {
+  _setLimits({
+    maxMessageSize,
+    maxChannels,
+  }: {
+    maxMessageSize: number | null;
+    maxChannels: number | null;
+  }): void {
     this._maxMessageSize = maxMessageSize;
     this._maxChannels = maxChannels;
   }

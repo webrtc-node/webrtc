@@ -1,17 +1,50 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
+import type { RTCDataChannel } from "./data-channel";
+import type { RTCError } from "./errors";
 import { makeDOMException } from "./errors";
 import { RTCIceCandidate } from "./sdp";
 import { enforceRange } from "./webidl";
 
-export const kHandlers = new WeakMap();
-export const dispatchingEvents = new WeakSet();
+// A listener is a function or an object with handleEvent, as in the DOM.
+export type EventListenerValue =
+  | ((this: unknown, event: never) => unknown)
+  | { handleEvent(event: never): unknown };
 
-export const kDispatching = Symbol("dispatching");
-export const EMPTY_PORTS = Object.freeze([]);
+interface ListenerEntry {
+  callback: EventListenerValue;
+  once: boolean;
+  capture: boolean;
+  removed: boolean;
+}
+
+// Any object with a string type can be dispatched, not only SimpleEvent.
+export interface DispatchableEvent {
+  type: string;
+  defaultPrevented?: boolean;
+  target?: unknown;
+  currentTarget?: unknown;
+}
+
+export const kHandlers = new WeakMap<object, Map<string, ListenerEntry[]>>();
+export const dispatchingEvents = new WeakSet<object>();
+
+export const kDispatching: unique symbol = Symbol("dispatching");
+export const EMPTY_PORTS: readonly never[] = Object.freeze([]);
+
+export interface SimpleEventInit {
+  bubbles?: boolean;
+  cancelable?: boolean;
+}
 
 export class SimpleEvent {
-  constructor(type, init = {}) {
+  type: string;
+  bubbles: boolean;
+  cancelable: boolean;
+  defaultPrevented: boolean;
+  target: unknown;
+  currentTarget: unknown;
+  [kDispatching]: boolean;
+
+  constructor(type: unknown, init: SimpleEventInit = {}) {
     this.type = String(type);
     this.bubbles = Boolean(init.bubbles);
     this.cancelable = Boolean(init.cancelable);
@@ -21,13 +54,27 @@ export class SimpleEvent {
     this[kDispatching] = false;
   }
 
-  preventDefault() {
+  preventDefault(): void {
     if (this.cancelable) this.defaultPrevented = true;
   }
 }
 
+export interface SimpleMessageEventInit extends SimpleEventInit {
+  data?: unknown;
+  origin?: string;
+  lastEventId?: string;
+  source?: unknown;
+  ports?: readonly unknown[];
+}
+
 export class SimpleMessageEvent extends SimpleEvent {
-  constructor(type, init = {}) {
+  data: unknown;
+  origin: string;
+  lastEventId: string;
+  source: unknown;
+  ports: readonly unknown[];
+
+  constructor(type: unknown, init: SimpleMessageEventInit = {}) {
     super(type, init);
     this.data = init.data;
     this.origin = init.origin || "";
@@ -38,7 +85,11 @@ export class SimpleMessageEvent extends SimpleEvent {
 }
 
 export class SimpleEventTarget {
-  addEventListener(type, callback, options = undefined) {
+  // Optional hooks that subclasses implement to track listener interest.
+  _eventListenerAdded?(type: string): void;
+  _eventListenerRemoved?(type: string): void;
+
+  addEventListener(type: unknown, callback: unknown, options: unknown = undefined): void {
     if (callback == null) return;
     if (typeof callback !== "function" && typeof callback !== "object") {
       throw new TypeError("Event listener must be a function or an object");
@@ -54,19 +105,22 @@ export class SimpleEventTarget {
       listeners = [];
       map.set(key, listeners);
     }
-    const once = typeof options === "object" && options !== null && Boolean(options.once);
+    const once =
+      typeof options === "object" &&
+      options !== null &&
+      Boolean((options as { once?: unknown }).once);
     const capture = listenerCapture(options);
     let added = false;
     if (
       !listeners.some((listener) => listener.callback === callback && listener.capture === capture)
     ) {
-      listeners.push({ callback, once, capture, removed: false });
+      listeners.push({ callback: callback as EventListenerValue, once, capture, removed: false });
       added = true;
     }
     if (added && typeof this._eventListenerAdded === "function") this._eventListenerAdded(key);
   }
 
-  removeEventListener(type, callback, options = undefined) {
+  removeEventListener(type: unknown, callback: unknown, options: unknown = undefined): void {
     const key = String(type);
     const listeners = kHandlers.get(this)?.get(key);
     if (!listeners) return;
@@ -81,44 +135,50 @@ export class SimpleEventTarget {
     }
   }
 
-  dispatchEvent(event) {
-    if (!event || typeof event.type !== "string") {
+  dispatchEvent(event: unknown): boolean {
+    if (!event || typeof (event as DispatchableEvent).type !== "string") {
       throw new TypeError("dispatchEvent requires an Event object");
     }
-    beginEventDispatch(this, event);
+    const dispatched = event as DispatchableEvent;
+    beginEventDispatch(this, dispatched);
     try {
-      const registeredListeners = kHandlers.get(this)?.get(event.type);
+      const registeredListeners = kHandlers.get(this)?.get(dispatched.type);
       const listeners = registeredListeners?.length ? Array.from(registeredListeners) : null;
-      const handler = this[`on${event.type}`];
+      const handler = (this as unknown as Record<string, unknown>)[`on${dispatched.type}`];
       if (listeners) {
         for (const listener of listeners) {
           if (listener.removed) continue;
           if (listener.once)
-            this.removeEventListener(event.type, listener.callback, listener.capture);
-          callListener(listener.callback, this, event);
+            this.removeEventListener(dispatched.type, listener.callback, listener.capture);
+          callListener(listener.callback, this, dispatched);
         }
       }
-      if (typeof handler === "function") callListener(handler, this, event);
-      return !event.defaultPrevented;
+      if (typeof handler === "function") {
+        callListener(handler as EventListenerValue, this, dispatched);
+      }
+      return !dispatched.defaultPrevented;
     } finally {
-      endEventDispatch(event);
+      endEventDispatch(dispatched);
     }
   }
 
-  _hasEventConsumer(type) {
+  _hasEventConsumer(type: unknown): boolean {
     const listeners = kHandlers.get(this)?.get(String(type));
-    return Boolean((listeners && listeners.length > 0) || typeof this[`on${type}`] === "function");
+    return Boolean(
+      (listeners && listeners.length > 0) ||
+        typeof (this as unknown as Record<string, unknown>)[`on${type}`] === "function",
+    );
   }
 }
 
-export function listenerCapture(options) {
+export function listenerCapture(options: unknown): boolean {
   return typeof options === "object" && options !== null
-    ? Boolean(options.capture)
+    ? Boolean((options as { capture?: unknown }).capture)
     : Boolean(options);
 }
 
 // Facade events carry their dispatch flag; other event objects use the WeakSet.
-export function beginEventDispatch(target, event) {
+export function beginEventDispatch(target: object, event: DispatchableEvent): void {
   const ownEvent = event instanceof SimpleEvent;
   if (ownEvent ? event[kDispatching] : dispatchingEvents.has(event)) {
     throw makeDOMException("Event is already being dispatched", "InvalidStateError");
@@ -129,13 +189,17 @@ export function beginEventDispatch(target, event) {
   else dispatchingEvents.add(event);
 }
 
-export function endEventDispatch(event) {
+export function endEventDispatch(event: DispatchableEvent): void {
   event.currentTarget = null;
   if (event instanceof SimpleEvent) event[kDispatching] = false;
   else dispatchingEvents.delete(event);
 }
 
-export function dispatchDirectEvent(target, event, handler) {
+export function dispatchDirectEvent(
+  target: object,
+  event: DispatchableEvent,
+  handler: EventListenerValue,
+): void {
   beginEventDispatch(target, event);
   try {
     callListener(handler, target, event);
@@ -144,12 +208,12 @@ export function dispatchDirectEvent(target, event, handler) {
   }
 }
 
-export function callListener(listener, target, event) {
+export function callListener(listener: EventListenerValue, target: unknown, event: unknown): void {
   try {
     if (typeof listener === "function") {
-      listener.call(target, event);
+      (listener as (this: unknown, event: unknown) => unknown).call(target, event);
     } else {
-      listener.handleEvent(event);
+      (listener as { handleEvent(event: unknown): unknown }).handleEvent(event);
     }
   } catch (error) {
     // Report through Node without interrupting event delivery or native cleanup.
@@ -159,34 +223,48 @@ export function callListener(listener, target, event) {
   }
 }
 
-export function makeEvent(type, init) {
+export function makeEvent(type: string, init?: SimpleEventInit): SimpleEvent {
   return new SimpleEvent(type, init);
 }
 
-export function makeMessageEvent(type, init) {
+export function makeMessageEvent(type: string, init?: SimpleMessageEventInit): SimpleMessageEvent {
   return new SimpleMessageEvent(type, init);
 }
 
-export const dataMessageInit = { data: undefined };
+export const dataMessageInit: { data: unknown } = { data: undefined };
 
 // Per-message fast path: reuses one init dictionary instead of allocating one.
-export function makeDataMessageEvent(data) {
+export function makeDataMessageEvent(data: unknown): SimpleMessageEvent {
   dataMessageInit.data = data;
   const event = new SimpleMessageEvent("message", dataMessageInit);
   dataMessageInit.data = undefined;
   return event;
 }
 
+export interface RTCDataChannelEventInit extends SimpleEventInit {
+  channel?: RTCDataChannel;
+}
+
 export class RTCDataChannelEvent extends SimpleEvent {
-  constructor(type, init) {
+  channel: RTCDataChannel;
+
+  constructor(type: unknown, init: RTCDataChannelEventInit) {
     if (!init || !init.channel) throw new TypeError("RTCDataChannelEventInit.channel is required");
     super(type, init);
     this.channel = init.channel;
   }
 }
 
+export interface RTCPeerConnectionIceEventInit extends SimpleEventInit {
+  candidate?: RTCIceCandidate | null;
+  url?: string | null;
+}
+
 export class RTCPeerConnectionIceEvent extends SimpleEvent {
-  constructor(type, init = {}) {
+  candidate: RTCIceCandidate | null;
+  url: string | null;
+
+  constructor(type: unknown, init: RTCPeerConnectionIceEventInit = {}) {
     if (arguments.length === 0) throw new TypeError("type is required");
     if (
       init.candidate !== undefined &&
@@ -201,8 +279,22 @@ export class RTCPeerConnectionIceEvent extends SimpleEvent {
   }
 }
 
+export interface RTCPeerConnectionIceErrorEventInit extends SimpleEventInit {
+  address?: unknown;
+  port?: unknown;
+  url?: unknown;
+  errorCode?: unknown;
+  errorText?: unknown;
+}
+
 export class RTCPeerConnectionIceErrorEvent extends SimpleEvent {
-  constructor(type, init = {}) {
+  address: string | null;
+  port: number | null;
+  url: string;
+  errorCode: number;
+  errorText: string;
+
+  constructor(type: unknown, init: RTCPeerConnectionIceErrorEventInit = {}) {
     if (arguments.length === 0) throw new TypeError("type is required");
     super(type, init);
     this.address =
@@ -215,8 +307,14 @@ export class RTCPeerConnectionIceErrorEvent extends SimpleEvent {
   }
 }
 
+export interface RTCErrorEventInit extends SimpleEventInit {
+  error?: RTCError;
+}
+
 export class RTCErrorEvent extends SimpleEvent {
-  constructor(type, init = {}) {
+  error: RTCError | undefined;
+
+  constructor(type: unknown, init: RTCErrorEventInit = {}) {
     super(type, init);
     this.error = init.error;
   }

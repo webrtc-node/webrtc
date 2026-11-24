@@ -1,5 +1,6 @@
 // @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 
+import type { RTCCertificate } from "./certificate";
 import {
   createDefaultNativeCertificate,
   generateCertificate,
@@ -32,7 +33,9 @@ import {
   RTCPeerConnectionIceEvent,
   SimpleEventTarget,
 } from "./events";
+import type { NativePeerConnection } from "./native/binding";
 import { native } from "./native/binding";
+import type { NonstandardPeerConfiguration } from "./nonstandard";
 import {
   descriptionPairingKey,
   localDescriptionOwnerFinalizer,
@@ -64,6 +67,20 @@ import { RTCSctpTransport } from "./transports";
 import { byteLength, validateByteLength } from "./webidl";
 
 export class RTCPeerConnection extends SimpleEventTarget {
+  // Declared for the typed modules; the class body is typed in a later step.
+  _native: NativePeerConnection | null;
+  _nonstandardConfiguration: NonstandardPeerConfiguration;
+  _iceRole: "controlled" | "controlling" | "unknown";
+  _closed: boolean;
+  _localIceCandidates: RTCIceCandidate[];
+  _remoteIceCandidates: RTCIceCandidate[];
+  _pairedPeer: RTCPeerConnection | null;
+  _sameProcessIceCandidateExchange: boolean;
+  _explicitIceCandidateExchange: boolean;
+  _remoteTransportClosed: boolean;
+  _sctpTransport: RTCSctpTransport | null;
+  _nativeCertificates: RTCCertificate[] | null;
+
   static generateCertificate(algorithm) {
     return generateCertificate(algorithm);
   }
