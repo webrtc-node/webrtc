@@ -179,6 +179,7 @@ export class RTCDataChannel extends SimpleEventTarget {
   _messageEventFlushScheduled: boolean;
   _messageEventGateActive: boolean;
   _messageConsumerGateActive: boolean;
+  _messageConsumerGateTimer: ReturnType<typeof setTimeout> | null;
   _messageEventListenerCount: number;
   _messageHandlerNeedsTaskYield: boolean;
   _pendingPairedDeliveryBytes: number;
@@ -256,6 +257,7 @@ export class RTCDataChannel extends SimpleEventTarget {
     this._messageEventFlushScheduled = false;
     this._messageEventGateActive = false;
     this._messageConsumerGateActive = false;
+    this._messageConsumerGateTimer = null;
     this._messageEventListenerCount = 0;
     this._messageHandlerNeedsTaskYield = false;
     this._pendingPairedDeliveryBytes = 0;
@@ -1177,10 +1179,20 @@ export class RTCDataChannel extends SimpleEventTarget {
   _gateMessageEventsUntilConsumer() {
     if (this._hasEventConsumer("message")) return;
     this._messageConsumerGateActive = true;
-    setTimeout(() => this._releaseMessageConsumerGate(), MESSAGE_CONSUMER_GATE_TIMEOUT_MS);
+    if (this._messageConsumerGateTimer) clearTimeout(this._messageConsumerGateTimer);
+    // A fallback only; it must not keep the process alive on its own.
+    this._messageConsumerGateTimer = setTimeout(
+      () => this._releaseMessageConsumerGate(),
+      MESSAGE_CONSUMER_GATE_TIMEOUT_MS,
+    );
+    this._messageConsumerGateTimer.unref?.();
   }
 
   _releaseMessageConsumerGate() {
+    if (this._messageConsumerGateTimer) {
+      clearTimeout(this._messageConsumerGateTimer);
+      this._messageConsumerGateTimer = null;
+    }
     if (!this._messageConsumerGateActive) return;
     this._messageConsumerGateActive = false;
     this._scheduleMessageEventFlush();

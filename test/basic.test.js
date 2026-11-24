@@ -1293,3 +1293,68 @@ test("message listener added during onmessage receives later burst messages", as
   offerer.close();
   answerer.close();
 });
+
+test("messages that arrive before a late consumer attaches are delivered in order", async (t) => {
+  const { Worker } = require("node:worker_threads");
+  const expected = 20;
+  const worker = new Worker(path.join(__dirname, "fixtures", "late-consumer.js"), {
+    workerData: { consumerDelayMs: 300, expected },
+  });
+  const pc = new RTCPeerConnection();
+  t.after(async () => {
+    pc.close();
+    await worker.terminate();
+  });
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) worker.postMessage({ candidate: candidate.toJSON() });
+  };
+  const channel = pc.createDataChannel("late");
+  const sent = Array.from({ length: expected }, (_, index) => `message ${index}`);
+  channel.onopen = () => {
+    for (const message of sent) channel.send(message);
+  };
+  const received = new Promise((resolve, reject) => {
+    worker.on("error", reject);
+    worker.on("message", async (message) => {
+      if (message.answer) await pc.setRemoteDescription(message.answer);
+      else if (message.candidate) await pc.addIceCandidate(message.candidate).catch(() => {});
+      else if (message.received) resolve(message.received);
+    });
+  });
+  await pc.setLocalDescription();
+  worker.postMessage({ offer: pc.localDescription.toJSON() });
+  assert.deepEqual(await received, sent);
+});
+
+test("the process exits promptly after the last peer connection closes", () => {
+  const script = `
+    const { RTCPeerConnection } = require(${JSON.stringify(path.join(__dirname, ".."))});
+    const { performance } = require("node:perf_hooks");
+    let closedAt = 0;
+    process.on("exit", () => console.log(Math.round(performance.now() - closedAt)));
+    (async () => {
+      const a = new RTCPeerConnection();
+      const b = new RTCPeerConnection();
+      a.onicecandidate = ({ candidate }) => candidate && b.addIceCandidate(candidate);
+      b.onicecandidate = ({ candidate }) => candidate && a.addIceCandidate(candidate);
+      const got = new Promise((resolve) => {
+        b.ondatachannel = ({ channel }) => { channel.onmessage = resolve; };
+      });
+      const channel = a.createDataChannel("exit");
+      channel.onopen = () => channel.send("hi");
+      await a.setLocalDescription();
+      await b.setRemoteDescription(a.localDescription);
+      await b.setLocalDescription();
+      await a.setRemoteDescription(b.localDescription);
+      await got;
+      a.close();
+      b.close();
+      closedAt = performance.now();
+    })();
+  `;
+  const { spawnSync } = require("node:child_process");
+  const result = spawnSync(process.execPath, ["-e", script], { encoding: "utf8", timeout: 20000 });
+  assert.equal(result.status, 0, result.stderr);
+  // Teardown runs off the JavaScript thread; no timer should hold the process.
+  assert.ok(Number(result.stdout.trim()) < 500, `exited ${result.stdout.trim()} ms after close`);
+});
