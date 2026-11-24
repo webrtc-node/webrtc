@@ -1,7 +1,5 @@
 // @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 
-const native = require("./native/load");
-
 import {
   createDefaultNativeCertificate,
   generateCertificate,
@@ -34,6 +32,7 @@ import {
   RTCPeerConnectionIceEvent,
   SimpleEventTarget,
 } from "./events";
+import { native } from "./native/binding";
 import {
   descriptionPairingKey,
   localDescriptionOwnerFinalizer,

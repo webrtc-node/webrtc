@@ -1,8 +1,7 @@
 // @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 
-const native = require("./native/load");
-
 import { makeDOMException } from "./errors";
+import { native } from "./native/binding";
 import { RTCPeerConnection } from "./peer-connection";
 import { enforceRange } from "./webidl";
 

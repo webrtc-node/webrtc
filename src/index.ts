@@ -1,7 +1,5 @@
 // @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 
-const native = require("./native/load");
-
 import { importCertificate, RTCCertificate } from "./certificate";
 import { RTCDataChannel } from "./data-channel";
 import { RTCError } from "./errors";
@@ -14,6 +12,7 @@ import {
   SimpleEventTarget,
   SimpleMessageEvent,
 } from "./events";
+import { native } from "./native/binding";
 import {
   configurePeerConnection,
   getRemoteFingerprint,
