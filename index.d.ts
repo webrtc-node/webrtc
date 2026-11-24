@@ -61,11 +61,21 @@ export interface AddEventListenerOptions extends EventListenerOptions {
   once?: boolean;
 }
 
-export class EventTarget {
+export class EventTarget<Events extends Record<keyof Events, Event> = Record<string, Event>> {
+  addEventListener<K extends keyof Events & string>(
+    type: K,
+    callback: EventListener<Events[K]> | null,
+    options?: AddEventListenerOptions | boolean,
+  ): void;
   addEventListener(
     type: string,
     callback: EventListener | null,
     options?: AddEventListenerOptions | boolean,
+  ): void;
+  removeEventListener<K extends keyof Events & string>(
+    type: K,
+    callback: EventListener<Events[K]> | null,
+    options?: EventListenerOptions | boolean,
   ): void;
   removeEventListener(
     type: string,
@@ -113,6 +123,8 @@ export interface RTCSessionDescriptionInit {
   type: RTCSdpType;
   sdp?: string;
 }
+
+export type RTCLocalSessionDescriptionInit = Partial<RTCSessionDescriptionInit>;
 
 export interface RTCOfferOptions {
   iceRestart?: boolean;
@@ -185,7 +197,17 @@ export class RTCCertificate {
   getFingerprints(): RTCDtlsFingerprint[];
 }
 
-export class RTCDataChannel extends EventTarget {
+export interface RTCDataChannelEventMap {
+  bufferedamountlow: Event;
+  close: Event;
+  closing: Event;
+  error: RTCErrorEvent;
+  message: MessageEvent;
+  open: Event;
+}
+
+export class RTCDataChannel extends EventTarget<RTCDataChannelEventMap> {
+  private constructor();
   readonly label: string;
   readonly ordered: boolean;
   readonly maxPacketLifeTime: number | null;
@@ -297,7 +319,18 @@ export class RTCSctpTransport extends EventTarget {
   onstatechange: ((event: Event) => void) | null;
 }
 
-export class RTCPeerConnection extends EventTarget {
+export interface RTCPeerConnectionEventMap {
+  connectionstatechange: Event;
+  datachannel: RTCDataChannelEvent;
+  icecandidate: RTCPeerConnectionIceEvent;
+  icecandidateerror: RTCPeerConnectionIceErrorEvent;
+  iceconnectionstatechange: Event;
+  icegatheringstatechange: Event;
+  negotiationneeded: Event;
+  signalingstatechange: Event;
+}
+
+export class RTCPeerConnection extends EventTarget<RTCPeerConnectionEventMap> {
   static generateCertificate(algorithm: RTCCertificateKeygenAlgorithm): Promise<RTCCertificate>;
   constructor(configuration?: RTCConfigurationInput);
   readonly localDescription: RTCSessionDescription | null;
@@ -339,10 +372,10 @@ export class RTCPeerConnection extends EventTarget {
   onconnectionstatechange: ((event: Event) => void) | null;
   onsignalingstatechange: ((event: Event) => void) | null;
   onnegotiationneeded: ((event: Event) => void) | null;
-  createDataChannel(label: string, init?: RTCDataChannelInit): RTCDataChannel;
+  createDataChannel(label: string, init?: RTCDataChannelInit | null): RTCDataChannel;
   createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit>;
   createAnswer(): Promise<RTCSessionDescriptionInit>;
-  setLocalDescription(description?: RTCSessionDescriptionInit): Promise<void>;
+  setLocalDescription(description?: RTCLocalSessionDescriptionInit | null): Promise<void>;
   setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>;
   addIceCandidate(candidate?: RTCIceCandidateInit | RTCIceCandidate | null): Promise<void>;
   getConfiguration(): RTCConfiguration;

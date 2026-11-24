@@ -14,7 +14,7 @@ export type Checks = [
   Conforms<InstanceType<typeof Impl.RTCSessionDescription>, Declared.RTCSessionDescription>,
   Conforms<InstanceType<typeof Impl.RTCIceCandidate>, Declared.RTCIceCandidate>,
   Conforms<InstanceType<typeof Impl.RTCCertificate>, Declared.RTCCertificate>,
-  Conforms<InstanceType<typeof Impl.RTCDataChannel>, Declared.RTCDataChannel>,
+  Conforms<Impl.RTCDataChannel, Declared.RTCDataChannel>,
   Conforms<InstanceType<typeof Impl.RTCDataChannelEvent>, Declared.RTCDataChannelEvent>,
   Conforms<InstanceType<typeof Impl.RTCPeerConnectionIceEvent>, Declared.RTCPeerConnectionIceEvent>,
   Conforms<

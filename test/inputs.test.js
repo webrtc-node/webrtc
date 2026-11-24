@@ -197,6 +197,67 @@ test("configuration numeric conversions truncate fractions and reject BigInts", 
   }
 });
 
+test("createDataChannel converts its label and dictionary members once in WebIDL order", (t) => {
+  const pc = peer(t);
+  const reads = [];
+  const label = {
+    toString() {
+      reads.push("label");
+      return "converted";
+    },
+  };
+  const options = new Proxy(
+    { id: 8, negotiated: true, protocol: "chat" },
+    {
+      get(target, key) {
+        reads.push(key);
+        return Reflect.get(target, key);
+      },
+    },
+  );
+  const channel = pc.createDataChannel(label, options);
+  assert.deepEqual(reads, [
+    "label",
+    "id",
+    "maxPacketLifeTime",
+    "maxRetransmits",
+    "negotiated",
+    "ordered",
+    "protocol",
+  ]);
+  assert.equal(channel.label, "converted");
+  assert.equal(channel.id, 8);
+  assert.equal(channel.protocol, "chat");
+  assert.throws(() => pc.createDataChannel(Symbol("label")), TypeError);
+  assert.throws(() => pc.createDataChannel("label", { protocol: Symbol("protocol") }), TypeError);
+  assert.throws(
+    () =>
+      pc.createDataChannel("bad", {
+        get id() {
+          return -1;
+        },
+        get ordered() {
+          throw new Error("read after invalid id");
+        },
+      }),
+    TypeError,
+  );
+});
+
+test("createDataChannel distinguishes omitted, null, and primitive options", (t) => {
+  const pc = peer(t);
+  assert.equal(pc.createDataChannel("default", null).ordered, true);
+  assert.throws(() => pc.createDataChannel("bad", 42), TypeError);
+  const callable = Object.assign(() => {}, { ordered: false });
+  assert.equal(pc.createDataChannel("callable", callable).ordered, false);
+  assert.equal(pc.createDataChannel("zero", { negotiated: true, id: null }).id, 0);
+  assert.equal(pc.createDataChannel("retries", { maxRetransmits: null }).maxRetransmits, 0);
+  assert.throws(
+    () => pc.createDataChannel("conflict", { maxRetransmits: null, maxPacketLifeTime: 0 }),
+    TypeError,
+  );
+});
+
 test("data-channel range conversions truncate fractions and reject BigInts", (t) => {
   const pc = peer(t);
   const channel = pc.createDataChannel("fractional", {

@@ -8,11 +8,13 @@ const root = path.resolve(__dirname, "..", "..");
 const moduleName = "webrtc_node.node";
 const { version } = require("../../package.json") as { version: string };
 
-function localBuildCandidates(): string[] {
-  return [
-    path.join(root, "build", "Release", moduleName),
-    path.join(root, "build", "Debug", moduleName),
-  ];
+function* nativeCandidates(packageName: string): Generator<string> {
+  const override = process.env.WEBRTC_NODE_NATIVE_PATH;
+  if (override) yield path.resolve(override);
+  yield path.join(root, "build", "Release", moduleName);
+  yield path.join(root, "build", "Debug", moduleName);
+  const platform = platformPackageCandidate(packageName);
+  if (platform) yield platform;
 }
 
 // The prebuilt binary comes from the optional dependency matching this platform.
@@ -37,14 +39,9 @@ function platformPackageCandidate(name: string): string | null {
 export function loadNative(): unknown {
   const target = currentTarget();
   const packageName = platformPackageName(target);
-  const override = process.env.WEBRTC_NODE_NATIVE_PATH;
-  const candidates = [
-    ...(override ? [path.resolve(override)] : []),
-    ...localBuildCandidates(),
-    platformPackageCandidate(packageName),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-
-  for (const candidate of candidates) {
+  const candidates: string[] = [];
+  for (const candidate of nativeCandidates(packageName)) {
+    candidates.push(candidate);
     if (!fs.existsSync(candidate)) continue;
     try {
       return require(candidate);

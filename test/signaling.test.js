@@ -132,6 +132,80 @@ test("parameterless local descriptions choose their type after preceding queued 
   }
 });
 
+test("local description dictionaries infer their type when the queued operation starts", async (t) => {
+  for (const initial of [null, {}, { type: "offer" }]) {
+    const [offerer, answerer] = peers(t);
+    offerer.createDataChannel("implicit type");
+    await offerer.setLocalDescription(initial);
+    assert.equal(offerer.pendingLocalDescription.type, "offer");
+    await Promise.all([
+      answerer.setRemoteDescription(offerer.localDescription),
+      answerer.setLocalDescription(initial?.type ? { type: "answer" } : {}),
+    ]);
+    assert.equal(answerer.currentLocalDescription.type, "answer");
+    assert.equal(answerer.signalingState, "stable");
+  }
+});
+
+test("local description dictionaries snapshot supplied SDP and keep remote type required", async (t) => {
+  const [offerer, other] = peers(t);
+  offerer.createDataChannel("snapshot");
+  const offer = await offerer.createOffer();
+  const init = { sdp: offer.sdp };
+  const applying = offerer.setLocalDescription(init);
+  init.sdp = "changed after the call";
+  await applying;
+  assert.equal(offerer.localDescription.type, "offer");
+  await assert.rejects(other.setLocalDescription({ sdp: offer.sdp }), {
+    name: "InvalidModificationError",
+  });
+  await assert.rejects(other.setRemoteDescription({ sdp: offer.sdp }), TypeError);
+  assert.throws(() => new RTCSessionDescription({ sdp: offer.sdp }), TypeError);
+});
+
+test("generating local SDP after the first channel replaces a cached offer without a data section", async (t) => {
+  for (const init of [{}, { type: "offer" }]) {
+    const [pc] = peers(t);
+    const oldOffer = await pc.createOffer();
+    assert.doesNotMatch(oldOffer.sdp, /^m=application /m);
+    pc.createDataChannel("first");
+    await pc.setLocalDescription(init);
+    assert.match(pc.pendingLocalDescription.sdp, /^m=application /m);
+  }
+});
+
+test("an empty provisional answer uses the current remote offer after renegotiation", async (t) => {
+  const [offerer, answerer] = peers(t);
+  await offerer.setLocalDescription();
+  await answerer.setRemoteDescription(offerer.localDescription);
+  const oldAnswer = await answerer.createAnswer();
+  assert.doesNotMatch(oldAnswer.sdp, /^m=application /m);
+  await answerer.setLocalDescription(oldAnswer);
+  await offerer.setRemoteDescription(oldAnswer);
+
+  offerer.createDataChannel("provisional");
+  await offerer.setLocalDescription();
+  await answerer.setRemoteDescription(offerer.localDescription);
+  await answerer.setLocalDescription({ type: "pranswer" });
+  assert.equal(answerer.signalingState, "have-local-pranswer");
+  assert.match(answerer.pendingLocalDescription.sdp, /^m=application /m);
+  await answerer.setLocalDescription({});
+  assert.equal(answerer.currentLocalDescription.type, "answer");
+});
+
+test("an implicit offer retains a data section first negotiated as the answerer", async (t) => {
+  const [offerer, answerer] = peers(t);
+  const oldOffer = await answerer.createOffer();
+  assert.doesNotMatch(oldOffer.sdp, /^m=application /m);
+  offerer.createDataChannel("remote");
+  await offerer.setLocalDescription();
+  await answerer.setRemoteDescription(offerer.localDescription);
+  await answerer.setLocalDescription();
+  await offerer.setRemoteDescription(answerer.localDescription);
+  await answerer.setLocalDescription();
+  assert.match(answerer.pendingLocalDescription.sdp, /^m=application /m);
+});
+
 test("queued state validation observes rollback and earlier rejected operations", async (t) => {
   const [offerer, answerer] = peers(t);
   const offer = await offerer.createOffer();
@@ -318,6 +392,8 @@ test("queued and buffered ICE candidates snapshot mutable candidate objects", as
 });
 
 test("repeated renegotiation keeps the same-process pairing registry bounded", async (t) => {
+  const { localDescriptionOwnerFinalizer } = require("../dist/pairing");
+  const register = t.mock.method(localDescriptionOwnerFinalizer, "register");
   const [offerer, answerer] = peers(t);
   offerer.onicecandidate = ({ candidate }) => {
     if (candidate) answerer.addIceCandidate(candidate).catch(() => {});
@@ -343,6 +419,7 @@ test("repeated renegotiation keeps the same-process pairing registry bounded", a
   }
   assert.ok(offerer._localDescriptionPairingKeys.size <= 4);
   assert.ok(answerer._localDescriptionPairingKeys.size <= 4);
+  assert.equal(register.mock.callCount(), 2);
   assert.equal(offerer._pairedPeer, answerer);
   if (channel.readyState !== "open") {
     await new Promise((resolve) => channel.addEventListener("open", resolve, { once: true }));

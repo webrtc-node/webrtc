@@ -1,8 +1,10 @@
 import type { RTCPeerConnection } from "./peer-connection";
 
 export const localDescriptionOwners = new Map<string, WeakRef<RTCPeerConnection>>();
-export const localDescriptionOwnerFinalizer = new FinalizationRegistry<string>((key) => {
-  if (!localDescriptionOwners.get(key)?.deref()) localDescriptionOwners.delete(key);
+export const localDescriptionOwnerFinalizer = new FinalizationRegistry<Set<string>>((keys) => {
+  for (const key of keys) {
+    if (!localDescriptionOwners.get(key)?.deref()) localDescriptionOwners.delete(key);
+  }
 });
 
 export function descriptionPairingKey(
