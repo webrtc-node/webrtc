@@ -12,8 +12,35 @@ export interface NativeDescription {
 
 export interface NativeCandidate {
   candidate: string;
-  sdpMid?: string;
+  // The native side treats a null or missing mid as unset.
+  sdpMid?: string | null;
 }
+
+// The W3C state strings. The native accessors and events report these same
+// values; native signaling state is never "closed".
+export type RTCPeerConnectionState =
+  | "new"
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "failed"
+  | "closed";
+export type RTCIceConnectionState =
+  | "new"
+  | "checking"
+  | "connected"
+  | "completed"
+  | "disconnected"
+  | "failed"
+  | "closed";
+export type RTCIceGatheringState = "new" | "gathering" | "complete";
+export type RTCSignalingState =
+  | "stable"
+  | "have-local-offer"
+  | "have-remote-offer"
+  | "have-local-pranswer"
+  | "have-remote-pranswer"
+  | "closed";
 
 export interface NativeCandidatePair {
   local: NativeCandidate;
@@ -76,26 +103,13 @@ export interface NativeDataChannel {
   readonly maxMessageSize: number;
 }
 
-export type NativePeerState =
-  | "new"
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "failed"
-  | "closed";
-
 export type NativePeerEvent =
   | { target: "peerconnection"; type: "localdescription"; description: NativeDescription }
   | { target: "peerconnection"; type: "localcandidate"; candidate: NativeCandidate }
-  | {
-      target: "peerconnection";
-      type:
-        | "connectionstatechange"
-        | "iceconnectionstatechange"
-        | "icegatheringstatechange"
-        | "signalingstatechange";
-      state: string;
-    }
+  | { target: "peerconnection"; type: "connectionstatechange"; state: RTCPeerConnectionState }
+  | { target: "peerconnection"; type: "iceconnectionstatechange"; state: RTCIceConnectionState }
+  | { target: "peerconnection"; type: "icegatheringstatechange"; state: RTCIceGatheringState }
+  | { target: "peerconnection"; type: "signalingstatechange"; state: RTCSignalingState }
   | {
       target: "peerconnection";
       type: "datachannel";
@@ -132,8 +146,9 @@ export interface NativePeerConnection {
   createDataChannel(label: string, options?: NativeDataChannelOptions): NativeDataChannel;
   createOffer(): NativeDescription;
   createAnswer(): NativeDescription;
-  setLocalDescription(type?: NativeDescriptionType | null, init?: NativeLocalDescriptionInit): void;
-  setRemoteDescription(description: NativeDescription): void;
+  // The native side validates the description type string.
+  setLocalDescription(type?: string | null, init?: NativeLocalDescriptionInit): void;
+  setRemoteDescription(description: { type: string; sdp: string }): void;
   addRemoteCandidate(candidate: NativeCandidate): void;
   gatherLocalCandidates(): void;
   localDescription(): NativeDescription | null;
@@ -141,10 +156,10 @@ export interface NativePeerConnection {
   remoteFingerprint(): NativeFingerprint | null;
   selectedCandidatePair(): NativeCandidatePair | null;
   close(): void;
-  readonly connectionState: NativePeerState;
-  readonly iceConnectionState: string;
-  readonly iceGatheringState: string;
-  readonly signalingState: string;
+  readonly connectionState: RTCPeerConnectionState;
+  readonly iceConnectionState: RTCIceConnectionState;
+  readonly iceGatheringState: RTCIceGatheringState;
+  readonly signalingState: RTCSignalingState;
   readonly remoteMaxMessageSize: number;
   readonly maxDataChannelId: number;
 }

@@ -1,5 +1,3 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
 import type { RTCCertificate } from "./certificate";
 import {
   createDefaultNativeCertificate,
@@ -7,6 +5,7 @@ import {
   getCertificateMaterial,
   sameCertificateSet,
 } from "./certificate";
+import type { NormalizedConfiguration } from "./configuration";
 import { cloneConfiguration, normalizePeerConnectionConfiguration } from "./configuration";
 import {
   DATA_CHANNEL_ANNOUNCEMENT_REPAIR_GRACE_MS,
@@ -20,6 +19,11 @@ import {
   SCTP_CONNECT_POLL_INTERVAL_MS,
   SCTP_CONNECT_POLL_TIMEOUT_MS,
 } from "./constants";
+import type {
+  ChannelEvent,
+  DataChannelBackendOptions,
+  NormalizedDataChannelInit,
+} from "./data-channel";
 import {
   normalizeDataChannelInit,
   RTCDataChannel,
@@ -27,13 +31,25 @@ import {
   UnsupportedNativeDataChannel,
 } from "./data-channel";
 import { kInternalConstruct, makeDOMException, mapNativeError } from "./errors";
+import type { RTCDataChannelEvent as DataChannelEventType, EventListenerValue } from "./events";
 import {
   makeEvent,
   RTCDataChannelEvent,
   RTCPeerConnectionIceEvent,
   SimpleEventTarget,
 } from "./events";
-import type { NativePeerConnection } from "./native/binding";
+import type {
+  NativeDataChannel,
+  NativeDataChannelEvent,
+  NativeEvent,
+  NativePeerConnection,
+  NativePeerConnectionConfiguration,
+  NativePeerEvent,
+  RTCIceConnectionState,
+  RTCIceGatheringState,
+  RTCPeerConnectionState,
+  RTCSignalingState,
+} from "./native/binding";
 import { native } from "./native/binding";
 import type { NonstandardPeerConfiguration } from "./nonstandard";
 import {
@@ -41,6 +57,12 @@ import {
   localDescriptionOwnerFinalizer,
   localDescriptionOwners,
 } from "./pairing";
+import type {
+  IceCredentials,
+  NormalizedCandidateInit,
+  SdpDescriptionLike,
+  RTCSessionDescription as SessionDescriptionType,
+} from "./sdp";
 import {
   appendRemoteCandidateToDescription,
   assertValidSdpSyntax,
@@ -66,6 +88,16 @@ import { nextTask } from "./timing";
 import { RTCSctpTransport } from "./transports";
 import { byteLength, validateByteLength } from "./webidl";
 
+type EventHandler = ((event: unknown) => unknown) | null;
+
+// A description from JavaScript, which may carry internal pairing markers.
+export type DescriptionInput = SdpDescriptionLike & { _webrtcNodeAnswerer?: RTCPeerConnection };
+
+// Native ICE and gathering events held until the facade can dispatch them.
+export type DeferredIceEvent =
+  | NativePeerEvent
+  | { target?: undefined; type: "icegatheringstatechange"; state: RTCIceGatheringState };
+
 export class RTCPeerConnection extends SimpleEventTarget {
   // Declared for the typed modules; the class body is typed in a later step.
   _native: NativePeerConnection | null;
@@ -73,7 +105,8 @@ export class RTCPeerConnection extends SimpleEventTarget {
   _iceRole: "controlled" | "controlling" | "unknown";
   _closed: boolean;
   _localIceCandidates: RTCIceCandidate[];
-  _remoteIceCandidates: RTCIceCandidate[];
+  // Normalized addIceCandidate() input, or candidates exchanged in this process.
+  _remoteIceCandidates: NormalizedCandidateInit[];
   _pairedPeer: RTCPeerConnection | null;
   _sameProcessIceCandidateExchange: boolean;
   _explicitIceCandidateExchange: boolean;
@@ -85,8 +118,73 @@ export class RTCPeerConnection extends SimpleEventTarget {
   _pendingSyntheticDataChannelAnnouncements: Map<number, RTCDataChannel>;
   _operationsPending: number;
   _dataChannelIdRefreshNeeded: boolean;
+  _configuration: NormalizedConfiguration;
+  _connectionState: RTCPeerConnectionState;
+  _iceConnectionState: RTCIceConnectionState;
+  _iceGatheringState: RTCIceGatheringState;
+  _signalingState: RTCSignalingState;
+  _lastDispatchedConnectionState: RTCPeerConnectionState;
+  _lastDispatchedIceConnectionState: RTCIceConnectionState;
+  _lastDispatchedSignalingState: RTCSignalingState;
+  _suppressNextNativeSignalingState: string | null;
+  _canTrickleIceCandidates: boolean | null;
+  _localDescription: SessionDescriptionType | null;
+  _remoteDescription: SessionDescriptionType | null;
+  _currentLocalDescription: SessionDescriptionType | null;
+  _currentRemoteDescription: SessionDescriptionType | null;
+  _pendingLocalDescription: SessionDescriptionType | null;
+  _pendingRemoteDescription: SessionDescriptionType | null;
+  _preparedLocalDescription: SessionDescriptionType | null;
+  _lastCreatedOffer: SessionDescriptionType | null;
+  _lastCreatedAnswer: SessionDescriptionType | null;
+  _localDescriptionSetByApi: boolean;
+  _localDescriptionRefreshScheduled: boolean;
+  _localDescriptionPairingKeys: Set<string>;
+  _selfRemoteDescription: boolean;
+  _nonstandardLocalIceCredentials: IceCredentials | null;
+  _nonstandardPreparedLocalDescriptionType: string | null;
+  _pendingIceRestartCredentials: IceCredentials | null;
+  _iceRestartPending: boolean;
+  _jsOnlyIceRestartOfferPending: boolean;
+  _jsOnlyIceRestartRemoteOffer: boolean;
+  _pendingIce: NormalizedCandidateInit[];
+  _pendingRemoteCandidatesForNative: NormalizedCandidateInit[];
+  _deferredIceEvents: DeferredIceEvent[];
+  _processingDeferredIceEvent: boolean;
+  _iceEventFlushScheduled: boolean;
+  _iceEventIdleCallbacks: Array<() => void>;
+  _nativeCandidateGatheringScheduled: boolean;
+  _operationQueue: Array<() => void>;
+  _operationIdleCallbacks: Array<() => void>;
+  _negotiationNeeded: boolean;
+  _negotiationNeededScheduled: boolean;
+  _pendingDataChannelEvents: DataChannelEventType[];
+  _pendingNativeDataChannelEvents: Map<number, ChannelEvent[]>;
+  _usedDataChannelIds: Map<number, RTCDataChannel>;
+  _localDataChannelCount: number;
+  _dataChannelFlushScheduled: boolean;
+  _dataChannelOpenRepairScheduled: boolean;
+  _dataChannelOpenRepairDeadline: number;
+  _dataChannelAnnouncementRepairScheduled: boolean;
+  _dataChannelAnnouncementRepairDeadline: number;
+  _dataChannelAnnouncementRepairReadyAt: number;
+  _connectedStateRepairScheduled: boolean;
+  _sctpTransportUpdateScheduled: boolean;
+  _sctpConnectPollScheduled: boolean;
+  _sctpConnectPollDeadline: number;
+  _sctpConnectedTransitionScheduled: boolean;
+  _sctpConnectedTransitionReady: boolean;
+  // Backing field for the ondatachannel accessor, which must stay an accessor.
+  _ondatachannel: EventListenerValue | null;
+  onconnectionstatechange: EventHandler;
+  onicecandidate: EventHandler;
+  onicecandidateerror: EventHandler;
+  oniceconnectionstatechange: EventHandler;
+  onicegatheringstatechange: EventHandler;
+  onnegotiationneeded: EventHandler;
+  onsignalingstatechange: EventHandler;
 
-  static generateCertificate(algorithm) {
+  static generateCertificate(algorithm: unknown) {
     return generateCertificate(algorithm);
   }
 
@@ -187,7 +285,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
   _ensureNativePeerConnection() {
     this._assertNotClosed();
     if (this._native) return this._native;
-    const nativeConfiguration = {
+    const nativeConfiguration: NativePeerConnectionConfiguration = {
       iceServers: this._configuration.iceServers.map((server) => ({
         ...server,
         urls: [...server.urls],
@@ -208,11 +306,11 @@ export class RTCPeerConnection extends SimpleEventTarget {
       nativeConfiguration,
       (event, payloads) => {
         if (payloads !== undefined) {
-          this._handleNativeMessages(event, payloads);
+          this._handleNativeMessages(event as Uint32Array, payloads);
         } else if (Array.isArray(event)) {
           this._handleNativeEventBatch(event);
         } else {
-          this._handleNativeEvent(event);
+          this._handleNativeEvent(event as NativeEvent);
         }
       },
     );
@@ -310,18 +408,18 @@ export class RTCPeerConnection extends SimpleEventTarget {
     this._pairedPeer?._scheduleDataChannelAnnouncementRepair();
   }
 
-  createDataChannel(label, init = {}) {
+  createDataChannel(label: unknown, init: unknown = {}) {
     this._assertNotClosed();
     if (arguments.length === 0) throw new TypeError("createDataChannel requires a label");
     const options = normalizeDataChannelInit(init);
     const stringLabel = String(label);
     validateByteLength(stringLabel, "label");
     validateByteLength(options.protocol, "protocol");
-    if (options.negotiated && this._isDataChannelIdInUse(options.id)) {
+    if (options.negotiated && this._isDataChannelIdInUse(options.id as number)) {
       throw makeDOMException("RTCDataChannel id is already in use", "OperationError");
     }
     const nativeChannel = this._createNativeDataChannel(stringLabel, options);
-    const assignedId = options.negotiated ? options.id : null;
+    const assignedId = options.negotiated ? (options.id as number) : null;
     const channel = RTCDataChannel._fromNative(this, nativeChannel, undefined, assignedId);
     channel._createdLocally = true;
     this._localDataChannelCount += 1;
@@ -332,27 +430,29 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return channel;
   }
 
-  _createNativeDataChannel(label, options) {
+  _createNativeDataChannel(label: string, options: NormalizedDataChannelInit) {
     try {
       return this._ensureNativePeerConnection().createDataChannel(label, options);
     } catch (error) {
       const highNegotiatedStream =
         options.negotiated &&
-        options.id >= LIBDATACHANNEL_SCTP_MAX_CHANNELS &&
-        /stream id is too high/i.test(error?.message || "");
+        (options.id ?? 0) >= LIBDATACHANNEL_SCTP_MAX_CHANNELS &&
+        /stream id is too high/i.test((error as Error | undefined)?.message || "");
       if (!highNegotiatedStream) throw error;
-      return new UnsupportedNativeDataChannel(label, options);
+      // Negotiated channels past the native stream limit always carry an id.
+      return new UnsupportedNativeDataChannel(label, options as DataChannelBackendOptions);
     }
   }
 
-  async createOffer(options = undefined) {
+  async createOffer(options: unknown = undefined) {
     this._assertNotClosed();
-    const optionsObject = options !== null && typeof options === "object" ? options : {};
+    const optionsObject: { iceRestart?: unknown } =
+      options !== null && typeof options === "object" ? options : {};
     const iceRestartRequested = optionsObject.iceRestart === true;
     return this._chainOperation(() => this._createOffer(iceRestartRequested));
   }
 
-  async _createOffer(iceRestartRequested) {
+  async _createOffer(iceRestartRequested: boolean) {
     if (this._signalingState !== "stable" && this._signalingState !== "have-local-offer") {
       throw makeDOMException("Cannot create offer in current signaling state", "InvalidStateError");
     }
@@ -382,7 +482,9 @@ export class RTCPeerConnection extends SimpleEventTarget {
   }
 
   _armDataChannelNativeCloseSuppression() {
-    const peers = new Set([this, this._pairedPeer].filter(Boolean));
+    const peers = new Set(
+      [this, this._pairedPeer].filter((peer): peer is RTCPeerConnection => Boolean(peer)),
+    );
     for (const peer of peers) {
       for (const channel of peer._channels.values()) channel._armNativeCloseSuppression();
     }
@@ -429,7 +531,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
       if (isNoMediaSdp(this.remoteDescription)) {
         const answer = {
           type: "answer",
-          sdp: this.remoteDescription.sdp,
+          sdp: (this.remoteDescription as SessionDescriptionType).sdp,
         };
         this._lastCreatedAnswer = new RTCSessionDescription(answer);
         return answer;
@@ -448,16 +550,26 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  async setLocalDescription(description = undefined) {
+  async setLocalDescription(description: unknown = undefined) {
     this._assertNotClosed();
-    const jsOnlyIceRestartDescription = Boolean(description?._webrtcNodeJsOnlyIceRestart);
+    const jsOnlyIceRestartDescription = Boolean(
+      (description as DescriptionInput | undefined)?._webrtcNodeJsOnlyIceRestart,
+    );
     const normalized = description === undefined ? null : normalizeDescription(description);
     return this._chainOperation(() =>
-      this._setLocalDescription(description, normalized, jsOnlyIceRestartDescription),
+      this._setLocalDescription(
+        description as DescriptionInput | undefined,
+        normalized,
+        jsOnlyIceRestartDescription,
+      ),
     );
   }
 
-  async _setLocalDescription(description, normalized, jsOnlyIceRestartDescription) {
+  async _setLocalDescription(
+    description: DescriptionInput | undefined,
+    normalized: SessionDescriptionType | null,
+    jsOnlyIceRestartDescription: boolean,
+  ) {
     const type = normalized ? normalized.type : this._implicitLocalDescriptionType();
     if (normalized?.type === "rollback" && this._signalingState !== "have-local-offer") {
       throw makeDOMException(
@@ -519,7 +631,10 @@ export class RTCPeerConnection extends SimpleEventTarget {
           this.dispatchEvent(makeEvent("icegatheringstatechange"));
           this._iceTransport()?.dispatchEvent(makeEvent("gatheringstatechange"));
         }
-        if (previousState !== this._signalingState) this._dispatchSignalingStateChange();
+        // Rollback starts outside "stable", so this always holds; the guard is kept.
+        if ((previousState as RTCSignalingState) !== this._signalingState) {
+          this._dispatchSignalingStateChange();
+        }
         await nextTask();
         if (this._suppressNextNativeSignalingState === "stable")
           this._suppressNextNativeSignalingState = null;
@@ -549,7 +664,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
       let alreadyAppliedAnswer = false;
       if (normalized?.type === "answer") {
         if (normalized.sdp === "" && this._lastCreatedAnswer) normalized = this._lastCreatedAnswer;
-        const answerCreatedByThisPeer = description && description._webrtcNodeAnswerer === this;
+        const answerCreatedByThisPeer = description?._webrtcNodeAnswerer === this;
         alreadyAppliedAnswer =
           this._localDescription?.type === "answer" &&
           (this._localDescription.sdp === normalized.sdp || answerCreatedByThisPeer);
@@ -599,7 +714,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
           this._lastCreatedAnswer ||
           new RTCSessionDescription({
             type: "answer",
-            sdp: this.remoteDescription.sdp,
+            sdp: (this.remoteDescription as SessionDescriptionType).sdp,
           });
         await this._applyNoMediaLocalDescription(answer);
         this._localDescriptionSetByApi = hasDataMediaSection(this._localDescription);
@@ -708,16 +823,26 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  async setRemoteDescription(description) {
+  async setRemoteDescription(description: unknown) {
     this._assertNotClosed();
-    const jsOnlyIceRestartDescription = Boolean(description?._webrtcNodeJsOnlyIceRestart);
+    const jsOnlyIceRestartDescription = Boolean(
+      (description as DescriptionInput | undefined)?._webrtcNodeJsOnlyIceRestart,
+    );
     const normalized = normalizeDescription(description);
     return this._chainOperation(() =>
-      this._setRemoteDescription(description, normalized, jsOnlyIceRestartDescription),
+      this._setRemoteDescription(
+        description as DescriptionInput,
+        normalized,
+        jsOnlyIceRestartDescription,
+      ),
     );
   }
 
-  async _setRemoteDescription(description, normalized, jsOnlyIceRestartDescription) {
+  async _setRemoteDescription(
+    description: DescriptionInput,
+    normalized: SessionDescriptionType,
+    jsOnlyIceRestartDescription: boolean,
+  ) {
     if (
       normalized.type === "answer" &&
       this._signalingState !== "have-local-offer" &&
@@ -817,7 +942,10 @@ export class RTCPeerConnection extends SimpleEventTarget {
         this._signalingState = "stable";
         this._refreshIceRole();
         this._updateSctpTransport();
-        if (previousState !== this._signalingState) this._dispatchSignalingStateChange();
+        // Rollback starts outside "stable", so this always holds; the guard is kept.
+        if ((previousState as RTCSignalingState) !== this._signalingState) {
+          this._dispatchSignalingStateChange();
+        }
         await nextTask();
         if (this._suppressNextNativeSignalingState === "stable")
           this._suppressNextNativeSignalingState = null;
@@ -845,7 +973,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
         (jsOnlyIceRestartDescription || this._jsOnlyIceRestartOfferPending)
       ) {
         const previousState = this._signalingState;
-        let remoteDescription = normalized;
+        let remoteDescription: SessionDescriptionType | null = normalized;
         if (description && description._webrtcNodeAnswerer) {
           remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
         }
@@ -877,7 +1005,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
       }
       if (normalized.type === "answer" && this._shouldApplyDataOnlyRemoteAnswer(normalized)) {
         const previousState = this._signalingState;
-        let remoteDescription = normalized;
+        let remoteDescription: SessionDescriptionType | null = normalized;
         if (description && description._webrtcNodeAnswerer) {
           remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
         }
@@ -925,21 +1053,24 @@ export class RTCPeerConnection extends SimpleEventTarget {
         await nextTask();
         return;
       }
-      let remoteDescription = normalized;
+      let remoteDescription: SessionDescriptionType | null = normalized;
       if (normalized.type === "answer" && description && description._webrtcNodeAnswerer) {
         remoteDescription = await description._webrtcNodeAnswerer._ensureLocalAnswerApplied();
       }
       const previousSignalingState = this._signalingState;
       let suppressedNativeSignalingState = null;
       let nativeRemoteDescription = remoteDescription;
-      let deferredCandidatesForNative = [];
+      let deferredCandidatesForNative: RTCIceCandidate[] = [];
       if (normalized.type === "offer") {
         deferredCandidatesForNative = extractIceCandidatesFromDescription(remoteDescription);
         if (deferredCandidatesForNative.length > 0) {
           nativeRemoteDescription = stripIceCandidateLinesFromDescription(remoteDescription);
         }
       }
-      this._ensureNativePeerConnection().setRemoteDescription(nativeRemoteDescription.toJSON());
+      // A missing answer throws here, as it did before the types.
+      this._ensureNativePeerConnection().setRemoteDescription(
+        (nativeRemoteDescription as SessionDescriptionType).toJSON(),
+      );
       this._queuePendingRemoteCandidatesForNative(deferredCandidatesForNative);
       this._canTrickleIceCandidates = hasTrickleIceOption(remoteDescription);
       this._remoteDescription = new RTCSessionDescription(remoteDescription);
@@ -978,7 +1109,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  async addIceCandidate(candidate = null) {
+  async addIceCandidate(candidate: unknown = null) {
     this._assertNotClosed();
     if (candidate instanceof RTCIceCandidate && candidate._webrtcNodeLocalCandidate) {
       const snapshot = new RTCIceCandidate(candidate);
@@ -988,7 +1119,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return this._chainOperation(() => this._addIceCandidate(normalized));
   }
 
-  async _addIceCandidate(normalized) {
+  async _addIceCandidate(normalized: NormalizedCandidateInit) {
     if (!this.remoteDescription) {
       throw makeDOMException("Remote description is not set", "InvalidStateError");
     }
@@ -1030,7 +1161,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  async _addExchangedLocalCandidate(candidate) {
+  async _addExchangedLocalCandidate(candidate: NormalizedCandidateInit) {
     if (!candidate.candidate) return;
     this._sameProcessIceCandidateExchange = true;
     if (this._pairedPeer) this._pairedPeer._sameProcessIceCandidateExchange = true;
@@ -1135,7 +1266,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     this._pairedPeer = null;
   }
 
-  _pairWithRemoteDescription(description) {
+  _pairWithRemoteDescription(description: SessionDescriptionType | null) {
     const key = descriptionPairingKey(description);
     if (!key) return;
     const peerRef = localDescriptionOwners.get(key);
@@ -1178,14 +1309,14 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _rememberLocalIceCandidate(candidate) {
+  _rememberLocalIceCandidate(candidate: RTCIceCandidate) {
     if (!candidate?.candidate) return;
     if (!this._localIceCandidates.some((entry) => sameCandidate(entry, candidate))) {
       this._localIceCandidates.push(candidate);
     }
   }
 
-  _rememberRemoteIceCandidate(candidate) {
+  _rememberRemoteIceCandidate(candidate: NormalizedCandidateInit) {
     if (!candidate?.candidate) return;
     if (!this._remoteIceCandidates.some((entry) => sameCandidate(entry, candidate))) {
       this._remoteIceCandidates.push(candidate);
@@ -1215,7 +1346,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _pairDataChannelById(channel, id) {
+  _pairDataChannelById(channel: RTCDataChannel, id: number | null) {
     if (!this._pairedPeer || id == null || channel.readyState === "closed") return;
     for (const peerChannel of this._pairedPeer._channels.values()) {
       if (peerChannel.readyState === "closed") continue;
@@ -1389,11 +1520,11 @@ export class RTCPeerConnection extends SimpleEventTarget {
       (this._signalingState === "have-remote-offer" ||
         this._pairedPeer?.signalingState === "have-local-offer" ||
         this._operationsPending > 0 ||
-        this._pairedPeer?._operationsPending > 0)
+        (this._pairedPeer?._operationsPending ?? 0) > 0)
     );
   }
 
-  _queuePendingRemoteCandidatesForNative(candidates) {
+  _queuePendingRemoteCandidatesForNative(candidates: NormalizedCandidateInit[]) {
     for (const candidate of candidates) {
       if (!candidate?.candidate) continue;
       if (
@@ -1420,10 +1551,10 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _chainOperation(operation) {
+  _chainOperation(operation: () => Promise<unknown>) {
     this._assertNotClosed();
     return new Promise((resolve, reject) => {
-      const settle = (value, failed) => {
+      const settle = (value: unknown, failed: boolean) => {
         // Closing a peer leaves active and queued operation promises pending.
         if (this._closed) return;
         if (failed) reject(value);
@@ -1434,8 +1565,8 @@ export class RTCPeerConnection extends SimpleEventTarget {
       };
       const run = () => {
         operation().then(
-          (value) => settle(value, false),
-          (error) => settle(error, true),
+          (value: unknown) => settle(value, false),
+          (error: unknown) => settle(error, true),
         );
       };
       this._operationsPending += 1;
@@ -1459,7 +1590,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _afterOperationsIdle(callback) {
+  _afterOperationsIdle(callback: () => void) {
     if (this._closed || this._operationsPending === 0) {
       setImmediate(callback);
       return;
@@ -1467,7 +1598,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     this._operationIdleCallbacks.push(callback);
   }
 
-  _shouldDeferIceEvent(event) {
+  _shouldDeferIceEvent(event: NativeEvent | DeferredIceEvent) {
     if (this._processingDeferredIceEvent || this._operationsPending === 0) return false;
     return event.type === "localcandidate" || event.type === "icegatheringstatechange";
   }
@@ -1506,7 +1637,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     );
   }
 
-  _afterDeferredIceEventsFlushed(callback) {
+  _afterDeferredIceEventsFlushed(callback: () => void) {
     if (this._closed || !this._hasPendingDeferredIceEvents()) {
       setImmediate(callback);
       return;
@@ -1551,7 +1682,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     if (
       this._closed ||
       this._operationsPending > 0 ||
-      this._pairedPeer?._operationsPending > 0 ||
+      (this._pairedPeer?._operationsPending ?? 0) > 0 ||
       this._sctpTransport?.state !== "connecting" ||
       !hasDataMediaSection(this._localDescription) ||
       !hasDataMediaSection(this._remoteDescription)
@@ -1728,7 +1859,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return hasPendingWork || this._pendingSyntheticDataChannelAnnouncements.size > 0;
   }
 
-  _assignSyntheticDataChannelIdIfNeeded(channel) {
+  _assignSyntheticDataChannelIdIfNeeded(channel: RTCDataChannel) {
     if (channel.negotiated || channel._effectiveId() != null || channel.readyState === "closed") {
       return;
     }
@@ -1737,7 +1868,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     if (id != null) channel._assignId(id);
   }
 
-  _hasRemoteDataChannelForId(id) {
+  _hasRemoteDataChannelForId(id: number) {
     if (
       this._remoteAnnouncedDataChannelIds.has(id) ||
       this._pendingSyntheticDataChannelAnnouncements.has(id)
@@ -1751,7 +1882,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return false;
   }
 
-  _syntheticIncomingDataChannelForId(id) {
+  _syntheticIncomingDataChannelForId(id: number) {
     const pending = this._pendingSyntheticDataChannelAnnouncements.get(id);
     if (pending && pending.readyState !== "closed") return pending;
     for (const event of this._pendingDataChannelEvents) {
@@ -1768,7 +1899,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return null;
   }
 
-  _hasPendingDataChannelEventForId(id) {
+  _hasPendingDataChannelEventForId(id: number) {
     return this._pendingDataChannelEvents.some((event) => {
       const channel = event.channel;
       const channelId =
@@ -1777,7 +1908,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     });
   }
 
-  _hasSettledDataChannelAnnouncement(id) {
+  _hasSettledDataChannelAnnouncement(id: number | null) {
     if (id == null) return false;
     if (
       this._pendingSyntheticDataChannelAnnouncements.has(id) ||
@@ -1794,7 +1925,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return false;
   }
 
-  _afterDataChannelAnnouncementSettled(id, callback) {
+  _afterDataChannelAnnouncementSettled(id: number | null, callback: (settled: boolean) => void) {
     const deadline = Date.now() + DATA_CHANNEL_ANNOUNCEMENT_REPAIR_TIMEOUT_MS;
     const poll = () => {
       const settled = this._hasSettledDataChannelAnnouncement(id);
@@ -1814,7 +1945,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     setTimeout(poll, 0);
   }
 
-  _createSyntheticIncomingDataChannel(sourceChannel, id) {
+  _createSyntheticIncomingDataChannel(sourceChannel: RTCDataChannel, id: number) {
     const options = {
       ordered: sourceChannel.ordered,
       maxPacketLifeTime: sourceChannel.maxPacketLifeTime,
@@ -1905,19 +2036,19 @@ export class RTCPeerConnection extends SimpleEventTarget {
   // libdatachannel reports Closed when the remote peer ends DTLS/SCTP, but W3C
   // reserves "closed" for close() on this object. Report the terminal states a
   // browser reaches after its peer closes; see docs/divergences.md.
-  _fromNativeConnectionState(state) {
+  _fromNativeConnectionState(state: RTCPeerConnectionState): RTCPeerConnectionState {
     if (state !== "closed" || this._closed) return state;
     this._remoteTransportClosed = true;
     return "failed";
   }
 
-  _fromNativeIceConnectionState(state) {
+  _fromNativeIceConnectionState(state: RTCIceConnectionState): RTCIceConnectionState {
     if (state !== "closed" || this._closed) return state;
     this._remoteTransportClosed = true;
     return "disconnected";
   }
 
-  _setPendingLocalDescription(description) {
+  _setPendingLocalDescription(description: SessionDescriptionType | null) {
     this._pendingLocalDescription = description;
     this._localDescription = description || this._currentLocalDescription;
   }
@@ -1933,7 +2064,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     this._localDescription = this._currentLocalDescription;
   }
 
-  _setPendingRemoteDescription(description) {
+  _setPendingRemoteDescription(description: SessionDescriptionType | null) {
     this._pendingRemoteDescription = description;
     this._remoteDescription = description || this._currentRemoteDescription;
   }
@@ -1983,7 +2114,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
       this._suppressNextNativeSignalingState = null;
   }
 
-  _refreshCurrentOrPendingLocalDescription(description) {
+  _refreshCurrentOrPendingLocalDescription(description: SessionDescriptionType | null) {
     if (!description) return;
     this._localDescription = description;
     if (this._pendingLocalDescription?.type === description.type) {
@@ -1993,7 +2124,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _refreshCurrentOrPendingRemoteDescription(description) {
+  _refreshCurrentOrPendingRemoteDescription(description: SessionDescriptionType | null) {
     if (!description) return;
     this._remoteDescription = description;
     if (this._pendingRemoteDescription?.type === description.type) {
@@ -2010,13 +2141,13 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return this._pendingIceRestartCredentials;
   }
 
-  _setNonstandardLocalIceCredentials(credentials) {
+  _setNonstandardLocalIceCredentials(credentials: unknown) {
     this._assertNotClosed();
     if (credentials === null || typeof credentials !== "object") {
       throw new TypeError("ICE credentials must be an object");
     }
-    const iceUfrag = credentials.iceUfrag;
-    const icePwd = credentials.icePwd;
+    const iceUfrag = (credentials as { iceUfrag?: unknown }).iceUfrag;
+    const icePwd = (credentials as { icePwd?: unknown }).icePwd;
     if (typeof iceUfrag !== "string" || iceUfrag.length < 4) {
       throw new TypeError("iceUfrag must contain at least 4 characters");
     }
@@ -2046,7 +2177,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     this._nonstandardLocalIceCredentials = { iceUfrag, icePwd };
   }
 
-  _prepareNonstandardLocalDescription(type) {
+  _prepareNonstandardLocalDescription(type: string) {
     if (!this._nonstandardLocalIceCredentials) return null;
     if (this._nonstandardPreparedLocalDescriptionType) {
       if (this._nonstandardPreparedLocalDescriptionType !== type) {
@@ -2080,7 +2211,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _localOfferInit(type) {
+  _localOfferInit(type: string) {
     if (type !== "offer" || !this._iceRestartPending || !this._canApplyNativeIceCredentials()) {
       return undefined;
     }
@@ -2096,7 +2227,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     );
   }
 
-  _isJsOnlyIceRestartRemoteOffer(description, explicitMarker) {
+  _isJsOnlyIceRestartRemoteOffer(description: DescriptionInput, explicitMarker: boolean) {
     if (explicitMarker) return true;
     if (description.type !== "offer" || !this._currentRemoteDescription) return false;
     if (!hasDataMediaSection(description) || !hasDataMediaSection(this._currentRemoteDescription)) {
@@ -2105,7 +2236,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return hasDifferentIceCredentials(description, this._currentRemoteDescription);
   }
 
-  _shouldApplyDataOnlyLocalOffer(description) {
+  _shouldApplyDataOnlyLocalOffer(description: SessionDescriptionType | null) {
     return (
       !this._iceRestartPending &&
       this._signalingState === "stable" &&
@@ -2119,7 +2250,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     );
   }
 
-  _shouldApplyDataOnlyLocalAnswer(description) {
+  _shouldApplyDataOnlyLocalAnswer(description: SessionDescriptionType | null) {
     return (
       this._pendingRemoteDescription?.type === "offer" &&
       this._currentRemoteDescription?.type === "offer" &&
@@ -2134,7 +2265,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     );
   }
 
-  _shouldApplyDataOnlyRemoteOffer(description) {
+  _shouldApplyDataOnlyRemoteOffer(description: SessionDescriptionType | null) {
     return (
       this._signalingState === "stable" &&
       this._currentRemoteDescription?.type === "offer" &&
@@ -2146,7 +2277,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     );
   }
 
-  _shouldApplyDataOnlyRemoteAnswer(description) {
+  _shouldApplyDataOnlyRemoteAnswer(description: SessionDescriptionType | null) {
     return (
       this._pendingLocalDescription?.type === "offer" &&
       this._currentLocalDescription?.type === "offer" &&
@@ -2186,7 +2317,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
         this._lastCreatedAnswer ||
         new RTCSessionDescription({
           type: "answer",
-          sdp: this.remoteDescription.sdp,
+          sdp: (this.remoteDescription as SessionDescriptionType).sdp,
         });
       await this._applyNoMediaLocalDescription(answer);
       return this._localDescription;
@@ -2210,7 +2341,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return this._localDescription;
   }
 
-  async _applyJsOnlyLocalAnswer(description) {
+  async _applyJsOnlyLocalAnswer(description: SessionDescriptionType | null) {
     const previousState = this._signalingState;
     const localDescription = markJsOnlyIceRestart(new RTCSessionDescription(description));
     this._commitRemoteDescription();
@@ -2225,7 +2356,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     await nextTask();
   }
 
-  async _applyDataOnlyLocalOffer(description) {
+  async _applyDataOnlyLocalOffer(description: SessionDescriptionType | null) {
     const previousState = this._signalingState;
     const localDescription = new RTCSessionDescription(description);
     this._setPendingLocalDescription(localDescription);
@@ -2237,7 +2368,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     await nextTask();
   }
 
-  async _applyDataOnlyLocalAnswer(description) {
+  async _applyDataOnlyLocalAnswer(description: SessionDescriptionType | null) {
     const previousState = this._signalingState;
     const localDescription = new RTCSessionDescription(description);
     this._commitRemoteDescription();
@@ -2251,7 +2382,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     await nextTask();
   }
 
-  async _applyNoMediaLocalDescription(description) {
+  async _applyNoMediaLocalDescription(description: SessionDescriptionType | null) {
     const localDescription = new RTCSessionDescription(description);
     if (localDescription.type === "offer") {
       this._setPendingLocalDescription(localDescription);
@@ -2262,7 +2393,8 @@ export class RTCPeerConnection extends SimpleEventTarget {
       this._setPendingLocalDescription(localDescription);
     }
     this._registerLocalDescriptionForPairing();
-    this._signalingState = description.type === "offer" ? "have-local-offer" : "stable";
+    this._signalingState =
+      (description as SessionDescriptionType).type === "offer" ? "have-local-offer" : "stable";
     this._clearNegotiationNeededIfDataMLineIsPresent();
     this._refreshIceRole();
     this._updateSctpTransport();
@@ -2317,17 +2449,17 @@ export class RTCPeerConnection extends SimpleEventTarget {
     this._updateSctpTransport();
   }
 
-  _handleNativeEvent(event) {
+  _handleNativeEvent(event: NativeEvent | DeferredIceEvent) {
     if (this._closed) {
       try {
-        event.channel?.close?.();
+        (event as { channel?: NativeDataChannel }).channel?.close?.();
       } catch {
         // Closed peers must ignore late native callbacks; channel close is best-effort.
       }
       return;
     }
     if (this._shouldDeferIceEvent(event)) {
-      this._deferredIceEvents.push(event);
+      this._deferredIceEvents.push(event as DeferredIceEvent);
       return;
     }
 
@@ -2349,8 +2481,8 @@ export class RTCPeerConnection extends SimpleEventTarget {
         let channel =
           incomingId == null ? null : this._syntheticIncomingDataChannelForId(incomingId);
         const adoptedSynthetic = Boolean(channel && channel.readyState !== "closed");
-        if (adoptedSynthetic) {
-          this._pendingSyntheticDataChannelAnnouncements.delete(incomingId);
+        if (channel && adoptedSynthetic) {
+          this._pendingSyntheticDataChannelAnnouncements.delete(incomingId as number);
           channel._adoptNativeChannel(event.channel, event.channelReadyState);
         } else {
           channel = RTCDataChannel._fromNative(this, event.channel, event.channelReadyState);
@@ -2388,8 +2520,9 @@ export class RTCPeerConnection extends SimpleEventTarget {
         if (!hasDataMediaSection(this._localDescription) || this._jsOnlyIceRestartOfferPending) {
           break;
         }
-        const latest = this._native.localDescription();
-        if (latest?.type !== this._localDescription.type) break;
+        const latest = (this._native as NativePeerConnection).localDescription();
+        // hasDataMediaSection() above has checked the local description exists.
+        if (latest?.type !== (this._localDescription as SessionDescriptionType).type) break;
         this._refreshCurrentOrPendingLocalDescription(new RTCSessionDescription(latest));
         this._registerLocalDescriptionForPairing();
         this._refreshIceRole();
@@ -2460,7 +2593,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
 
   // Native message batches arrive as channel ids plus payloads; consecutive
   // messages for one channel keep the single-channel batch fast path.
-  _handleNativeMessages(channelIds, payloads) {
+  _handleNativeMessages(channelIds: Uint32Array, payloads: Array<string | ArrayBuffer>) {
     const count = payloads.length;
     let start = 0;
     while (start < count) {
@@ -2484,7 +2617,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _handleNativeEventBatch(events) {
+  _handleNativeEventBatch(events: NativeEvent[]) {
     if (!events.length) return;
     const first = events[0];
     if (first?.target !== "datachannel" || first.type !== "message" || first.channelId == null) {
@@ -2505,23 +2638,24 @@ export class RTCPeerConnection extends SimpleEventTarget {
       }
     }
 
+    const messages = events as Array<Extract<NativeDataChannelEvent, { type: "message" }>>;
     const channel = this._channels.get(channelId);
     if (channel) {
       if (channel._announcementPending || channel._nativeEventDrainActive) {
-        for (const event of events) channel._queuedNativeEvents.push(event);
+        for (const event of messages) channel._queuedNativeEvents.push(event);
         return;
       }
-      if (channel._dispatchNativeMessageBatch(events)) return;
-      channel._queueMessageEvents(events);
+      if (channel._dispatchNativeMessageBatch(messages)) return;
+      channel._queueMessageEvents(messages);
       return;
     }
 
     const pending = this._pendingNativeDataChannelEvents.get(channelId) || [];
-    for (const event of events) pending.push(event);
+    for (const event of messages) pending.push(event);
     this._pendingNativeDataChannelEvents.set(channelId, pending);
   }
 
-  _registerDataChannelId(channel, id = channel._effectiveId()) {
+  _registerDataChannelId(channel: RTCDataChannel, id = channel._effectiveId()) {
     if (id == null) return;
     if (channel._registeredDataChannelId === id) return;
     this._unregisterDataChannelId(channel);
@@ -2532,7 +2666,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     this._pairDataChannelById(channel, id);
   }
 
-  _flushPendingNativeDataChannelEvents(channel, channelId) {
+  _flushPendingNativeDataChannelEvents(channel: RTCDataChannel, channelId: number) {
     const events = this._pendingNativeDataChannelEvents.get(channelId);
     if (!events) return;
     this._pendingNativeDataChannelEvents.delete(channelId);
@@ -2545,7 +2679,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _unregisterDataChannelId(channel) {
+  _unregisterDataChannelId(channel: RTCDataChannel) {
     const id = channel._registeredDataChannelId;
     if (id == null) return;
     if (this._usedDataChannelIds.get(id) === channel) {
@@ -2554,7 +2688,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     channel._registeredDataChannelId = null;
   }
 
-  _isDataChannelIdInUse(id) {
+  _isDataChannelIdInUse(id: number) {
     let channel = this._usedDataChannelIds.get(id);
     if (channel && channel.readyState !== "closed") return true;
     if (!this._dataChannelIdRefreshNeeded) return false;
@@ -2583,7 +2717,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return null;
   }
 
-  _nextAvailableDataChannelId(parity) {
+  _nextAvailableDataChannelId(parity: number) {
     for (let id = parity; id <= 65534; id += 2) {
       if (!this._isDataChannelIdInUse(id)) return id;
     }
@@ -2640,7 +2774,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _eventListenerAdded(type) {
+  _eventListenerAdded(type: string) {
     if (type === "datachannel") {
       this._scheduleDataChannelFlush();
       this._scheduleDataChannelAnnouncementRepair();

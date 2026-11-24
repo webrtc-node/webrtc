@@ -191,6 +191,8 @@ export class RTCIceCandidate implements CandidateInitLike, ParsedCandidate {
   tcpType: string | null;
   relatedAddress: string | null;
   relatedPort: number | null;
+  // Marks candidates this process gathered; set with defineProperty.
+  declare _webrtcNodeLocalCandidate?: boolean;
 
   constructor(init: unknown = {}) {
     if (init == null || typeof init !== "object")
