@@ -160,6 +160,9 @@ jobs:
             -w /usr/app \
             webrtc-node-ci-debian \
             sh -lc "npm ci --ignore-scripts && npm run build -- --CDWEBRTC_NODE_STATIC_OPENSSL=ON"
+          # The container runs as root; give the runner back its workspace so
+          # prepack can rewrite dist/ when packing below.
+          sudo chown -R "$(id -u):$(id -g)" .
 
       - name: Pack source artifact
         id: pack
