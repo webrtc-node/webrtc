@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "moduleDetection": "auto",
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+    "newLine": "lf",
+    "noEmitOnError": true,
+    "useDefineForClassFields": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}

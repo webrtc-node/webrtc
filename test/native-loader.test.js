@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const test = require("node:test");
-const { currentTarget, platformPackageName } = require("../lib/native-target");
+const { currentTarget, platformPackageName } = require("../dist/native/target");
 
 const root = path.resolve(__dirname, "..");
 const { version } = require("../package.json");
@@ -17,9 +17,10 @@ function installedLayout(t, platformVersion) {
   const project = fs.mkdtempSync(path.join(root, "build", "loader-test-"));
   t.after(() => fs.rmSync(project, { recursive: true, force: true }));
   const main = path.join(project, "node_modules", "@webrtc-node", "webrtc");
-  fs.mkdirSync(path.join(main, "lib"), { recursive: true });
-  for (const file of ["load-native.js", "native-target.js"]) {
-    fs.copyFileSync(path.join(root, "lib", file), path.join(main, "lib", file));
+  const compiled = path.join("dist", "native");
+  fs.mkdirSync(path.join(main, compiled), { recursive: true });
+  for (const file of ["load.js", "target.js"]) {
+    fs.copyFileSync(path.join(root, compiled, file), path.join(main, compiled, file));
   }
   fs.writeFileSync(
     path.join(main, "package.json"),
@@ -35,7 +36,7 @@ function installedLayout(t, platformVersion) {
       JSON.stringify({ name, version: platformVersion }),
     );
   }
-  return { loader: path.join(main, "lib", "load-native.js"), name };
+  return { loader: path.join(main, "dist", "native", "load.js"), name };
 }
 
 function load(loader) {

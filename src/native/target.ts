@@ -1,3 +1,4 @@
+// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 "use strict";
 
 const libc = require("detect-libc");

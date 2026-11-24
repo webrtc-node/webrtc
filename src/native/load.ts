@@ -1,12 +1,14 @@
+// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 "use strict";
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { currentTarget, platformPackageName } = require("./native-target");
+const { currentTarget, platformPackageName } = require("./target");
 
-const root = path.resolve(__dirname, "..");
+// Compiled to dist/native, two levels below the package root.
+const root = path.resolve(__dirname, "..", "..");
 const moduleName = "webrtc_node.node";
-const { version } = require("../package.json");
+const { version } = require("../../package.json");
 
 function localBuildCandidates() {
   return [

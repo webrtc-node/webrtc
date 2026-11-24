@@ -13,3 +13,4 @@ wpt-report.md
 ci-artifacts/
 coverage/
 .nyc_output/
+dist/
