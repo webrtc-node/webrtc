@@ -1,20 +1,70 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
-const crypto = require("node:crypto");
+import crypto = require("node:crypto");
 
 import { defineReadonly, kInternalConstruct, makeDOMException, RTCError } from "./errors";
 
-export function normalizeDescription(init) {
+// Any object with SDP, such as RTCSessionDescription or a plain description.
+export interface SdpDescriptionLike {
+  type?: string;
+  sdp?: string;
+  _webrtcNodeJsOnlyIceRestart?: boolean;
+}
+
+export interface CandidateInitLike {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+  usernameFragment: string | null;
+}
+
+export interface NormalizedCandidateInit extends CandidateInitLike {
+  toJSON(): CandidateInitLike;
+}
+
+export interface ParsedCandidate {
+  foundation: string | null;
+  component: "rtp" | "rtcp" | null;
+  priority: number | null;
+  address: string | null;
+  protocol: string | null;
+  port: number | null;
+  type: string | null;
+  tcpType: string | null;
+  relatedAddress: string | null;
+  relatedPort: number | null;
+}
+
+export interface SdpMediaSection {
+  startLine: string;
+  lines: string[];
+  mid: string | null;
+  iceUfrag: string | null;
+  icePwd: string | null;
+}
+
+export interface ParsedSdp {
+  sessionLines: string[];
+  mediaSections: SdpMediaSection[];
+}
+
+export interface IceCredentials {
+  iceUfrag: string;
+  icePwd: string;
+}
+
+type Dictionary = Record<string, unknown>;
+type MaybeDescription = SdpDescriptionLike | null | undefined;
+
+export function normalizeDescription(init: unknown): RTCSessionDescription {
   return new RTCSessionDescription(init);
 }
 
-export function validateSdpType(type) {
+export function validateSdpType(type: string): void {
   if (!["offer", "answer", "pranswer", "rollback"].includes(type)) {
     throw new TypeError(`Invalid RTCSdpType: ${type}`);
   }
 }
 
-export function isNoMediaSdp(description) {
+export function isNoMediaSdp(description: MaybeDescription): boolean {
   return (
     typeof description?.sdp === "string" &&
     /^v=0(?:\r?\n|$)/.test(description.sdp) &&
@@ -22,7 +72,7 @@ export function isNoMediaSdp(description) {
   );
 }
 
-export function sdpSyntaxErrorLine(sdp) {
+export function sdpSyntaxErrorLine(sdp: unknown): number | null {
   const lines = String(sdp ?? "").split(/\r\n|\n|\r/);
   if (lines[0] !== "v=0") return 1;
   for (let index = 0; index < lines.length; index += 1) {
@@ -33,7 +83,7 @@ export function sdpSyntaxErrorLine(sdp) {
   return null;
 }
 
-export function assertValidSdpSyntax(description) {
+export function assertValidSdpSyntax(description: SdpDescriptionLike): void {
   if (description.type === "rollback") return;
   const line = sdpSyntaxErrorLine(description.sdp);
   if (line === null) return;
@@ -46,15 +96,15 @@ export function assertValidSdpSyntax(description) {
   );
 }
 
-export function hasDataMediaSection(description) {
+export function hasDataMediaSection(description: MaybeDescription): boolean {
   return /\r?\nm=application\b/i.test(description?.sdp || "");
 }
 
-export function hasTrickleIceOption(description) {
+export function hasTrickleIceOption(description: MaybeDescription): boolean {
   return /\r?\na=ice-options:[^\r\n]*\btrickle\b/i.test(description?.sdp || "");
 }
 
-export function maxMessageSizeFromSdp(description) {
+export function maxMessageSizeFromSdp(description: MaybeDescription): number | null {
   const match = /\r?\na=max-message-size:(\d+)/i.exec(description?.sdp || "");
   return match ? Number(match[1]) : null;
 }
@@ -62,28 +112,28 @@ export function maxMessageSizeFromSdp(description) {
 export const ICE_CREDENTIAL_CHARS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-export function randomIceCredential(length) {
+export function randomIceCredential(length: number): string {
   const bytes = crypto.randomBytes(length);
   let value = "";
   for (const byte of bytes) value += ICE_CREDENTIAL_CHARS[byte & 0x3f];
   return value;
 }
 
-export function createIceRestartCredentials() {
+export function createIceRestartCredentials(): IceCredentials {
   return {
     iceUfrag: randomIceCredential(16),
     icePwd: randomIceCredential(32),
   };
 }
 
-export function rewriteIceCredentials(sdp, credentials) {
+export function rewriteIceCredentials(sdp: string, credentials: IceCredentials): string {
   if (!/^a=ice-ufrag:/m.test(sdp) || !/^a=ice-pwd:/m.test(sdp)) return sdp;
   return sdp
     .replace(/^a=ice-ufrag:.*$/gm, `a=ice-ufrag:${credentials.iceUfrag}`)
     .replace(/^a=ice-pwd:.*$/gm, `a=ice-pwd:${credentials.icePwd}`);
 }
 
-export function markJsOnlyIceRestart(description) {
+export function markJsOnlyIceRestart<T>(description: T): T {
   if (description && typeof description === "object") {
     Object.defineProperty(description, "_webrtcNodeJsOnlyIceRestart", {
       value: true,
@@ -93,7 +143,10 @@ export function markJsOnlyIceRestart(description) {
   return description;
 }
 
-export function hasDifferentIceCredentials(left, right) {
+export function hasDifferentIceCredentials(
+  left: MaybeDescription,
+  right: MaybeDescription,
+): boolean {
   const leftParameters = firstIceParameters(left);
   const rightParameters = firstIceParameters(right);
   if (!leftParameters || !rightParameters) return false;
@@ -104,35 +157,57 @@ export function hasDifferentIceCredentials(left, right) {
 }
 
 export class RTCSessionDescription {
-  constructor(init) {
+  type: string;
+  sdp: string;
+
+  constructor(init: unknown) {
     if (!init || typeof init !== "object")
       throw new TypeError("RTCSessionDescriptionInit required");
-    this.type = String(init.type || "");
+    const input = init as Dictionary;
+    this.type = String(input.type || "");
     validateSdpType(this.type);
-    this.sdp = String(init.sdp || "");
+    this.sdp = String(input.sdp || "");
   }
 
-  toJSON() {
+  toJSON(): { type: string; sdp: string } {
     return { type: this.type, sdp: this.sdp };
   }
 }
 
-export class RTCIceCandidate {
-  constructor(init = {}) {
+export class RTCIceCandidate implements CandidateInitLike, ParsedCandidate {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+  usernameFragment: string | null;
+  relayProtocol: string | null;
+  url: string | null;
+  foundation: string | null;
+  component: "rtp" | "rtcp" | null;
+  priority: number | null;
+  address: string | null;
+  protocol: string | null;
+  port: number | null;
+  type: string | null;
+  tcpType: string | null;
+  relatedAddress: string | null;
+  relatedPort: number | null;
+
+  constructor(init: unknown = {}) {
     if (init == null || typeof init !== "object")
       throw new TypeError("RTCIceCandidateInit required");
-    const sdpMid = init.sdpMid == null ? null : String(init.sdpMid);
-    const sdpMLineIndex = init.sdpMLineIndex == null ? null : Number(init.sdpMLineIndex);
+    const input = init as Dictionary;
+    const sdpMid = input.sdpMid == null ? null : String(input.sdpMid);
+    const sdpMLineIndex = input.sdpMLineIndex == null ? null : Number(input.sdpMLineIndex);
     if (sdpMid === null && sdpMLineIndex === null) {
       throw new TypeError("Either sdpMid or sdpMLineIndex must be provided");
     }
 
-    this.candidate = init.candidate === undefined ? "" : String(init.candidate);
+    this.candidate = input.candidate === undefined ? "" : String(input.candidate);
     this.sdpMid = sdpMid;
     this.sdpMLineIndex = sdpMLineIndex;
-    this.usernameFragment = init.usernameFragment == null ? null : String(init.usernameFragment);
-    this.relayProtocol = init.relayProtocol == null ? null : String(init.relayProtocol);
-    this.url = init.url == null ? null : String(init.url);
+    this.usernameFragment = input.usernameFragment == null ? null : String(input.usernameFragment);
+    this.relayProtocol = input.relayProtocol == null ? null : String(input.relayProtocol);
+    this.url = input.url == null ? null : String(input.url);
 
     const parsed = parseCandidate(this.candidate);
     this.foundation = parsed.foundation;
@@ -147,7 +222,7 @@ export class RTCIceCandidate {
     this.relatedPort = parsed.relatedPort;
   }
 
-  toJSON() {
+  toJSON(): CandidateInitLike {
     return {
       candidate: this.candidate,
       sdpMid: this.sdpMid,
@@ -158,15 +233,19 @@ export class RTCIceCandidate {
 }
 
 export class RTCIceCandidatePair {
-  constructor(token, local, remote) {
+  // Set as read-only own properties in the constructor.
+  declare readonly local: RTCIceCandidate;
+  declare readonly remote: RTCIceCandidate;
+
+  constructor(token: unknown, local: RTCIceCandidate, remote: RTCIceCandidate) {
     if (token !== kInternalConstruct) throw new TypeError("Illegal constructor");
     defineReadonly(this, "local", local);
     defineReadonly(this, "remote", remote);
   }
 }
 
-export function parseCandidate(candidate) {
-  const empty = {
+export function parseCandidate(candidate: unknown): ParsedCandidate {
+  const empty: ParsedCandidate = {
     foundation: null,
     component: null,
     priority: null,
@@ -200,7 +279,7 @@ export function parseCandidate(candidate) {
   return result;
 }
 
-export function normalizeAddIceCandidateInput(init) {
+export function normalizeAddIceCandidateInput(init: unknown): NormalizedCandidateInit {
   if (init == null) {
     return {
       candidate: "",
@@ -218,9 +297,10 @@ export function normalizeAddIceCandidateInput(init) {
     };
   }
   if (typeof init !== "object") throw new TypeError("RTCIceCandidateInit required");
-  const candidate = init.candidate == null ? "" : String(init.candidate);
-  const sdpMid = init.sdpMid == null ? null : String(init.sdpMid);
-  const sdpMLineIndex = init.sdpMLineIndex == null ? null : Number(init.sdpMLineIndex);
+  const input = init as Dictionary;
+  const candidate = input.candidate == null ? "" : String(input.candidate);
+  const sdpMid = input.sdpMid == null ? null : String(input.sdpMid);
+  const sdpMLineIndex = input.sdpMLineIndex == null ? null : Number(input.sdpMLineIndex);
   if (candidate !== "" && sdpMid === null && sdpMLineIndex === null) {
     throw new TypeError("Either sdpMid or sdpMLineIndex must be provided");
   }
@@ -228,7 +308,7 @@ export function normalizeAddIceCandidateInput(init) {
     candidate,
     sdpMid,
     sdpMLineIndex,
-    usernameFragment: init.usernameFragment == null ? null : String(init.usernameFragment),
+    usernameFragment: input.usernameFragment == null ? null : String(input.usernameFragment),
     toJSON() {
       return {
         candidate: this.candidate,
@@ -240,18 +320,18 @@ export function normalizeAddIceCandidateInput(init) {
   };
 }
 
-export function splitSdpLines(sdp) {
+export function splitSdpLines(sdp: unknown): string[] {
   return String(sdp || "")
     .split(/\r?\n/)
     .filter((line) => line !== "");
 }
 
-export function parseSdpMediaSections(sdp) {
-  const sessionLines = [];
-  const mediaSections = [];
-  let sessionIceUfrag = null;
-  let sessionIcePwd = null;
-  let current = null;
+export function parseSdpMediaSections(sdp: unknown): ParsedSdp {
+  const sessionLines: string[] = [];
+  const mediaSections: SdpMediaSection[] = [];
+  let sessionIceUfrag: string | null = null;
+  let sessionIcePwd: string | null = null;
+  let current: SdpMediaSection | null = null;
   for (const line of splitSdpLines(sdp)) {
     if (line.startsWith("m=")) {
       current = { startLine: line, lines: [line], mid: null, iceUfrag: null, icePwd: null };
@@ -274,13 +354,16 @@ export function parseSdpMediaSections(sdp) {
   return { sessionLines, mediaSections };
 }
 
-export function serializeSdp(sessionLines, mediaSections) {
+export function serializeSdp(
+  sessionLines: readonly string[],
+  mediaSections: readonly SdpMediaSection[],
+): string {
   const lines = [...sessionLines];
   for (const section of mediaSections) lines.push(...section.lines);
   return `${lines.join("\r\n")}\r\n`;
 }
 
-export function validateCandidateSyntax(candidate) {
+export function validateCandidateSyntax(candidate: unknown): boolean {
   if (candidate === "") return true;
   if (
     typeof candidate !== "string" ||
@@ -293,12 +376,15 @@ export function validateCandidateSyntax(candidate) {
   return parts.length >= 8 && typIndex >= 6 && Boolean(parts[typIndex + 1]);
 }
 
-export function selectCandidateSections(description, candidate) {
+export function selectCandidateSections(
+  description: MaybeDescription,
+  candidate: CandidateInitLike,
+): { parsed: ParsedSdp; targets: SdpMediaSection[] } {
   const parsed = parseSdpMediaSections(description?.sdp || "");
   const sections = parsed.mediaSections;
   if (sections.length === 0) return { parsed, targets: [] };
 
-  let targets;
+  let targets: SdpMediaSection[];
   if (candidate.sdpMid !== null) {
     const section = sections.find((entry) => entry.mid === candidate.sdpMid);
     if (!section)
@@ -338,7 +424,10 @@ export function selectCandidateSections(description, candidate) {
   return { parsed, targets };
 }
 
-export function appendRemoteCandidateToDescription(description, candidate) {
+export function appendRemoteCandidateToDescription<D extends MaybeDescription>(
+  description: D,
+  candidate: CandidateInitLike,
+): D | RTCSessionDescription {
   if (!description?.sdp || isNoMediaSdp(description)) return description;
   const rawCandidate = candidate.candidate;
   let end = rawCandidate.length;
@@ -367,11 +456,13 @@ export function appendRemoteCandidateToDescription(description, candidate) {
   });
 }
 
-export function isIceCandidateLine(line) {
+export function isIceCandidateLine(line: string): boolean {
   return line.startsWith("a=candidate:") || line === "a=end-of-candidates";
 }
 
-export function stripIceCandidateLinesFromDescription(description) {
+export function stripIceCandidateLinesFromDescription<D extends MaybeDescription>(
+  description: D,
+): D | RTCSessionDescription {
   if (!description?.sdp || isNoMediaSdp(description)) return description;
   const parsed = parseSdpMediaSections(description.sdp);
   let stripped = false;
@@ -391,10 +482,12 @@ export function stripIceCandidateLinesFromDescription(description) {
   return result;
 }
 
-export function extractIceCandidatesFromDescription(description) {
+export function extractIceCandidatesFromDescription(
+  description: MaybeDescription,
+): RTCIceCandidate[] {
   if (!description?.sdp || isNoMediaSdp(description)) return [];
   const parsed = parseSdpMediaSections(description.sdp);
-  const candidates = [];
+  const candidates: RTCIceCandidate[] = [];
   for (let index = 0; index < parsed.mediaSections.length; index += 1) {
     const section = parsed.mediaSections[index];
     for (const line of section.lines) {
@@ -412,7 +505,10 @@ export function extractIceCandidatesFromDescription(description) {
   return candidates;
 }
 
-export function resolveCandidateMid(description, candidate) {
+export function resolveCandidateMid(
+  description: MaybeDescription,
+  candidate: CandidateInitLike,
+): string | null {
   if (candidate.sdpMid !== null) return candidate.sdpMid;
   if (candidate.sdpMLineIndex === null) return null;
   const index = Number(candidate.sdpMLineIndex);
@@ -420,7 +516,9 @@ export function resolveCandidateMid(description, candidate) {
   return section?.mid || null;
 }
 
-export function firstIceParameters(description) {
+export function firstIceParameters(
+  description: MaybeDescription,
+): { usernameFragment: string | null; password: string | null } | null {
   const section = parseSdpMediaSections(description?.sdp || "").mediaSections.find(
     (entry) => entry.iceUfrag && entry.icePwd,
   );
@@ -431,7 +529,7 @@ export function firstIceParameters(description) {
   };
 }
 
-export function dtlsSetupFromDescription(description) {
+export function dtlsSetupFromDescription(description: MaybeDescription): string | null {
   const parsed = parseSdpMediaSections(description?.sdp || "");
   const section =
     parsed.mediaSections.find((entry) => /^m=application\b/i.test(entry.startLine)) ||
@@ -442,7 +540,7 @@ export function dtlsSetupFromDescription(description) {
   return setupLine ? setupLine.slice("a=setup:".length).toLowerCase() : null;
 }
 
-export function sameCandidate(left, right) {
+export function sameCandidate(left: CandidateInitLike, right: CandidateInitLike): boolean {
   return (
     left.candidate === right.candidate &&
     left.sdpMid === right.sdpMid &&
@@ -451,7 +549,10 @@ export function sameCandidate(left, right) {
   );
 }
 
-export function sameCandidateEndpoint(left, right) {
+export function sameCandidateEndpoint(
+  left: ParsedCandidate | null | undefined,
+  right: ParsedCandidate | null | undefined,
+): boolean {
   if (!left || !right) return false;
   return (
     left.component === right.component &&
@@ -463,7 +564,10 @@ export function sameCandidateEndpoint(left, right) {
   );
 }
 
-export function selectKnownCandidateByEndpoint(candidates, selectedCandidate) {
+export function selectKnownCandidateByEndpoint<T extends ParsedCandidate>(
+  candidates: readonly T[],
+  selectedCandidate: T,
+): T {
   return (
     candidates.find((candidate) => sameCandidateEndpoint(candidate, selectedCandidate)) ||
     selectedCandidate

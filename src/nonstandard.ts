@@ -1,16 +1,34 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
 import { makeDOMException } from "./errors";
+import type {
+  NativeFingerprint,
+  NativeIceUdpMuxListener,
+  NativeIceUdpMuxRequest,
+} from "./native/binding";
 import { native } from "./native/binding";
 import { RTCPeerConnection } from "./peer-connection";
 import { enforceRange } from "./webidl";
 
-export const iceUdpMuxListenerFinalizer = new FinalizationRegistry((nativeListenerRef) => {
+// Extension options applied before the native peer connection is created.
+export interface NonstandardPeerConfiguration {
+  enableIceUdpMux?: boolean;
+  disableFingerprintVerification?: boolean;
+  maxMessageSize?: number;
+}
+
+export const iceUdpMuxListenerFinalizer = new FinalizationRegistry<
+  WeakRef<NativeIceUdpMuxListener>
+>((nativeListenerRef) => {
   nativeListenerRef.deref()?.close();
 });
 
 export class IceUdpMuxListener {
-  constructor(port, address = undefined) {
+  _port: number;
+  _address: string | undefined;
+  _callback: ((request: NativeIceUdpMuxRequest) => void) | null;
+  _closed: boolean;
+  _native: NativeIceUdpMuxListener | null;
+
+  constructor(port: unknown, address: unknown = undefined) {
     this._port = enforceRange(port, "port");
     if (address !== undefined && typeof address !== "string") {
       throw new TypeError("address must be a string");
@@ -31,25 +49,25 @@ export class IceUdpMuxListener {
     iceUdpMuxListenerFinalizer.register(this, new WeakRef(this._native), this);
   }
 
-  port() {
+  port(): number {
     return this._port;
   }
 
-  address() {
+  address(): string | undefined {
     return this._address;
   }
 
-  onUnhandledStunRequest(callback) {
+  onUnhandledStunRequest(callback: unknown): void {
     if (this._closed) {
       throw makeDOMException("IceUdpMuxListener is closed", "InvalidStateError");
     }
     if (typeof callback !== "function") {
       throw new TypeError("onUnhandledStunRequest requires a function");
     }
-    this._callback = callback;
+    this._callback = callback as (request: NativeIceUdpMuxRequest) => void;
   }
 
-  close() {
+  close(): void {
     if (this._closed) return;
     this._closed = true;
     this._callback = null;
@@ -58,18 +76,20 @@ export class IceUdpMuxListener {
     this._native = null;
   }
 
-  stop() {
+  stop(): void {
     this.close();
   }
 }
 
-export function assertPeerConnection(peerConnection) {
+export function assertPeerConnection(
+  peerConnection: unknown,
+): asserts peerConnection is RTCPeerConnection {
   if (!(peerConnection instanceof RTCPeerConnection)) {
     throw new TypeError("Expected an RTCPeerConnection");
   }
 }
 
-export function configurePeerConnection(peerConnection, options = {}) {
+export function configurePeerConnection(peerConnection: unknown, options: unknown = {}): void {
   assertPeerConnection(peerConnection);
   peerConnection._assertNotClosed();
   if (peerConnection._native) {
@@ -82,21 +102,22 @@ export function configurePeerConnection(peerConnection, options = {}) {
     throw new TypeError("Peer connection extension options must be an object");
   }
 
-  const next = { ...peerConnection._nonstandardConfiguration };
-  if (Object.hasOwn(options, "enableIceUdpMux")) {
-    if (typeof options.enableIceUdpMux !== "boolean") {
+  const input = options as Record<string, unknown>;
+  const next: NonstandardPeerConfiguration = { ...peerConnection._nonstandardConfiguration };
+  if (Object.hasOwn(input, "enableIceUdpMux")) {
+    if (typeof input.enableIceUdpMux !== "boolean") {
       throw new TypeError("enableIceUdpMux must be a boolean");
     }
-    next.enableIceUdpMux = options.enableIceUdpMux;
+    next.enableIceUdpMux = input.enableIceUdpMux;
   }
-  if (Object.hasOwn(options, "disableFingerprintVerification")) {
-    if (typeof options.disableFingerprintVerification !== "boolean") {
+  if (Object.hasOwn(input, "disableFingerprintVerification")) {
+    if (typeof input.disableFingerprintVerification !== "boolean") {
       throw new TypeError("disableFingerprintVerification must be a boolean");
     }
-    next.disableFingerprintVerification = options.disableFingerprintVerification;
+    next.disableFingerprintVerification = input.disableFingerprintVerification;
   }
-  if (Object.hasOwn(options, "maxMessageSize")) {
-    const maxMessageSize = Number(options.maxMessageSize);
+  if (Object.hasOwn(input, "maxMessageSize")) {
+    const maxMessageSize = Number(input.maxMessageSize);
     if (!Number.isSafeInteger(maxMessageSize) || maxMessageSize < 0) {
       throw new TypeError("maxMessageSize must be a non-negative safe integer");
     }
@@ -105,12 +126,12 @@ export function configurePeerConnection(peerConnection, options = {}) {
   peerConnection._nonstandardConfiguration = next;
 }
 
-export function setLocalIceCredentials(peerConnection, credentials) {
+export function setLocalIceCredentials(peerConnection: unknown, credentials: unknown): void {
   assertPeerConnection(peerConnection);
   peerConnection._setNonstandardLocalIceCredentials(credentials);
 }
 
-export function getRemoteFingerprint(peerConnection) {
+export function getRemoteFingerprint(peerConnection: unknown): NativeFingerprint | null {
   assertPeerConnection(peerConnection);
   peerConnection._assertNotClosed();
   return peerConnection._native?.remoteFingerprint() ?? null;
