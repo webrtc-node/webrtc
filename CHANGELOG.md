@@ -4,6 +4,14 @@ Notable changes to `@webrtc-node/webrtc`. Each release links to its GitHub
 release notes, which include the validation evidence for that version. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- After a provisional answer (`pranswer`), `signalingState` could briefly fall
+  back to `have-remote-offer` or `have-local-offer`; it now stays
+  `have-local-pranswer` or `have-remote-pranswer`.
+
 ## [0.3.0] - 2026-11-24
 
 ### Changed

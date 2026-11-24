@@ -251,6 +251,28 @@ test("parameterless local descriptions finalize a provisional answer", async (t)
   assert.equal(answerer.signalingState, "stable");
 });
 
+test("provisional answers keep their signaling state when it is resynchronized", async (t) => {
+  const [offerer, answerer] = peers(t);
+  offerer.createDataChannel("provisional");
+  await offerer.setLocalDescription();
+  await answerer.setRemoteDescription(offerer.localDescription);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription({ ...answer, type: "pranswer" });
+  await offerer.setRemoteDescription({ ...answer, type: "pranswer" });
+
+  // Native state events and connection updates resynchronize the state from
+  // the pending descriptions; that must not undo either provisional answer.
+  answerer._syncSignalingStateFromDescriptions();
+  offerer._syncSignalingStateFromDescriptions();
+  assert.equal(answerer.signalingState, "have-local-pranswer");
+  assert.equal(offerer.signalingState, "have-remote-pranswer");
+
+  await answerer.setLocalDescription(answer);
+  await offerer.setRemoteDescription(answer);
+  assert.equal(answerer.signalingState, "stable");
+  assert.equal(offerer.signalingState, "stable");
+});
+
 test("end-of-candidates waits for queued remote descriptions and remains ordered with local descriptions", async (t) => {
   const [offerer, answerer] = peers(t);
   offerer.createDataChannel("candidates");
