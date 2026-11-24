@@ -19,7 +19,7 @@ jobs:
     name: Resolve package
     if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     outputs:
       spec: ${{ steps.resolve.outputs.spec }}
 
@@ -46,14 +46,31 @@ jobs:
             spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
           fi
 
-          for attempt in 1 2 3 4 5 6; do
-            if version="$(npm view "$spec" version)"; then
-              break
-            fi
-            if [ "$attempt" = "6" ]; then
+          # A new version can take several minutes to appear on the registry,
+          # and npm silently skips an optional dependency it cannot see yet, so
+          # wait for the main package and every platform package it names.
+          deadline=$((SECONDS + 900))
+          until version="$(npm view "$spec" version 2>/dev/null)" && [ -n "$version" ] &&
+            node -e '
+              const { execFileSync } = require("node:child_process");
+              const deps = JSON.parse(execFileSync("npm", ["view", process.argv[1], "optionalDependencies", "--json"], { encoding: "utf8" }) || "{}");
+              const missing = Object.entries(deps).filter(([name, range]) => {
+                try {
+                  return !execFileSync("npm", ["view", `${name}@${range}`, "version"], { encoding: "utf8" }).trim();
+                } catch {
+                  return true;
+                }
+              });
+              if (missing.length) {
+                console.log(`Waiting for ${missing.map(([name]) => name).join(", ")}`);
+                process.exit(1);
+              }
+            ' "@webrtc-node/webrtc@$version"; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "The packages did not appear on the registry within 15 minutes."
               exit 1
             fi
-            sleep $((attempt * 10))
+            sleep 30
           done
 
           spec="@webrtc-node/webrtc@$version"
