@@ -4,7 +4,7 @@ Notable changes to `@webrtc-node/webrtc`. Each release links to its GitHub
 release notes, which include the validation evidence for that version. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.3.0] - 2026-11-24
 
 ### Changed
 
@@ -17,10 +17,16 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instead of 41.
 - To use a binary you built yourself, set `WEBRTC_NODE_NATIVE_PATH`;
   `npm install --build-from-source` no longer applies.
+- The implementation is written in strict TypeScript and published as
+  compiled JavaScript under `dist/` instead of `lib/`. The package entry points
+  are unchanged; `index.d.ts` is checked against the implementation at build
+  time.
 
 ### Added
 
 - A Linux arm64 musl prebuild, so every supported target has a binary.
+- TypeScript: `addEventListener()` on peer connections and data channels types
+  the event for each known event name.
 
 ### Fixed
 
@@ -45,8 +51,6 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   data channels.
 - Closing a peer connection or data channel discards messages and native
   events still queued for it.
-- TypeScript: `addEventListener()` on peer connections and data channels types
-  the event for each known event name.
 
 ### Performance
 
@@ -166,6 +170,7 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 First stable release, with native message batching, reduced copies on the
 binary path, and the selected WPT profile as the conformance target.
 
+[0.3.0]: https://github.com/webrtc-node/webrtc/releases/tag/v0.3.0
 [0.2.6]: https://github.com/webrtc-node/webrtc/releases/tag/v0.2.6
 [0.2.5]: https://github.com/webrtc-node/webrtc/releases/tag/v0.2.5
 [0.2.3]: https://github.com/webrtc-node/webrtc/releases/tag/v0.2.3
