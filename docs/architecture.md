@@ -54,7 +54,8 @@ required by WebRTC.
 
 ## JavaScript Facade
 
-`src/index.ts` implements the W3C-facing behavior:
+The TypeScript modules in `src/` implement the W3C-facing behavior, with the
+public exports in `src/index.ts`:
 
 - WebIDL-style conversions
 - DOM-style `EventTarget` behavior

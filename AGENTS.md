@@ -14,10 +14,11 @@ device APIs.
 
 ## Project Structure
 
-- `src/index.ts`: public WebRTC facade, WebIDL-style conversions, event timing,
-  DOMException-shaped errors, and peer/data-channel behavior. TypeScript sources
-  in `src/` compile to `dist/` with `npm run build:ts`; `npm run build` runs it
-  before the native build.
+- `src/*.ts`: the W3C facade, compiled to `dist/` with `npm run build:ts`
+  (`npm run build` runs it before the native build). `index.ts` holds the public
+  exports; `peer-connection.ts` and `data-channel.ts` the core classes;
+  `events.ts`, `errors.ts`, `webidl.ts`, `configuration.ts`, `sdp.ts`,
+  `certificate.ts`, `transports.ts`, and `nonstandard.ts` the supporting parts.
 - `src/native/addon.cc`: Node-API bridge to libdatachannel. Keep this ABI-stable
   and free of direct V8 or NAN APIs.
 - `CMakeLists.txt`: native build and pinned libdatachannel integration.
@@ -56,7 +57,7 @@ close calls, garbage collection, and failed construction without use-after-free
 or double callback delivery.
 
 Keep native code thin: own handles, translate configuration, and surface events.
-Put W3C-facing behavior in `src/index.ts` unless native behavior is required for
+Put W3C-facing behavior in the TypeScript facade under `src/` unless native behavior is required for
 correctness.
 
 ## Build and Test Commands
@@ -117,7 +118,7 @@ code. Add or update local `node:test` coverage for regressions, run the smallest
 relevant WPT target and smoke checks locally. Leave the full selected suite to
 GitHub Actions and use its results before claiming full selected-suite conformance.
 
-When changing public API, update `src/index.ts`, `index.d.ts`,
+When changing public API, update the facade and `src/index.ts`, `index.d.ts`,
 `scripts/check-api-surface.js` if needed, local tests, and the WPT manifest or
 docs when conformance status changes.
 
