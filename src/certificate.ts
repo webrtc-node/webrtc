@@ -1,9 +1,9 @@
 // @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 
 const crypto = require("node:crypto");
-const native = require("./native/load");
 
 import { makeDOMException } from "./errors";
+import { native } from "./native/binding";
 
 export const certificateMaterial = new WeakMap();
 
