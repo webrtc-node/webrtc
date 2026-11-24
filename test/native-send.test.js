@@ -411,7 +411,8 @@ test("bursts of small sends are bounded by bytes, not by a per-message job limit
   const messages = 70000;
   for (let index = 0; index < messages; index++) channel.send(payload);
   assert.equal(channel.bufferedAmount, messages);
-  const received = await remote.request("received", { count: messages });
+  // Delivering 70,000 messages takes several seconds on the slowest CI runners.
+  const received = await remote.request("received", { count: messages }, 45000);
   assert.equal(received.count, messages);
   assert.equal(received.bytes, messages);
 });
