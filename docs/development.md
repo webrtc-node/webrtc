@@ -152,6 +152,27 @@ with throughput, CPU per message, event-loop utilization, and receiver peak RSS,
 or round-trip percentiles for `pingpong`. Alternate the libraries across several
 runs on a quiet machine before comparing.
 
+## Real-time room
+
+`npm run benchmark:room` models a multiplayer game room: one host process and
+several player processes, each player with a reliable ordered, a reliable
+unordered, and an unreliable channel. Players send small inputs at a fixed
+rate, the host relays each one to every other player and sends a periodic
+sync, and only the host is measured.
+
+```sh
+npm run benchmark:room
+npm run benchmark:room -- --players=20 --input-rate=30 --seconds=30
+npm run benchmark:room -- --library=node-datachannel
+```
+
+The defaults are 12 players sending 60 inputs of 16 bytes per second and a
+20 Hz sync of 64 bytes. Each run prints one JSON line with the host's CPU,
+CPU per message, event-loop utilization, event-loop delay, and peak RSS. The
+delay is how long queued work waits behind other callbacks, so it is not
+limited by timer resolution. `--library` also accepts a path to another
+checkout, which makes A/B comparisons between branches straightforward.
+
 ## CPU and connection lifecycle
 
 Run the CPU benchmark from a source checkout with a built native addon.

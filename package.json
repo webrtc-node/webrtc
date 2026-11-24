@@ -50,6 +50,7 @@
     "benchmark:send": "node scripts/benchmark-send-bursts.js",
     "benchmark:cpu": "node scripts/benchmark-cpu.js",
     "benchmark:compare": "node scripts/benchmark-compare.js",
+    "benchmark:room": "node scripts/benchmark-room.js",
     "check": "biome check .",
     "clean": "cmake-js clean",
     "e2e:chrome": "node test/e2e/run-chrome.js",
