@@ -239,6 +239,8 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
+      - run: npm run build:ts
+
       - run: npm run prebuild:check
 
       - name: Build platform packages
@@ -289,6 +291,7 @@ jobs:
           path: prebuild-artifacts
           merge-multiple: true
       - run: npm ci --ignore-scripts
+      - run: npm run build:ts
       - run: npm run prebuild:check
 
       - name: Refuse an existing npm version or release asset
@@ -301,7 +304,7 @@ jobs:
           import { readFileSync } from 'node:fs';
           import { createRequire } from 'node:module';
           const require = createRequire(import.meta.url);
-          const { PREBUILT_TARGETS, platformPackageName } = require('./lib/native-target.js');
+          const { PREBUILT_TARGETS, platformPackageName } = require('./dist/native/target.js');
           const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
           const names = [name, ...PREBUILT_TARGETS.map(({ target }) => platformPackageName(target))];
           for (const packageName of names) {

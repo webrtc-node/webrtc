@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { PREBUILT_TARGETS } = require("../lib/native-target");
+const { PREBUILT_TARGETS } = require("../dist/native/target");
 const { validateArchiveFile } = require("./prebuild-integrity");
 
 const root = path.resolve(__dirname, "..");

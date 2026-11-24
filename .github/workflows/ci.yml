@@ -68,12 +68,12 @@ jobs:
                 ;;
             esac
             case "$file" in
-              lib/*|src/*|test/*|CMakeLists.txt|vcpkg.json|package.json|package-lock.json|index.d.ts|scripts/check-api-surface.js|scripts/check-native-integration.js)
+              src/*|tsconfig.build.json|test/*|CMakeLists.txt|vcpkg.json|package.json|package-lock.json|index.d.ts|scripts/check-api-surface.js|scripts/check-native-integration.js)
                 native_changed="true"
                 ;;
             esac
             case "$file" in
-              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|lib/*|src/*|scripts/check-prebuilds.js|scripts/platform-packages.js|scripts/package-prebuild.js|scripts/validate-prebuild-install.js|scripts/prebuild-integrity.js)
+              package.json|package-lock.json|CMakeLists.txt|vcpkg.json|build-containers/*|src/*|tsconfig.build.json|scripts/check-prebuilds.js|scripts/platform-packages.js|scripts/package-prebuild.js|scripts/validate-prebuild-install.js|scripts/prebuild-integrity.js)
                 package_changed="true"
                 ;;
             esac
@@ -83,7 +83,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              lib/*|src/*|test/e2e/*|CMakeLists.txt|package.json|package-lock.json)
+              src/*|tsconfig.build.json|test/e2e/*|CMakeLists.txt|package.json|package-lock.json)
                 chrome_e2e_changed="true"
                 ;;
             esac

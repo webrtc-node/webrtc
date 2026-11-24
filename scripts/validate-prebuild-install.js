@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { currentTarget, linuxLibc, platformPackageName } = require("../lib/native-target");
+const { currentTarget, linuxLibc, platformPackageName } = require("../dist/native/target");
 const { validateArchiveFile } = require("./prebuild-integrity");
 
 const root = path.resolve(__dirname, "..");

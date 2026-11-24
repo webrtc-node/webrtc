@@ -26,25 +26,27 @@
     "libdatachannel",
     "web-platform-tests"
   ],
-  "main": "lib/index.js",
+  "main": "dist/index.js",
   "types": "index.d.ts",
   "exports": {
     ".": {
       "types": "./index.d.ts",
-      "require": "./lib/index.js",
-      "import": "./lib/index.js",
-      "default": "./lib/index.js"
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
-    "src/native",
+    "dist",
+    "src",
+    "tsconfig.build.json",
     "CMakeLists.txt",
     "index.d.ts"
   ],
   "scripts": {
-    "build": "cmake-js compile",
+    "build": "npm run build:ts && cmake-js compile",
+    "build:ts": "tsc -p tsconfig.build.json",
     "benchmark:send": "node scripts/benchmark-send-bursts.js",
     "benchmark:cpu": "node scripts/benchmark-cpu.js",
     "benchmark:compare": "node scripts/benchmark-compare.js",
@@ -57,6 +59,7 @@
     "lint": "biome lint .",
     "native:check": "node scripts/check-native-integration.js",
     "prebuild:package": "node scripts/package-prebuild.js",
+    "prepack": "npm run build:ts",
     "prebuild:check": "node scripts/check-prebuilds.js",
     "api:check": "node scripts/check-api-surface.js",
     "test": "node --test --test-force-exit --test-timeout=60000 test/basic.test.js test/events.test.js test/signaling.test.js test/inputs.test.js test/native-send.test.js test/native-send-queue.test.js test/nonstandard.test.js test/native-loader.test.js test/prebuild-integrity.test.js test/wpt-sharding.test.js",
@@ -80,7 +83,7 @@
     "node-addon-api": "^8.9.0",
     "playwright-core": "1.61.1",
     "tar": "^7.5.19",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=20"

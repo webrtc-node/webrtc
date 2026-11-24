@@ -15,6 +15,11 @@ npm run build
 thread-safe callback dispatch. The build uses `cmake-js` and links
 `LibDataChannel::LibDataChannelStatic`.
 
+The facade is TypeScript in `src/`, compiled to CommonJS in `dist/`, which is
+what the package entry points, tests, and examples load. `npm run build`
+compiles it before the native addon; after changing only TypeScript, run
+`npm run build:ts`.
+
 The native dependency is released libdatachannel v0.24.6
 (`6b1e2e620f1e37f0eafeee702eaea0043cb305fd`). The CMake pin and
 `wpt-manifest.json` dependency metadata must stay in sync. Dependency upgrades
@@ -191,7 +196,7 @@ own package, such as `@webrtc-node/webrtc-linux-x64-glibc`, whose `os`, `cpu`,
 and `libc` fields let the package manager install only the matching binary.
 The release workflow adds these packages to the main package as exact-version
 optional dependencies when it publishes, so a checkout's `package.json` does
-not list them. The targets are defined in `lib/native-target.js`.
+not list them. The targets are defined in `src/native/target.ts`.
 
 The loader uses the first binary it finds:
 

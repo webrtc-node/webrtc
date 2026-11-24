@@ -54,7 +54,7 @@ required by WebRTC.
 
 ## JavaScript Facade
 
-`lib/index.js` implements the W3C-facing behavior:
+`src/index.ts` implements the W3C-facing behavior:
 
 - WebIDL-style conversions
 - DOM-style `EventTarget` behavior

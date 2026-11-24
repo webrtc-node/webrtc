@@ -1,8 +1,9 @@
+// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
 "use strict";
 
 const crypto = require("node:crypto");
 const { types } = require("node:util");
-const native = require("./load-native");
+const native = require("./native/load");
 
 const kHandlers = new WeakMap();
 const dispatchingEvents = new WeakSet();

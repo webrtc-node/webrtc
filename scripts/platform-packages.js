@@ -13,7 +13,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
-const { PREBUILT_TARGETS, platformPackageName } = require("../lib/native-target");
+const { PREBUILT_TARGETS, platformPackageName } = require("../dist/native/target");
 const { moduleName, validateArchiveFile } = require("./prebuild-integrity");
 
 const root = path.resolve(__dirname, "..");
