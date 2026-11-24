@@ -54,15 +54,10 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Performance
 
-- Native sends drain each data channel's backlog in bounded turns instead of
-  one queued job per message, and received messages cross into JavaScript as
-  compact batches. Small-message throughput rises about 10% with about 12% less
-  CPU per message and a third less receiver event-loop time.
-- Peer connections created without certificates take one pre-generated on a
-  background thread, halving the JavaScript-thread cost of creating a
-  connection.
-- Peer teardown reuses worker threads instead of starting one per closed
-  connection, halving the JavaScript time to close many connections.
+- Small messages send about 10% faster and use about 12% less CPU.
+- Creating a peer connection takes about half as long, because its certificate
+  is prepared in the background.
+- Closing many peer connections takes about half as long.
 
 ## [0.2.6] - 2026-11-20
 
