@@ -1,3 +1,5 @@
+import { loadNative } from "./load";
+
 // Types for the Node-API addon in addon.cc. Keep them in sync with the methods,
 // accessors, and event objects registered there.
 
@@ -189,5 +191,5 @@ export interface NativeModule {
   cleanup(): void;
 }
 
-// The loader is still untyped JavaScript-style code; this is its typed view.
-export const native = require("./load") as NativeModule;
+// Loading happens once, when this module is first imported.
+export const native = loadNative() as NativeModule;

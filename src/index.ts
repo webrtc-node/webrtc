@@ -1,5 +1,3 @@
-// @ts-nocheck -- converted from JavaScript; strict typing lands module by module.
-
 import { importCertificate, RTCCertificate } from "./certificate";
 import { RTCDataChannel } from "./data-channel";
 import { RTCError } from "./errors";

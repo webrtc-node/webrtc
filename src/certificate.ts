@@ -12,6 +12,10 @@ export function fingerprintFromBytes(bytes) {
 }
 
 export class RTCCertificate {
+  expires: number;
+  _algorithm: string;
+  _fingerprints: Array<{ algorithm: string; value: string }>;
+
   constructor({
     expires,
     algorithm = "ECDSA",
