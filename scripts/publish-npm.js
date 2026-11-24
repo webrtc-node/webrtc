@@ -50,7 +50,7 @@ function localShasum(directory) {
 }
 
 async function remoteShasum(name, version) {
-  const url = `${values.registry}/${encodeURIComponent(name).replace("%40", "@")}/${version}`;
+  const url = `${values.registry}/${encodeURIComponent(name)}/${version}`;
   const response = await fetch(url);
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`${name}@${version}: registry returned ${response.status}`);
