@@ -124,8 +124,11 @@ not change the standard facade and does not expose the complete native API.
 
 ## Type Declarations
 
-`index.d.ts` describes the public API. Any runtime API change must update the
-declarations and `scripts/check-api-surface.js` as needed.
+`index.d.ts` describes the public API. It is written by hand rather than generated
+so it carries only W3C-shaped types, not the facade internals.
+`test/declarations.ts` checks at compile time that every exported class in `src/`
+conforms to it; `npm run types:check` runs that check. Any runtime API change
+must update the declarations and `scripts/check-api-surface.js` as needed.
 
 ## Scope Boundary
 

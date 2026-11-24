@@ -40,8 +40,8 @@ export class SimpleEvent {
   bubbles: boolean;
   cancelable: boolean;
   defaultPrevented: boolean;
-  target: unknown;
-  currentTarget: unknown;
+  target: SimpleEventTarget | null;
+  currentTarget: SimpleEventTarget | null;
   [kDispatching]: boolean;
 
   constructor(type: unknown, init: SimpleEventInit = {}) {

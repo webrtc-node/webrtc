@@ -55,17 +55,5 @@
         "noConsole": "off"
       }
     }
-  },
-  "overrides": [
-    {
-      "includes": ["src/**/*.ts"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noImplicitAnyLet": "off"
-          }
-        }
-      }
-    }
-  ]
+  }
 }

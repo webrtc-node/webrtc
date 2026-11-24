@@ -16,31 +16,21 @@ export interface NativeCandidate {
   sdpMid?: string | null;
 }
 
-// The W3C state strings. The native accessors and events report these same
-// values; native signaling state is never "closed".
-export type RTCPeerConnectionState =
-  | "new"
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "failed"
-  | "closed";
-export type RTCIceConnectionState =
-  | "new"
-  | "checking"
-  | "connected"
-  | "completed"
-  | "disconnected"
-  | "failed"
-  | "closed";
-export type RTCIceGatheringState = "new" | "gathering" | "complete";
-export type RTCSignalingState =
-  | "stable"
-  | "have-local-offer"
-  | "have-remote-offer"
-  | "have-local-pranswer"
-  | "have-remote-pranswer"
-  | "closed";
+// Native accessors and events report the W3C state strings; native signaling
+// state is never "closed".
+import type {
+  RTCIceConnectionState,
+  RTCIceGatheringState,
+  RTCPeerConnectionState,
+  RTCSignalingState,
+} from "../types";
+
+export type {
+  RTCIceConnectionState,
+  RTCIceGatheringState,
+  RTCPeerConnectionState,
+  RTCSignalingState,
+};
 
 export interface NativeCandidatePair {
   local: NativeCandidate;

@@ -18,11 +18,13 @@ device APIs.
   (`npm run build` runs it before the native build). `index.ts` holds the public
   exports; `peer-connection.ts` and `data-channel.ts` the core classes;
   `events.ts`, `errors.ts`, `webidl.ts`, `configuration.ts`, `sdp.ts`,
-  `certificate.ts`, `transports.ts`, and `nonstandard.ts` the supporting parts.
+  `certificate.ts`, `transports.ts`, and `nonstandard.ts` the supporting parts;
+  `types.ts` the shared W3C enum types.
 - `src/native/addon.cc`: Node-API bridge to libdatachannel. Keep this ABI-stable
   and free of direct V8 or NAN APIs.
 - `CMakeLists.txt`: native build and pinned libdatachannel integration.
-- `index.d.ts`: public TypeScript declarations; keep runtime exports in sync.
+- `index.d.ts`: hand-written public TypeScript declarations. `npm run types:check`
+  verifies the `src/` classes conform to them.
 - `examples/`: small runnable examples for public users.
 - `test/*.test.js`: focused Node `node:test` coverage.
 - `wpt-manifest.json`: selected WPT scope, expected failures, shims, and

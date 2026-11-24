@@ -31,7 +31,7 @@ import {
   UnsupportedNativeDataChannel,
 } from "./data-channel";
 import { kInternalConstruct, makeDOMException, mapNativeError } from "./errors";
-import type { RTCDataChannelEvent as DataChannelEventType, EventListenerValue } from "./events";
+import type { RTCDataChannelEvent as DataChannelEventType } from "./events";
 import {
   makeEvent,
   RTCDataChannelEvent,
@@ -175,7 +175,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
   _sctpConnectedTransitionScheduled: boolean;
   _sctpConnectedTransitionReady: boolean;
   // Backing field for the ondatachannel accessor, which must stay an accessor.
-  _ondatachannel: EventListenerValue | null;
+  _ondatachannel: EventHandler;
   onconnectionstatechange: EventHandler;
   onicecandidate: EventHandler;
   onicecandidateerror: EventHandler;
@@ -397,12 +397,13 @@ export class RTCPeerConnection extends SimpleEventTarget {
     return this._sctpTransport;
   }
 
-  get ondatachannel() {
+  get ondatachannel(): EventHandler {
     return this._ondatachannel;
   }
 
-  set ondatachannel(callback) {
-    this._ondatachannel = typeof callback === "function" ? callback : null;
+  set ondatachannel(callback: unknown) {
+    this._ondatachannel =
+      typeof callback === "function" ? (callback as (event: unknown) => unknown) : null;
     this._scheduleDataChannelFlush();
     this._scheduleDataChannelAnnouncementRepair();
     this._pairedPeer?._scheduleDataChannelAnnouncementRepair();
@@ -458,7 +459,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
     try {
       await nextTask();
-      if (this._closed) return new Promise(() => {});
+      if (this._closed) return new Promise<never>(() => {});
       if (iceRestartRequested && !this._nonstandardLocalIceCredentials) {
         this._iceRestartPending = true;
         this._armDataChannelNativeCloseSuppression();
@@ -516,7 +517,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
     try {
       await nextTask();
-      if (this._closed) return new Promise(() => {});
+      if (this._closed) return new Promise<never>(() => {});
       if (this._jsOnlyIceRestartRemoteOffer) {
         const answer = markJsOnlyIceRestart(
           new RTCSessionDescription(this._ensureNativePeerConnection().createAnswer()),
@@ -530,7 +531,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
       }
       if (isNoMediaSdp(this.remoteDescription)) {
         const answer = {
-          type: "answer",
+          type: "answer" as const,
           sdp: (this.remoteDescription as SessionDescriptionType).sdp,
         };
         this._lastCreatedAnswer = new RTCSessionDescription(answer);
@@ -579,7 +580,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
     try {
       await nextTask();
-      if (this._closed) return new Promise(() => {});
+      if (this._closed) return new Promise<never>(() => {});
       if (normalized?.type === "offer") {
         if (this._signalingState !== "stable" && this._signalingState !== "have-local-offer") {
           throw makeDOMException(
@@ -872,7 +873,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
     try {
       await nextTask();
-      if (this._closed) return new Promise(() => {});
+      if (this._closed) return new Promise<never>(() => {});
       if (
         normalized.type === "answer" &&
         this._signalingState !== "have-local-offer" &&
@@ -911,7 +912,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
           this._signalingState === "have-remote-pranswer")
       ) {
         await this._implicitRollbackLocalDescription();
-        if (this._closed) return new Promise(() => {});
+        if (this._closed) return new Promise<never>(() => {});
       }
       assertValidSdpSyntax(normalized);
       if (normalized.type === "rollback") {
@@ -1125,7 +1126,7 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
     try {
       await nextTask();
-      if (this._closed) return new Promise(() => {});
+      if (this._closed) return new Promise<never>(() => {});
       const remoteDescription = appendRemoteCandidateToDescription(
         this._remoteDescription,
         normalized,
@@ -1551,14 +1552,14 @@ export class RTCPeerConnection extends SimpleEventTarget {
     }
   }
 
-  _chainOperation(operation: () => Promise<unknown>) {
+  _chainOperation<T>(operation: () => Promise<T>): Promise<T> {
     this._assertNotClosed();
-    return new Promise((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
       const settle = (value: unknown, failed: boolean) => {
         // Closing a peer leaves active and queued operation promises pending.
         if (this._closed) return;
         if (failed) reject(value);
-        else resolve(value);
+        else resolve(value as T);
         this._operationQueue.shift();
         this._finishPendingOperation();
         this._operationQueue[0]?.();

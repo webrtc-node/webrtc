@@ -25,7 +25,8 @@ export interface RTCErrorInit {
 
 export class RTCError extends Error {
   // Set as read-only own properties in the constructor.
-  declare readonly code: number;
+  // Always 0; RTCError is not a legacy DOMException code holder.
+  declare readonly code: 0;
   declare readonly errorDetail: string;
   declare readonly sdpLineNumber: number | null;
   declare readonly sctpCauseCode: number | null;
