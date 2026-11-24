@@ -243,6 +243,29 @@ void TeardownBurstRunsEveryTask() {
 	Require(threads.size() < 200, "Each teardown in a burst started its own thread");
 }
 
+// Back-to-back starts let busy workers take queued tasks before the woken idle
+// worker does. That must not stop later bursts from reusing idle workers.
+void RepeatedBurstsKeepReusingWorkers() {
+	TeardownTasks tasks;
+	std::mutex mutex;
+	std::set<std::thread::id> threads;
+	constexpr size_t burst = 50;
+	for (int round = 0; round < 10; ++round) {
+		for (size_t i = 0; i < burst; ++i) {
+			tasks.Start([&]() {
+				std::lock_guard lock(mutex);
+				threads.insert(std::this_thread::get_id());
+			});
+		}
+		// Shorter than the idle timeout, so no worker exits between rounds.
+		std::this_thread::sleep_for(30ms);
+	}
+	tasks.Join();
+	// One burst can need at most one thread per task; later bursts must reuse them.
+	Require(threads.size() <= burst,
+	        "Repeated teardown bursts kept starting new threads instead of reusing idle ones");
+}
+
 void PeerCloseWaitsOnlyForItsOwnSends() {
 	PeerSendHandoff peer;
 	std::atomic<bool> handedOff{false};
@@ -323,9 +346,10 @@ int main() {
 		SlowTeardownDoesNotDelayOthers();
 		SequentialTeardownsReuseAThread();
 		TeardownBurstRunsEveryTask();
+		RepeatedBurstsKeepReusingWorkers();
 		PeerCloseWaitsOnlyForItsOwnSends();
 		PeerCloseExpiresWhileSendIsQueued();
-		std::cout << "Native send queue and teardown: 9 cases passed\n";
+		std::cout << "Native send queue and teardown: 10 cases passed\n";
 		return 0;
 	} catch (const std::exception &error) {
 		std::cerr << error.what() << '\n';

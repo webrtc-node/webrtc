@@ -26,7 +26,6 @@ class TeardownTasks {
 	std::vector<std::thread> threads;        // owned by the environment thread
 	std::vector<std::thread::id> exited;     // guarded by mutex
 	size_t idle = 0;                         // guarded by mutex; workers waiting
-	size_t claimed = 0;                      // guarded by mutex; idle workers assigned a task
 	bool stopping = false;                   // guarded by mutex
 
 	static void Execute(std::function<void()> &run) noexcept {
@@ -47,8 +46,6 @@ class TeardownTasks {
 				const bool woken =
 				    wake.wait_for(lock, IDLE_TIMEOUT, [&]() { return stopping || !queue.empty(); });
 				--idle;
-				if (claimed > 0 && !queue.empty())
-					--claimed;
 				if (queue.empty()) {
 					if (stopping || !woken)
 						break;
@@ -89,9 +86,7 @@ public:
 	void Start(std::function<void()> run) {
 		ReapExited();
 		std::unique_lock lock(mutex);
-		if (idle > claimed) {
-			// A stale claim only makes a later task start a thread; none is stranded.
-			++claimed;
+		if (idle > queue.size()) {
 			queue.push_back(std::move(run));
 			wake.notify_one();
 			return;
@@ -120,7 +115,6 @@ public:
 		std::lock_guard lock(mutex);
 		exited.clear();
 		idle = 0;
-		claimed = 0;
 		stopping = false;
 	}
 };
