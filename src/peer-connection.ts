@@ -2021,10 +2021,12 @@ export class RTCPeerConnection extends SimpleEventTarget {
 
   _descriptionSignalingState() {
     if (this._closed) return "closed";
-    if (this._pendingLocalDescription?.type === "offer") return "have-local-offer";
-    if (this._pendingRemoteDescription?.type === "offer") return "have-remote-offer";
+    // A provisional answer is pending alongside the offer it answers, so it
+    // must be checked first.
     if (this._pendingLocalDescription?.type === "pranswer") return "have-local-pranswer";
     if (this._pendingRemoteDescription?.type === "pranswer") return "have-remote-pranswer";
+    if (this._pendingLocalDescription?.type === "offer") return "have-local-offer";
+    if (this._pendingRemoteDescription?.type === "offer") return "have-remote-offer";
     return "stable";
   }
 
